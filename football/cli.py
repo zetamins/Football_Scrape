@@ -21,12 +21,20 @@ from .report import build_report_json, build_report_markdown
 _OUTPUT_DIR = Path.cwd() / "output"
 
 
-async def _main() -> None:
-    team_name = " ".join(sys.argv[1:]).strip()
-    if not team_name:
-        print('Usage: football-search "Team Name"', file=sys.stderr)
-        sys.exit(1)
+def _parse_team_names(raw: str) -> list[str]:
+    """Comma-separated so a single unquoted multi-word team name (the
+    original, still-supported usage -- `football-search Real Madrid`,
+    where argv arrives as two separate words with no delimiter of its own)
+    is unambiguous from multiple teams (`football-search "Real Madrid,
+    Liverpool, Bayern Munich"`). No comma present -- including the
+    original single-team case -- yields the same one-element list as
+    before."""
+    return [t.strip() for t in raw.split(",") if t.strip()]
 
+
+async def _run_one(team_name: str, *, announce: bool) -> None:
+    if announce:
+        print(f"\n=== {team_name} ===")
     print()
     result = await run_search(team_name, lambda msg: print(msg))
     print()
@@ -43,6 +51,42 @@ async def _main() -> None:
     md_path.write_text(markdown, encoding="utf-8")
 
     print(f"Saved:\n  {json_path}\n  {md_path}")
+
+
+async def _main() -> None:
+    raw = " ".join(sys.argv[1:]).strip()
+    if not raw:
+        print('Usage: football-search "Team Name"[, "Team Name 2", ...]', file=sys.stderr)
+        sys.exit(1)
+
+    team_names = _parse_team_names(raw)
+    multiple = len(team_names) > 1
+
+    # Sequential, not concurrent: these sites are already rate-limit/block
+    # sensitive (Sofascore's Cloudflare edge has 403'd this project's own
+    # traffic after sustained volume in the same session) -- running many
+    # teams' worth of requests at once would multiply that risk for no
+    # benefit an interactive CLI run actually needs. One team failing
+    # (network blip, a site blocking, an unmatched team name) doesn't
+    # abort the rest of the batch -- each is independent and partial
+    # results for N-1 teams are still useful.
+    failures: list[str] = []
+    for team_name in team_names:
+        try:
+            await _run_one(team_name, announce=multiple)
+        except Exception as e:
+            print(f'Failed for "{team_name}": {e}', file=sys.stderr)
+            failures.append(team_name)
+
+    if multiple:
+        ok = len(team_names) - len(failures)
+        summary = f"\nDone: {ok}/{len(team_names)} succeeded"
+        if failures:
+            summary += f" (failed: {', '.join(failures)})"
+        print(summary)
+
+    if failures and len(failures) == len(team_names):
+        sys.exit(1)
 
 
 def main() -> None:
