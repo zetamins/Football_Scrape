@@ -24,10 +24,11 @@ import asyncio
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeVar
 from urllib.parse import quote
 
-from playwright.async_api import Page
+if TYPE_CHECKING:
+    from playwright.async_api import Page
 
 from .._jsmath import js_round_to, js_to_fixed
 from ..browser import launch_browser

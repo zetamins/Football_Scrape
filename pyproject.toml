@@ -5,8 +5,16 @@ description = "Football match/team data scraper and analysis backend (Python por
 requires-python = ">=3.11"
 dependencies = [
     "httpx[http2]>=0.27",
-    "playwright>=1.45",
 ]
+
+# Playwright drives the 3 real-browser sources (Sofascore, Squawka,
+# worldfootball) and needs a full Chromium binary + Node-based driver
+# subprocess -- unavailable under Chaquopy (Python-on-Android), not just
+# unpackaged for it. It's an optional extra rather than a base dependency
+# so the other 10 (plain-HTTP) sources, and everything built on top of
+# them, install and run without it. See football/browser.py.
+[project.optional-dependencies]
+browser = ["playwright>=1.45"]
 
 [project.scripts]
 football-search = "football.cli:main"
