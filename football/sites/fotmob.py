@@ -81,7 +81,40 @@ def _normalize(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
+# Fotmob-specific slug overrides: normalized team name -> the exact slug
+# to search for instead, checked BEFORE the alias loop below (which would
+# otherwise reach the wrong exact match first and return immediately).
+#
+# Confirmed live, directly, by fetching each candidate team's own Fotmob
+# page and reading its `details.country` field (not guessed from the
+# slug or title, both of which are misleading here): a real Uruguayan
+# club (Montevideo, stadium Estadio Belvedere) is ALSO officially named
+# "Liverpool FC" and happens to hold the Fotmob slug "liverpool-fc" (id
+# 2219, country="URU") -- team_aliases.py's canonical alias for this
+# project's "Liverpool" is "Liverpool FC", normalizing to exactly that
+# slug, so the alias loop's exact-match branch hit the Uruguayan club
+# first and returned before ever trying the plain "liverpool" alias.
+# The real English Premier League club is the plain slug "liverpool"
+# (id 8650, confirmed country="ENG") -- lower priority in the alias
+# list, never reached. This silently poisoned every Fotmob-derived
+# insight for "Liverpool" searches (season xG/shots/aerial/passing/
+# fouls/goalkeeping/possession/corners estimates all computed from the
+# Uruguayan club's matches, coming back None only because those
+# specific matches happen to lack the relevant Fotmob stat fields --
+# not because data was genuinely unavailable for the real club).
+_FOTMOB_SLUG_OVERRIDE: dict[str, str] = {
+    "liverpool": "liverpool",
+    "liverpool fc": "liverpool",
+}
+
+
 def _find_best_team_match(entries: list[_TeamIndexEntry], team_name: str) -> _TeamIndexEntry | None:
+    override_slug = _FOTMOB_SLUG_OVERRIDE.get(_normalize(team_name))
+    if override_slug:
+        exact = next((e for e in entries if e.slug == override_slug), None)
+        if exact:
+            return exact
+
     # Try the searched name and every known alias (team_aliases.py) before
     # falling back to reverse-substring guessing. This matters for names
     # containing a connective word Fotmob's own slug omits -- "Brighton
