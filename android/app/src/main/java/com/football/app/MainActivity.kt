@@ -94,6 +94,18 @@ class MainActivity : AppCompatActivity() {
             runStage(statusView, "Stage 6 (sofascore.com team_profile)") {
                 bridge.callAttr("run_sofascore_team_profile", "Liverpool")
             }
+            // The real end-to-end path: orchestrate.run_search() +
+            // report.build_report_json(), the same sequence cli.py's own
+            // entry point uses -- exercises all 13 sources (10 plain-HTTP
+            // + the 3 WebView ones tested individually above), merge.py,
+            // insights.py, elo.py/prediction.py, and JSON serialization
+            // together. Every stage above tests one piece in isolation;
+            // this is the only one that proves the whole pipeline
+            // produces a correct report on Android. Run last -- by far
+            // the slowest (touches every source).
+            runStage(statusView, "Stage 7 (full report, all 13 sources)") {
+                bridge.callAttr("run_full_report", "Liverpool")
+            }
         }.start()
     }
 

@@ -12,9 +12,14 @@ understand Python's async machinery."""
 from __future__ import annotations
 
 import asyncio
+import json
 
+from .android_bridge import get_application_context
 from .browser import launch_browser
 from .http import USER_AGENT
+from .insights import compute_data_completeness
+from .orchestrate import run_search
+from .report import build_report_json
 from .sites.sofascore import get_sofascore_match_details, get_sofascore_matches, get_sofascore_team_profile
 from .sites.squawka import (
     _fetch_stat_values,
@@ -42,6 +47,49 @@ async def _diagnose(competition: str, referee_name: str) -> str:
         rows = await _fetch_referee_table(page, path)
         names = ", ".join(r.name for r in rows[:5])
         return f"{len(rows)} rows scraped. First few: {names}"
+
+
+def run_full_report(team_name: str) -> str:
+    """The REAL end-to-end path, not an isolated diagnostic call: the same
+    orchestrate.run_search() + report.build_report_json() sequence
+    cli.py's own CLI entry point uses. Exercises all 13 sources (10
+    plain-HTTP via httpx + the 3 WebView-backed ones), merge.py,
+    insights.py, elo.py/prediction.py, and report.py's JSON serialization
+    together in one run -- every other function in this module tests one
+    piece of the WebView bridge in isolation; this is the only one that
+    proves the whole pipeline actually produces a correct report on
+    Android.
+
+    Writes the JSON to the app's own private files directory (not
+    anywhere requiring extra permissions) so it can be pulled off-device
+    with `adb pull` and inspected directly -- the same way the desktop
+    CLI's output/*.json files get inspected."""
+    try:
+        result = asyncio.run(run_search(team_name))
+    except Exception as e:  # noqa: BLE001
+        return f"FAILED during run_search: {type(e).__name__}: {e}"
+
+    try:
+        report = build_report_json(result)
+        payload = json.dumps(report, indent=2, default=str)
+    except Exception as e:  # noqa: BLE001
+        return f"FAILED during build_report_json/serialization: {type(e).__name__}: {e}"
+
+    files_dir = get_application_context().getFilesDir().getAbsolutePath()
+    out_path = f"{files_dir}/report.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(payload)
+
+    if not result.merged:
+        return f"OK (no upcoming match found from any source) -- wrote {len(payload)} bytes to {out_path}"
+
+    completeness = compute_data_completeness(result.merged, result.insights)
+    source_summary = ", ".join(f"{s.source}={s.fixtures_scraped}" for s in result.statuses)
+    return (
+        f"OK -- {result.merged.home_team} vs {result.merged.away_team}. "
+        f"{completeness['populated']}/{completeness['total']} fields populated. "
+        f"Sources: {source_summary}. Wrote {len(payload)} bytes to {out_path}"
+    )
 
 
 def run_worldfootball_referee_stats(competition: str, referee_name: str) -> str:
