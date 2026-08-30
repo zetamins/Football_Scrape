@@ -27,6 +27,26 @@ def test_liverpool_resolves_to_the_mens_team_not_the_womens():
     assert match.slug == "liverpool"
 
 
+def test_general_algorithm_prefers_a_later_aliass_exact_match_over_an_earlier_aliass_substring():
+    # This is the structural fix itself, using a DIFFERENT known
+    # collision shape than the Liverpool test above (team_aliases.py:
+    # "leicester city" -> alias "leicester"): the canonical alias
+    # ("leicester city", tried first via known_aliases_for's
+    # canonical-first ordering) would substring-match a longer, wrong
+    # entity ("leicester-city-academy") if checked in isolation, but the
+    # exact-match pass now runs across EVERY alias before any substring
+    # fallback runs for ANY of them, so the later, shorter alias's exact
+    # match ("leicester" -> the real club's actual slug) wins regardless
+    # of alias order.
+    entries = [
+        _entry("real", "leicester"),
+        _entry("wrong", "leicester-city-academy"),
+    ]
+    match = _find_best_team_match(entries, "Leicester City")
+    assert match is not None
+    assert match.id == "real"
+
+
 def test_other_teams_still_resolve_via_the_normal_alias_match():
     entries = [
         _entry("1", "arsenal"),

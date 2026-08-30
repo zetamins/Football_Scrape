@@ -109,35 +109,54 @@ _FOTMOB_SLUG_OVERRIDE: dict[str, str] = {
 
 
 def _find_best_team_match(entries: list[_TeamIndexEntry], team_name: str) -> _TeamIndexEntry | None:
+    # Still REQUIRED even after the general exact-match-across-all-aliases
+    # fix below -- confirmed live by removing it and re-testing: Fotmob's
+    # Uruguayan club is stored under the literal slug "liverpool-fc" (a
+    # genuine exact match, not a substring false-positive), and
+    # known_aliases_for() tries the canonical alias ("liverpool fc")
+    # before the shorter alias ("liverpool") that would reach the real
+    # English club -- so even a full exact-match pass across every alias
+    # hits the wrong team's real, exact slug first. This is a different
+    # failure mode than the substring-collision bug the general fix below
+    # addresses (see goal.py, where the equivalent override turned out to
+    # be genuinely redundant and was removed after the same live test).
     override_slug = _FOTMOB_SLUG_OVERRIDE.get(_normalize(team_name))
     if override_slug:
         exact = next((e for e in entries if e.slug == override_slug), None)
         if exact:
             return exact
 
-    # Try the searched name and every known alias (team_aliases.py) before
-    # falling back to reverse-substring guessing. This matters for names
-    # containing a connective word Fotmob's own slug omits -- "Brighton
-    # and Hove Albion" shares no substring with the real slug
-    # "brighton-hove-albion" because of the word "and", which without
-    # this loop fell through to the reverse-candidate branch below and
-    # incorrectly matched the separate, shorter "brighton" slug -- Fotmob's
-    # women's team, not the men's club (confirmed live: that slug's
-    # fixtures are all WSL/Women's FA Cup matches). known_aliases_for()
-    # returns just [normalize(team_name)] for any team not in the table,
-    # so this is a no-op for the vast majority of lookups.
-    for target in known_aliases_for(team_name):
+    # Exact-match pass across EVERY known alias (team_aliases.py) before
+    # ANY substring fallback for ANY alias -- trying each alias
+    # sequentially (exact-match THEN substring-fallback, returning on the
+    # first alias that yields anything) is unsafe: the canonical alias is
+    # usually tried first, and if ITS substring fallback happens to match
+    # a longer, wrong same-club-family entity (a women's/reserve/youth
+    # side), that wrong match returns before a later, more specific alias
+    # ever gets a chance at its own exact match -- confirmed live as
+    # exactly the mechanism behind the Liverpool/Uruguay collision this
+    # override exists for (see the comment above _FOTMOB_SLUG_OVERRIDE).
+    # soccerdesk.py/three65scores.py already use this safer
+    # exact-match-across-everything-first pattern; this brings fotmob.py
+    # in line with it instead of relying only on a per-team override list
+    # that has to be extended by hand for every future collision found.
+    known = known_aliases_for(team_name)
+    for target in known:
         target_slug = target.replace(" ", "-")
-
         exact = next((e for e in entries if e.slug == target_slug), None)
         if exact:
             return exact
 
-        candidates = [e for e in entries if target in _normalize(e.slug)]
-        if candidates:
-            # Prefer the shortest slug (main senior club page over "-u21"/"-women"/"-fc" variants).
-            candidates.sort(key=lambda e: len(e.slug))
-            return candidates[0]
+    # No exact match for any alias -- pool substring candidates across
+    # EVERY alias (not just the first one that had any hits) before
+    # picking, same principle as the exact-match pass above.
+    candidates = []
+    for target in known:
+        candidates.extend(e for e in entries if target in _normalize(e.slug))
+    if candidates:
+        # Prefer the shortest slug (main senior club page over "-u21"/"-women"/"-fc" variants).
+        candidates.sort(key=lambda e: len(e.slug))
+        return candidates[0]
 
     # Reverse direction: Sofascore's official name is sometimes longer than
     # this source's short slug ("Girona FC" vs slug "girona") -- a 4-char
