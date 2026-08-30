@@ -14,6 +14,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             // Chaquopy needs at least one target ABI selected explicitly;
@@ -66,4 +67,21 @@ chaquopy {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // Instrumented tests for WebViewRenderer.kt run on-device (a real
+    // WebView can't run in a plain JVM unit test) against local, static
+    // HTML served from a WebViewClient override -- not live external
+    // sites, so they're deterministic and don't depend on network
+    // conditions or third-party site behavior the way the manual
+    // android_test.py-driven runs do.
+    androidTestImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:rules:1.7.0")
+    androidTestImplementation("androidx.test:core:1.7.0")
+    // Serves real local HTTP content to the WebView under test -- closer
+    // to production behavior than data: URLs (genuine navigation/multi-
+    // page redirects, real onPageStarted/onPageFinished/readyState
+    // timing against actual HTTP responses).
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

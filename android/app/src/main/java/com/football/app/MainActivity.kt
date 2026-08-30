@@ -84,6 +84,16 @@ class MainActivity : AppCompatActivity() {
             runStage(statusView, "Stage 4 (squawka.com)") {
                 bridge.callAttr("run_squawka_defensive_stats", "Liverpool", "Premier League")
             }
+            // Previously-untested Sofascore call shapes -- Stage 3 only
+            // covered get_sofascore_matches (search + fixture list).
+            // These hit a different, larger set of same-origin
+            // /api/v1/... endpoints through the same WebView bridge.
+            runStage(statusView, "Stage 5 (sofascore.com match_details)") {
+                bridge.callAttr("run_sofascore_match_details", "Liverpool")
+            }
+            runStage(statusView, "Stage 6 (sofascore.com team_profile)") {
+                bridge.callAttr("run_sofascore_team_profile", "Liverpool")
+            }
         }.start()
     }
 

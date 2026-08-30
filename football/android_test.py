@@ -15,7 +15,7 @@ import asyncio
 
 from .browser import launch_browser
 from .http import USER_AGENT
-from .sites.sofascore import get_sofascore_matches
+from .sites.sofascore import get_sofascore_match_details, get_sofascore_matches, get_sofascore_team_profile
 from .sites.squawka import (
     _fetch_stat_values,
     _load_page_context,
@@ -68,6 +68,38 @@ def run_sofascore_matches(team_name: str) -> str:
         return "0 matches returned (search may have found no team, or the fixture fetch failed)"
     sample = matches[0]
     return f"{len(matches)} matches. First: {sample.home_team} vs {sample.away_team} ({sample.kickoff_utc})"
+
+
+def run_sofascore_match_details(team_name: str) -> str:
+    """Never exercised via WebView before this -- get_sofascore_matches
+    (already tested) only covers the search+fixture-list call shape;
+    match_details is a separate function hitting a different, larger set
+    of same-origin /api/v1/... endpoints (lineups, stats, head-to-head,
+    etc.) through the SAME WebView page."""
+    try:
+        matches = asyncio.run(get_sofascore_matches(team_name))
+        if not matches:
+            return "FAILED: get_sofascore_matches returned 0 matches, can't fetch details for none"
+        details = asyncio.run(get_sofascore_match_details(matches[0]))
+    except Exception as e:  # noqa: BLE001
+        return f"FAILED: {type(e).__name__}: {e}"
+    return (
+        f"OK -- {matches[0].home_team} vs {matches[0].away_team}: "
+        f"referee={details.referee}, venue={details.venue_name}, "
+        f"h2h_summary_present={details.head_to_head_summary is not None}"
+    )
+
+
+def run_sofascore_team_profile(team_name: str) -> str:
+    """Never exercised via WebView before this -- a third, independent
+    Sofascore call shape (squad + transfers endpoints)."""
+    try:
+        profile = asyncio.run(get_sofascore_team_profile(team_name))
+    except Exception as e:  # noqa: BLE001
+        return f"FAILED: {type(e).__name__}: {e}"
+    squad_size = len(profile.squad) if profile.squad else 0
+    transfers = len(profile.recent_transfers) if profile.recent_transfers else 0
+    return f"OK -- squad_size={squad_size}, recent_transfers={transfers}, average_age={profile.average_age}"
 
 
 async def _diagnose_squawka(team_name: str, competition: str) -> str:
