@@ -79,6 +79,21 @@ class WebViewRenderer(private val context: Context) {
         private const val NAV_START_POLL_INTERVAL_MS = 50L
         private const val NAV_START_MAX_WAIT_MS = 10000L
         private const val CHALLENGE_TITLE = "\"Just a moment...\""
+
+        // Gated behind BuildConfig.DEBUG rather than always logging: this
+        // is per-navigation, per-resource diagnostic detail (URLs being
+        // scraped, error bodies) that's genuinely useful during
+        // development -- it's what diagnosed both real bugs this class's
+        // docstring describes -- but has no place running unconditionally
+        // in a release build, for both noise and information-exposure
+        // reasons. message is a lambda, not a plain String, so building
+        // the log text is skipped entirely in release rather than just
+        // its output being discarded.
+        private fun logd(tag: String, message: () -> String) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(tag, message())
+            }
+        }
     }
 
     fun open(userAgent: String) {
@@ -98,19 +113,19 @@ class WebViewRenderer(private val context: Context) {
             wv.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     navigationStarted = true
-                    android.util.Log.d("WebViewRenderer", "onPageStarted: $url")
+                    logd("WebViewRenderer") { "onPageStarted: $url" }
                 }
 
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                    android.util.Log.d("WebViewRenderer", "onPageFinished: $finishedUrl")
+                    logd("WebViewRenderer") { "onPageFinished: $finishedUrl" }
                 }
 
                 override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                    android.util.Log.d("WebViewRenderer", "onReceivedError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} code=${error?.errorCode} desc=${error?.description}")
+                    logd("WebViewRenderer") { "onReceivedError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} code=${error?.errorCode} desc=${error?.description}" }
                 }
 
                 override fun onReceivedHttpError(view: WebView?, request: android.webkit.WebResourceRequest?, errorResponse: android.webkit.WebResourceResponse?) {
-                    android.util.Log.d("WebViewRenderer", "onReceivedHttpError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} status=${errorResponse?.statusCode}")
+                    logd("WebViewRenderer") { "onReceivedHttpError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} status=${errorResponse?.statusCode}" }
                 }
             }
             webView = wv

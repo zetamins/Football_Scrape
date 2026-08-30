@@ -27,8 +27,26 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Verified live (not assumed safe): the WebView bridge --
+            // the one thing in this app Chaquopy reaches via string-based
+            // reflection rather than a normal compiled reference -- still
+            // worked correctly against a real site with minification and
+            // the proguard-rules.pro keep rule both applied. Signing for
+            // real distribution is not configured here; that's the
+            // owner's own release keystore, not something to invent.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // No signingConfig set here -- real distribution needs the
+            // owner's own release keystore, not a fabricated or debug
+            // one. Until one is configured, `./gradlew assembleRelease`
+            // produces an unsigned APK that can't be installed directly.
         }
+    }
+
+    buildFeatures {
+        // Generates BuildConfig.DEBUG -- WebViewRenderer.kt gates its
+        // diagnostic logging behind it, off by default since AGP 8.
+        buildConfig = true
     }
 
     compileOptions {

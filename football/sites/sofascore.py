@@ -24,7 +24,7 @@ import asyncio
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeVar
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 if TYPE_CHECKING:
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 from .._jsmath import js_round_to, js_to_fixed
 from ..browser import launch_browser
+from ..retry import retry_with_backoff
 from ..team_aliases import canonical_for, normalize as _normalize_alias
 from ..team_name_match import strip_diacritics
 from ..types import (
@@ -64,29 +65,13 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-_T = TypeVar("_T")
-
-
-async def _retry_with_backoff(fn: Callable[[], Awaitable[_T]], attempts: int = 3) -> _T:
-    last_err: BaseException | None = None
-    for i in range(attempts):
-        try:
-            return await fn()
-        except BaseException as err:  # noqa: BLE001 - re-raised below, mirrors TS catch-all
-            last_err = err
-            if i < attempts - 1:
-                delay_s = 3 * 2**i  # 3s, 6s, 12s
-                await asyncio.sleep(delay_s)
-    assert last_err is not None
-    raise last_err
-
 
 async def _sleep(ms: int) -> None:
     await asyncio.sleep(ms / 1000)
 
 
 async def _warm_up(page: Page) -> None:
-    await _retry_with_backoff(
+    await retry_with_backoff(
         lambda: page.goto("https://www.sofascore.com/", wait_until="domcontentloaded", timeout=30000)
     )
 
@@ -97,7 +82,7 @@ async def _fetch_json(page: Page, url: str) -> Any:
         text = await page.evaluate("() => document.body.innerText")
         return json.loads(text)
 
-    return await _retry_with_backoff(attempt)
+    return await retry_with_backoff(attempt)
 
 
 async def _fetch_json_optional(page: Page, url: str) -> Any | None:

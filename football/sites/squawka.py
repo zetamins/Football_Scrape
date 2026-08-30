@@ -1,6 +1,7 @@
 """Squawka scraper. Ported from src/sites/squawka.ts.
 
-Requires Playwright: the data API (`/wp-json/vcsw/v2/statistics`) needs an
+Requires a real browser (Playwright on desktop, WebView on Android -- see
+browser.py): the data API (`/wp-json/vcsw/v2/statistics`) needs an
 `X-WP-Nonce` header that's only ever embedded in a page's own server-
 rendered HTML (`<script id="swp--common-block-args">`), not obtainable any
 other way -- same category as a normal page's CSRF token, not a bypass of
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
 
 from ..browser import launch_browser
 from ..http import USER_AGENT
+from ..retry import retry_with_backoff
 from ..team_aliases import known_aliases_for
 from ..team_name_match import strip_diacritics
 from ..types import DefensiveStats
@@ -51,9 +53,19 @@ _LOAD_PAGE_CONTEXT_JS = """
 
 
 async def _load_page_context(page: Page) -> tuple[str, list[dict]]:
-    await page.goto("https://www.squawka.com/en/stats/clubs/arsenal/", timeout=20000, wait_until="networkidle")
-    ctx = await page.evaluate(_LOAD_PAGE_CONTEXT_JS)
-    return ctx["nonce"], ctx.get("competitions", [])
+    # Retried like sofascore.py's own goto()+evaluate() calls and
+    # worldfootball.py's _fetch_referee_table -- this is the one point in
+    # this function that gets past Cloudflare's challenge; individual
+    # per-stat fetches later in get_squawka_defensive_stats aren't
+    # (already tolerate a single stat coming back empty without failing
+    # the whole call, and retrying each of 19 sequential calls would
+    # multiply worst-case latency far more than the evidence justifies).
+    async def attempt() -> tuple[str, list[dict]]:
+        await page.goto("https://www.squawka.com/en/stats/clubs/arsenal/", timeout=20000, wait_until="networkidle")
+        ctx = await page.evaluate(_LOAD_PAGE_CONTEXT_JS)
+        return ctx["nonce"], ctx.get("competitions", [])
+
+    return await retry_with_backoff(attempt)
 
 
 # Squawka's own competition list uses different names than the sources

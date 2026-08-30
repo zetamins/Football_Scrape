@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from ..browser import launch_browser
 from ..http import USER_AGENT
+from ..retry import retry_with_backoff
 from ..team_name_match import strip_diacritics
 
 _COMPETITION_PATHS: dict[str, str] = {
@@ -86,13 +87,25 @@ _TABLE_JS = """
 
 
 async def _fetch_referee_table(page: Page, competition_path: str) -> list[_RefereeRow]:
-    await page.goto(
-        f"https://www.worldfootball.net/competition/{competition_path}/referees/",
-        wait_until="domcontentloaded",
-        timeout=30000,
-    )
-    rows = await page.evaluate(_TABLE_JS)
-    return [_RefereeRow(name=r["name"], penalties=r["penalties"], second_yellow=r["secondYellow"]) for r in rows]
+    # Retried like sofascore.py's own goto()+evaluate() calls -- confirmed
+    # live (this project's own Android/WebView work) that a single attempt
+    # against this Cloudflare-protected site can genuinely fail or time out
+    # even when the site itself is reachable and a second attempt succeeds
+    # quickly, e.g. because Cloudflare already set a clearance cookie
+    # during the failed first attempt. Unlike sofascore.py's _find_team
+    # (which explicitly does NOT retry, because a real CDN-level block was
+    # confirmed to make retrying pointless there), this endpoint has no
+    # evidence of that failure mode -- only of transient slowness.
+    async def attempt() -> list[_RefereeRow]:
+        await page.goto(
+            f"https://www.worldfootball.net/competition/{competition_path}/referees/",
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
+        rows = await page.evaluate(_TABLE_JS)
+        return [_RefereeRow(name=r["name"], penalties=r["penalties"], second_yellow=r["secondYellow"]) for r in rows]
+
+    return await retry_with_backoff(attempt)
 
 
 async def get_referee_worldfootball_stats(
