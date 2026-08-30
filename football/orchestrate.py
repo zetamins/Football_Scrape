@@ -179,17 +179,29 @@ class RunSearchResult:
 
 
 _NOOP_PROGRESS: Callable[[str], None] = lambda msg: None  # noqa: E731
+_NOOP_SOURCE_PROGRESS: Callable[[SourceStatus], None] = lambda status: None  # noqa: E731
 
 # datetime.fromisoformat() can't parse a trailing "Z" directly -- swapped
 # for an explicit UTC offset it does understand.
 _UTC_OFFSET_SUFFIX = "+00:00"
 
 
-async def run_search(team_name: str, on_progress: Callable[[str], None] = _NOOP_PROGRESS) -> RunSearchResult:
+async def run_search(
+    team_name: str,
+    on_progress: Callable[[str], None] = _NOOP_PROGRESS,
+    on_source_progress: Callable[[SourceStatus], None] = _NOOP_SOURCE_PROGRESS,
+) -> RunSearchResult:
     """The full fetch/merge/compute pipeline, decoupled from the CLI's own
     printing/file-writing (see cli.py) so it can be called from anywhere
     -- e.g. a future Android UI. on_progress is optional and purely
-    cosmetic (streams "scraping X..." updates to a caller)."""
+    cosmetic (streams "scraping X..." free-text updates to a caller).
+
+    on_source_progress is separate from on_progress, not a duplicate of
+    it: it fires once per source with the actual structured SourceStatus
+    record (fixtures_scraped, matches_error, details_error,
+    profile_error), for a caller that needs real per-source state (e.g.
+    a UI showing "Sofascore blocked / Fotmob: 42 fixtures" -- see
+    android_report.py) rather than parsing on_progress's free text."""
     on_progress(f'Searching for "{team_name}" (base: Sofascore, supplemented by Fotmob, SoccerDesk, Goal.com, 365Scores)...')
 
     matches_by_source: dict[Source, list[MatchInfo]] = {}
@@ -226,6 +238,7 @@ async def run_search(team_name: str, on_progress: Callable[[str], None] = _NOOP_
 
         statuses.append(status)
         on_progress(f"{source}: {status.fixtures_scraped} fixtures" + (f" -- {status.matches_error}" if status.matches_error else ""))
+        on_source_progress(status)
 
     merged = merge_match_details(details_by_source) if details_by_source else None
     form_source = next((s for s in SOURCE_ORDER if matches_by_source.get(s)), None)
@@ -590,8 +603,18 @@ async def run_search(team_name: str, on_progress: Callable[[str], None] = _NOOP_
 
     on_progress("Done.")
     generated_at = datetime.now(tz=timezone.utc).isoformat(timespec="milliseconds").replace(_UTC_OFFSET_SUFFIX, "Z")
+    # opponent_context only exists inside the `if merged:` block above --
+    # when no upcoming match was found from any source, there's no
+    # opponent to have looked up, so opponent_form_source is genuinely
+    # None rather than an unset local variable. (Pre-existing bug: this
+    # unconditional reference used to raise UnboundLocalError for any
+    # "no upcoming match" search -- crashing the whole pipeline instead
+    # of returning the graceful empty result callers already expect,
+    # e.g. android_test.py's `if not result.merged: return "OK (no
+    # upcoming match found...)"` check could never actually be reached.)
+    opponent_form_source = opponent_context.matches_source if merged else None
     return RunSearchResult(
         team=team_name, generated_at=generated_at, statuses=statuses, merged=merged, opponent_name=opponent_name,
-        form=form, form_source=form_source, opponent_form=opponent_form, opponent_form_source=opponent_context.matches_source,
+        form=form, form_source=form_source, opponent_form=opponent_form, opponent_form_source=opponent_form_source,
         merged_profile=merged_profile, opponent_profile=opponent_profile, insights=insights_result, venue_details=venue_details,
     )
