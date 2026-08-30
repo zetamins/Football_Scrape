@@ -25,6 +25,29 @@ import java.util.concurrent.atomic.AtomicLong
  * isn't the one driving the Looper and blocking it briefly is exactly
  * the point.
  *
+ * Readiness (goto() and evaluate()'s pre-check) is judged by polling
+ * document.readyState/title directly via evaluateJavascript, NOT by
+ * waiting for onPageFinished. This replaced an earlier onPageFinished-
+ * plus-settle-window design after live diagnosis (the
+ * onPageStarted/onPageFinished/onReceivedError/onReceivedHttpError
+ * logging below, kept permanently, is what did it): worldfootball.net's
+ * page loads a long chain of third-party ad/tracking requests (Sparteo,
+ * SmileWanted, Missena, LoopMe, SmartAdServer, ...) that frequently
+ * 403/429/502 or hang, and onPageFinished's timing tracks THEIR
+ * completion, not the real content or even Cloudflare's own challenge
+ * (which resolves in a fairly consistent ~2-4s once triggered) -- a page
+ * could sit at "still loading" by WebView's own accounting for 90+
+ * seconds while the actual content had been sitting in the DOM the
+ * whole time. document.readyState reaching "interactive" means the DOM
+ * is parsed and synchronous scripts have run -- true regardless of
+ * whether async ad/tracker resources are still pending. The
+ * document.title check on top of that specifically guards against
+ * declaring victory on Cloudflare's OWN challenge page, which is itself
+ * a fully-loaded, readyState-"complete" document titled "Just a
+ * moment..." -- the title changes the instant Cloudflare's automatic
+ * redirect delivers the real page, independent of that page's own
+ * background ad requests.
+ *
  * evaluate() polls a `window` property rather than using
  * addJavascriptInterface + a Java callback object, despite that being the
  * more commonly-documented pattern. Confirmed live and directly, against
@@ -40,40 +63,22 @@ import java.util.concurrent.atomic.AtomicLong
  * bridge at all -- doesn't have this failure mode, so it replaces
  * addJavascriptInterface entirely rather than trying to fix the binding
  * timing further.
- *
- * The onPageStarted/onPageFinished/onReceivedError/onReceivedHttpError
- * logging below is kept permanently, not left over from debugging: it's
- * what actually diagnosed why worldfootball.net's navigation time varies
- * so widely (14s in some runs, still not settled at 90s in others) --
- * the page carries a long chain of third-party ad/tracking requests
- * (Sparteo, SmileWanted, Missena, LoopMe, SmartAdServer, ...) that
- * frequently 403/429/502 or hang, and onPageFinished's timing tracks
- * THEIR completion, not Cloudflare's own challenge (which resolves in a
- * fairly consistent ~2-4s once triggered) or anything about the real
- * content (the referee table) being ready. Not something this bridge
- * can fix from here -- browser.py's Android goto()-timeout floor exists
- * because of exactly this, and this logging is what a future fix (e.g.
- * polling for the real content directly instead of trusting
- * onPageFinished) would need to build on.
  */
 class WebViewRenderer(private val context: Context) {
     private var webView: WebView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val resultCounter = AtomicLong(0)
 
-    @Volatile private var isNavigating = false
-    @Volatile private var lastPageFinishedAt = 0L
+    // Set false right before each loadUrl(), true by onPageStarted for
+    // that navigation -- see goto()'s comment for why this matters.
+    @Volatile private var navigationStarted = false
 
     companion object {
-        // How long the page must go quiet (no onPageStarted) before it's
-        // considered settled. Short is fine here precisely because it's
-        // re-armed by every navigation, however many hops a Cloudflare-
-        // style challenge chain takes -- unlike a single fixed
-        // post-onPageFinished delay, this doesn't have to guess the
-        // challenge's total duration.
-        private const val SETTLE_WINDOW_MS = 800L
-        private const val NAV_POLL_INTERVAL_MS = 100L
+        private const val READY_POLL_INTERVAL_MS = 200L
         private const val RESULT_POLL_INTERVAL_MS = 250L
+        private const val NAV_START_POLL_INTERVAL_MS = 50L
+        private const val NAV_START_MAX_WAIT_MS = 10000L
+        private const val CHALLENGE_TITLE = "\"Just a moment...\""
     }
 
     fun open(userAgent: String) {
@@ -92,13 +97,11 @@ class WebViewRenderer(private val context: Context) {
             }
             wv.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    isNavigating = true
+                    navigationStarted = true
                     android.util.Log.d("WebViewRenderer", "onPageStarted: $url")
                 }
 
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                    isNavigating = false
-                    lastPageFinishedAt = System.currentTimeMillis()
                     android.util.Log.d("WebViewRenderer", "onPageFinished: $finishedUrl")
                 }
 
@@ -114,33 +117,6 @@ class WebViewRenderer(private val context: Context) {
             latch.countDown()
         }
         latch.await(10, TimeUnit.SECONDS)
-    }
-
-    /** Blocks the CALLING thread (not the main thread) until no
-     * navigation has been in flight for SETTLE_WINDOW_MS, or deadlineMs
-     * passes. Safe to call from a background thread since it only reads
-     * @Volatile fields the main thread writes -- no WebView API touched
-     * here. */
-    private fun waitForSettledPage(deadlineMs: Long): Boolean {
-        while (System.currentTimeMillis() < deadlineMs) {
-            if (!isNavigating && System.currentTimeMillis() - lastPageFinishedAt >= SETTLE_WINDOW_MS) {
-                return true
-            }
-            Thread.sleep(NAV_POLL_INTERVAL_MS)
-        }
-        return !isNavigating
-    }
-
-    /** Mirrors Playwright's page.goto(url, wait_until=..., timeout=ms).
-     * wait_until itself isn't distinguished -- waitForSettledPage's
-     * settle-based approach stands in for all of Playwright's
-     * finer-grained load-state options here. */
-    fun goto(url: String, timeoutMs: Long): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        isNavigating = true
-        lastPageFinishedAt = 0L
-        mainHandler.post { webView?.loadUrl(url) }
-        return waitForSettledPage(deadline)
     }
 
     /** Runs one evaluateJavascript call on the main thread and blocks the
@@ -165,6 +141,63 @@ class WebViewRenderer(private val context: Context) {
         return result[0]
     }
 
+    /** True once the DOM is past parsing (readyState interactive/complete)
+     * AND we're not still looking at Cloudflare's own challenge page --
+     * see class docstring for why both checks are needed. A momentary
+     * evaluateJavascript failure (null back, e.g. mid-navigation) reads
+     * as "not ready yet" rather than an error -- the caller's poll loop
+     * just tries again. */
+    private fun isContentReady(): Boolean {
+        val state = evalOnMainThread("document.readyState")
+        val title = evalOnMainThread("document.title")
+        val domReady = state == "\"interactive\"" || state == "\"complete\""
+        val pastChallenge = title != CHALLENGE_TITLE
+        return domReady && pastChallenge
+    }
+
+    /** Blocks the CALLING thread (not the main thread) until
+     * isContentReady() or deadlineMs passes. */
+    private fun waitUntilReady(deadlineMs: Long): Boolean {
+        while (System.currentTimeMillis() < deadlineMs) {
+            if (isContentReady()) {
+                return true
+            }
+            Thread.sleep(READY_POLL_INTERVAL_MS)
+        }
+        return false
+    }
+
+    /** Mirrors Playwright's page.goto(url, wait_until=..., timeout=ms).
+     * wait_until itself isn't distinguished -- waitUntilReady's
+     * content-based approach stands in for all of Playwright's
+     * finer-grained load-state options here.
+     *
+     * Waits for onPageStarted to confirm the new navigation has actually
+     * begun before polling content readiness. Confirmed live this
+     * matters: mainHandler.post{}'s loadUrl() call and the first
+     * isContentReady() check can race, with the poll sometimes winning --
+     * document.readyState/title from the PREVIOUS page (already
+     * "complete") gets read as if it belonged to the new one, declaring
+     * victory on stale content. Produced a fast-but-wrong "0 rows
+     * scraped" result once, and a Sofascore fetch returning an old
+     * cached response once -- both against a page that hadn't actually
+     * started loading yet when checked. Bounded to
+     * NAV_START_MAX_WAIT_MS so a genuinely missing onPageStarted (an
+     * edge case, not expected for a fresh loadUrl to a different URL)
+     * can't hang the whole call. */
+    fun goto(url: String, timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        navigationStarted = false
+        mainHandler.post { webView?.loadUrl(url) }
+
+        val startDeadline = minOf(deadline, System.currentTimeMillis() + NAV_START_MAX_WAIT_MS)
+        while (!navigationStarted && System.currentTimeMillis() < startDeadline) {
+            Thread.sleep(NAV_START_POLL_INTERVAL_MS)
+        }
+
+        return waitUntilReady(deadline)
+    }
+
     /** Mirrors Playwright's page.evaluate(page_function, arg). functionScript
      * is always a JS function string (arrow or regular) -- matches how
      * every call site in sofascore.py/squawka.py/worldfootball.py already
@@ -186,8 +219,14 @@ class WebViewRenderer(private val context: Context) {
      * (JSON of a string wraps it in an extra pair of quotes). */
     fun evaluate(functionScript: String, argJson: String?, timeoutMs: Long): String {
         val deadline = System.currentTimeMillis() + timeoutMs
-        if (!waitForSettledPage(deadline)) {
-            return """{"ok":false,"error":"page still navigating after ${timeoutMs}ms, gave up before evaluate"}"""
+        // Re-check readiness right before injecting -- closes the
+        // (unlikely but possible) race where a fresh navigation starts
+        // between goto() returning and evaluate() being called. Uses the
+        // same content-based check goto() does, not the old
+        // onPageFinished-tracking one -- that would reintroduce the exact
+        // slow-ad-tracker dependency this whole design change removed.
+        if (!waitUntilReady(deadline)) {
+            return """{"ok":false,"error":"page not ready after ${timeoutMs}ms, gave up before evaluate"}"""
         }
 
         val propName = "__androidResult" + resultCounter.incrementAndGet()
