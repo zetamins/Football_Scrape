@@ -15,7 +15,16 @@ import asyncio
 
 from .browser import launch_browser
 from .http import USER_AGENT
+from .sites.sofascore import get_sofascore_matches
+from .sites.squawka import (
+    _fetch_stat_values,
+    _load_page_context,
+    _resolve_competition_id,
+    _STAT_NAMES,
+    get_squawka_defensive_stats,
+)
 from .sites.worldfootball import _COMPETITION_PATHS, _fetch_referee_table, get_referee_worldfootball_stats
+from .team_aliases import known_aliases_for
 
 
 async def _diagnose(competition: str, referee_name: str) -> str:
@@ -44,3 +53,72 @@ def run_worldfootball_referee_stats(competition: str, referee_name: str) -> str:
         return f"penalties={result.penalties}, second_yellow={result.second_yellow}"
     diagnosis = asyncio.run(_diagnose(competition, referee_name))
     return f"No match for '{referee_name}'. Diagnosis: {diagnosis}"
+
+
+def run_sofascore_matches(team_name: str) -> str:
+    """Exercises the WebView bridge much harder than worldfootball's
+    single goto+evaluate: _find_team's search call, then a full fixture
+    list fetch, each wrapped in _retry_with_backoff (up to 3 attempts),
+    all through the same one WebView page/context."""
+    try:
+        matches = asyncio.run(get_sofascore_matches(team_name))
+    except Exception as e:  # noqa: BLE001 - report to the screen, don't crash the app
+        return f"FAILED: {type(e).__name__}: {e}"
+    if not matches:
+        return "0 matches returned (search may have found no team, or the fixture fetch failed)"
+    sample = matches[0]
+    return f"{len(matches)} matches. First: {sample.home_team} vs {sample.away_team} ({sample.kickoff_utc})"
+
+
+async def _diagnose_squawka(team_name: str, competition: str) -> str:
+    """get_squawka_defensive_stats has 3 silent-empty-result exit points
+    (no competition match, no player_keys at all, or player_keys present
+    but none matching team_name's aliases) that all look identical from
+    the outside -- checks each stage directly instead of guessing which
+    one is responsible."""
+    async with launch_browser() as browser:
+        context = await browser.new_context(user_agent=USER_AGENT)
+        page = await context.new_page()
+        nonce, competitions = await _load_page_context(page)
+        if not nonce:
+            return "_load_page_context returned no nonce -- WebView evaluate() likely failed"
+        competition_id = _resolve_competition_id(competitions, competition)
+        if not competition_id:
+            names = ", ".join(c.get("competition", "?") for c in competitions[:8])
+            return f"nonce OK ({len(competitions)} competitions loaded), but '{competition}' didn't resolve. Sample names: {names}"
+        _, sample_label = _STAT_NAMES[0]
+        values = await _fetch_stat_values(page, nonce, competition_id, sample_label)
+        if not values:
+            return f"competition_id resolved ({competition_id}), but '{sample_label}' fetch returned 0 values"
+        variants = set(known_aliases_for(team_name))
+        # Checks every key, not just a sample -- a 5-key sample from a
+        # 400+-entry dict landing on 5 other teams by chance doesn't prove
+        # team_name's team is genuinely absent.
+        matching = [k for k in values if k.split("::", 1)[1] in variants]
+        all_team_norms = sorted({k.split("::", 1)[1] for k in values})
+        if matching:
+            return f"{len(values)} values fetched, {len(matching)} matched team aliases {sorted(variants)}: {matching[:5]}"
+        close = [t for t in all_team_norms if any(v[:4] in t for v in variants)]
+        return (
+            f"{len(values)} values fetched across {len(all_team_norms)} teams, but NONE matched "
+            f"team aliases {sorted(variants)}. Closest-looking team names present: {close or all_team_norms[:10]}"
+        )
+
+
+def run_squawka_defensive_stats(team_name: str, competition: str) -> str:
+    """Exercises the async-fetch()-with-custom-header path specifically
+    (_FETCH_STAT_JS does `fetch(..., headers: {"X-WP-Nonce": nonce}})`
+    from within the injected script) -- the one call shape worldfootball
+    and sofascore's own evaluate() calls don't cover."""
+    try:
+        stats_by_name = asyncio.run(get_squawka_defensive_stats(team_name, [competition]))
+    except Exception as e:  # noqa: BLE001
+        return f"FAILED: {type(e).__name__}: {e}"
+    if stats_by_name:
+        names = ", ".join(list(stats_by_name.keys())[:5])
+        return f"{len(stats_by_name)} players. First few: {names}"
+    try:
+        diagnosis = asyncio.run(_diagnose_squawka(team_name, competition))
+    except Exception as e:  # noqa: BLE001
+        diagnosis = f"diagnose itself failed: {type(e).__name__}: {e}"
+    return f"0 players. Diagnosis: {diagnosis}"

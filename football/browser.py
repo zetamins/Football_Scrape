@@ -41,6 +41,8 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser
 
 _DEFAULT_TIMEOUT_MS = 30000
+# See _WebViewPage.goto()'s comment -- confirmed live this matters.
+_ANDROID_MIN_GOTO_TIMEOUT_MS = 60000
 
 
 def _is_android() -> bool:
@@ -73,9 +75,22 @@ class _WebViewPage:
         # single approximation of "the page is ready" (see
         # WebViewRenderer.kt's goto() docstring), not a menu of Playwright's
         # finer-grained load-state options.
-        ok = await asyncio.to_thread(self._renderer.goto, url, timeout)
+        #
+        # timeout is floored, not passed straight through: worldfootball.py
+        # hard-codes timeout=30000 in its one page.goto() call, written
+        # against the desktop Playwright backend (real Chromium). Confirmed
+        # live, twice, that WebView running under an Android emulator hits
+        # that exact 30s ceiling against the same Cloudflare-protected site
+        # Playwright handles within it -- consistent with, not contradicting,
+        # this project's own prior finding (sofascore.py's docstring) that
+        # this kind of challenge can take "2s to 40s+". The floor is scoped
+        # to this backend only, not a change to worldfootball.py's own
+        # platform-neutral call, since the slowness is specifically the
+        # WebView-under-emulation execution environment, not the site.
+        effective_timeout = max(timeout, _ANDROID_MIN_GOTO_TIMEOUT_MS)
+        ok = await asyncio.to_thread(self._renderer.goto, url, effective_timeout)
         if not ok:
-            raise RuntimeError(f"WebView navigation to {url} did not finish within {timeout}ms")
+            raise RuntimeError(f"WebView navigation to {url} did not finish within {effective_timeout}ms")
 
     async def evaluate(self, script: str, arg: Any = None) -> Any:
         arg_json = json.dumps(arg) if arg is not None else None

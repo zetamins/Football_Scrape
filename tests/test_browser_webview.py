@@ -53,8 +53,29 @@ def test_goto_succeeds_silently_when_renderer_reports_loaded():
     renderer = _FakeRenderer()
     renderer.goto_result = True
     page = _WebViewPage(renderer)
-    asyncio.run(page.goto("https://example.com", timeout=5000))
-    assert renderer.goto_calls == [("https://example.com", 5000)]
+    asyncio.run(page.goto("https://example.com", timeout=90000))
+    assert renderer.goto_calls == [("https://example.com", 90000)]
+
+
+def test_goto_floors_a_short_caller_timeout():
+    # Confirmed live: worldfootball.py hard-codes timeout=30000 (written
+    # against desktop Playwright), but WebView under an Android emulator
+    # measurably needs longer for the same Cloudflare-protected site.
+    renderer = _FakeRenderer()
+    renderer.goto_result = True
+    page = _WebViewPage(renderer)
+    asyncio.run(page.goto("https://example.com", timeout=30000))
+    url, effective_timeout = renderer.goto_calls[0]
+    assert effective_timeout >= 60000
+
+
+def test_goto_does_not_shrink_an_already_generous_caller_timeout():
+    renderer = _FakeRenderer()
+    renderer.goto_result = True
+    page = _WebViewPage(renderer)
+    asyncio.run(page.goto("https://example.com", timeout=120000))
+    _url, effective_timeout = renderer.goto_calls[0]
+    assert effective_timeout == 120000
 
 
 def test_goto_raises_when_renderer_reports_not_loaded():
