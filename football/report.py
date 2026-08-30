@@ -17,31 +17,23 @@ from .format_markdown import (
     merged_profile_markdown,
     venue_details_markdown,
 )
-from .insights import compute_data_completeness
+from .insights import (
+    _MATCH_OUTCOME_ONLY_FIELDS,
+    _NOT_STARTED_STATUSES,
+    compute_data_completeness,
+    is_empty_value,
+)
 from .orchestrate import RunSearchResult
 
-# Statuses that unambiguously mean "hasn't kicked off yet" across every
-# source's own vocabulary (Sofascore: notstarted, Fotmob/Goal/SoccerDesk/
-# 365Scores: scheduled). Deliberately narrow -- "live"/"inprogress",
-# "postponed", "cancelled", "unknown", etc. are excluded because those
-# matches can genuinely have partial real data (a live score, published
-# lineups, an abandoned match's final stats), so only the two clearly
-# pre-kickoff values are treated as "definitely no match-outcome data yet".
-_NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
-
-# Fields on MatchDetails that can only be known during or after the match
-# itself (never a pre-match fixture property) -- omitted from the JSON
-# entirely, rather than serialized as null, when the match hasn't kicked
-# off yet AND the field actually came back empty. Never removed if a field
-# happens to be populated (e.g. an early-confirmed lineup published close
-# to kickoff) -- this only prunes genuinely-nonexistent-yet data, it never
-# discards real data based on status alone.
-_MATCH_OUTCOME_ONLY_FIELDS = [
+# home_score/away_score/*_ht are also outcome-only but are handled
+# separately (unconditionally excluded, not status-gated) by
+# insights.py's own _COMPLETENESS_EXCLUDE -- not repeated here since this
+# set is now shared with compute_data_completeness rather than a local
+# copy. Only add fields the JSON side needs pruned that the completeness
+# side doesn't already cover 1:1 with _MATCH_OUTCOME_ONLY_FIELDS.
+_JSON_ONLY_OUTCOME_FIELDS = _MATCH_OUTCOME_ONLY_FIELDS | {
     "home_score", "away_score", "home_score_ht", "away_score_ht",
-    "attendance", "home_lineup", "away_lineup", "home_bench", "away_bench",
-    "home_formation", "away_formation", "match_stats", "event_timeline",
-    "player_of_the_match",
-]
+}
 
 # Within a LineupPlayer entry, name/position/substitute are pre-match
 # identity fields (known once a lineup is announced); everything else is a
@@ -56,10 +48,6 @@ _LINEUP_PLAYER_OUTCOME_FIELDS = [
 _LINEUP_LIST_FIELDS = ["home_lineup", "away_lineup", "home_bench", "away_bench"]
 
 
-def _is_empty_value(value: Any) -> bool:
-    return value is None or value == []
-
-
 def _prune_unplayed_match_fields(match_dict: dict[str, Any]) -> dict[str, Any]:
     if match_dict.get("status") not in _NOT_STARTED_STATUSES:
         return match_dict
@@ -67,8 +55,8 @@ def _prune_unplayed_match_fields(match_dict: dict[str, Any]) -> dict[str, Any]:
         for player in match_dict.get(list_field) or []:
             for field in _LINEUP_PLAYER_OUTCOME_FIELDS:
                 player.pop(field, None)
-    for field in _MATCH_OUTCOME_ONLY_FIELDS:
-        if field in match_dict and _is_empty_value(match_dict[field]):
+    for field in _JSON_ONLY_OUTCOME_FIELDS:
+        if field in match_dict and is_empty_value(match_dict[field]):
             del match_dict[field]
     return match_dict
 

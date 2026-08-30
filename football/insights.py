@@ -990,6 +990,39 @@ _COMPLETENESS_EXCLUDE = {
     "base_source", "field_sources", "additional_notes", "opponent_context_error",
 }
 
+# Statuses that unambiguously mean "hasn't kicked off yet" across every
+# source's own vocabulary (Sofascore: notstarted, Fotmob/Goal/SoccerDesk/
+# 365Scores: scheduled). Deliberately narrow -- "live"/"inprogress",
+# "postponed", "cancelled", "unknown", etc. are excluded because those
+# matches can genuinely have partial real data (a live score, published
+# lineups, an abandoned match's final stats), so only the two clearly
+# pre-kickoff values are treated as "definitely no match-outcome data
+# yet". Shared with report.py's own pruning of the same fields from the
+# JSON output -- defined here (not there) since report.py already
+# imports from this module, not the reverse.
+_NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
+
+# MatchDetails fields that can only be known during or after the match
+# itself -- never a pre-match fixture property. Excluded from
+# compute_data_completeness's total (not just scored as "missing") when
+# the match hasn't kicked off yet: counting them against an unplayed
+# fixture's completeness penalizes the report for not having data that
+# is structurally impossible to have yet, the same category of mistake
+# already fixed once for home_score/away_score/*_ht above (in
+# _COMPLETENESS_EXCLUDE, unconditionally) but never extended to the rest
+# of this set. Unlike the unconditional score exclusion, these stay
+# counted once a match is live or finished, where they're real data.
+_MATCH_OUTCOME_ONLY_FIELDS = {
+    "attendance", "home_lineup", "away_lineup", "home_bench", "away_bench",
+    "home_formation", "away_formation", "match_stats", "event_timeline",
+    "player_of_the_match",
+}
+
+# MatchInsights' own equivalent: bench_info is computed FROM home_bench/
+# away_bench (see compute_bench_info), so it's the same "not knowable
+# before kickoff" category one layer up.
+_INSIGHTS_OUTCOME_ONLY_FIELDS = {"home_bench_info", "away_bench_info"}
+
 
 def _is_populated(v) -> bool:
     if v is None:
@@ -1005,16 +1038,37 @@ def _is_populated(v) -> bool:
     return True
 
 
+def is_empty_value(value) -> bool:
+    """None, an empty list, or an empty string -- report.py's own JSON
+    pruning previously only checked the first two, silently missing
+    string-typed outcome fields (home_formation/away_formation are
+    Optional[str]): confirmed live, those came back as "" rather than
+    None for an unplayed fixture, so the old check's `value == []` never
+    matched and the fields survived pruning as pointless empty strings."""
+    return value is None or value == [] or value == ""
+
+
 def compute_data_completeness(merged: MatchDetails, insights: Optional[MatchInsights]) -> dict[str, int]:
     """How much of the *available* schema this particular run actually
     got real data for -- coverage varies a lot match-to-match, so this is
-    a per-run signal, not a fixed target."""
+    a per-run signal, not a fixed target.
+
+    Fields that can only exist once a match is live or finished
+    (formations, lineups, bench, in-match stats, timeline, player of the
+    match) are excluded from the total entirely for a not-yet-started
+    fixture, not merely counted as "missing" -- an upcoming fixture's
+    real analytical value is pre-match: difficulty/rest/form comparisons,
+    not data that doesn't exist yet."""
     from dataclasses import fields as _fields
+
+    not_started = merged.status in _NOT_STARTED_STATUSES
 
     populated = 0
     total = 0
     for f in _fields(merged):
         if f.name in _COMPLETENESS_EXCLUDE:
+            continue
+        if not_started and f.name in _MATCH_OUTCOME_ONLY_FIELDS:
             continue
         total += 1
         if _is_populated(getattr(merged, f.name)):
@@ -1022,6 +1076,8 @@ def compute_data_completeness(merged: MatchDetails, insights: Optional[MatchInsi
     if insights:
         for f in _fields(insights):
             if f.name in _COMPLETENESS_EXCLUDE:
+                continue
+            if not_started and f.name in _INSIGHTS_OUTCOME_ONLY_FIELDS:
                 continue
             total += 1
             if _is_populated(getattr(insights, f.name)):
