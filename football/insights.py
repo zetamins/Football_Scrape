@@ -1003,25 +1003,47 @@ _COMPLETENESS_EXCLUDE = {
 _NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
 
 # MatchDetails fields that can only be known during or after the match
-# itself -- never a pre-match fixture property. Excluded from
-# compute_data_completeness's total (not just scored as "missing") when
-# the match hasn't kicked off yet: counting them against an unplayed
-# fixture's completeness penalizes the report for not having data that
-# is structurally impossible to have yet, the same category of mistake
-# already fixed once for home_score/away_score/*_ht above (in
-# _COMPLETENESS_EXCLUDE, unconditionally) but never extended to the rest
-# of this set. Unlike the unconditional score exclusion, these stay
-# counted once a match is live or finished, where they're real data.
-_MATCH_OUTCOME_ONLY_FIELDS = {
-    "attendance", "home_lineup", "away_lineup", "home_bench", "away_bench",
-    "home_formation", "away_formation", "match_stats", "event_timeline",
-    "player_of_the_match",
-}
+# itself -- never a pre-match fixture property, not even a prediction.
+# Excluded from compute_data_completeness's total (not just scored as
+# "missing") when the match hasn't kicked off yet: counting them against
+# an unplayed fixture's completeness penalizes the report for not having
+# data that is structurally impossible to have yet, the same category of
+# mistake already fixed once for home_score/away_score/*_ht above (in
+# _COMPLETENESS_EXCLUDE, unconditionally). Unlike the unconditional score
+# exclusion, these stay counted once a match is live or finished, where
+# they're real data.
+_MATCH_OUTCOME_ONLY_FIELDS = {"attendance", "match_stats", "event_timeline", "player_of_the_match"}
 
-# MatchInsights' own equivalent: bench_info is computed FROM home_bench/
-# away_bench (see compute_bench_info), so it's the same "not knowable
-# before kickoff" category one layer up.
-_INSIGHTS_OUTCOME_ONLY_FIELDS = {"home_bench_info", "away_bench_info"}
+# Lineup/bench/formation are NOT outcome-only, despite feeling similar:
+# Sofascore's own lineups payload goes absent -> predicted -> confirmed
+# (see football/sites/sofascore.py's `lineup_confirmed` field and the
+# comment above it) -- a "predicted" starting XI, built from recent
+# matches and injury news, can legitimately exist hours or days before
+# kickoff. So these belong with referee/odds (time-sensitive pre-match
+# data that just may not be published yet for a fixture this far out),
+# not with attendance/match_stats above (data that cannot exist by
+# definition until the match happens) -- they're counted normally in
+# compute_data_completeness at every status, not excluded. Kept as its
+# own name (rather than folded into _MATCH_OUTCOME_ONLY_FIELDS) because
+# report.py's JSON pruning still wants to drop these keys entirely when
+# genuinely empty, the same cosmetic cleanup as the true outcome-only set.
+_PREDICTABLE_PREMATCH_FIELDS = {"home_lineup", "away_lineup", "home_bench", "away_bench", "home_formation", "away_formation"}
+
+# MatchInsights fields whose compute_* function explicitly distinguishes
+# None ("no squad/stats data to check at all") from a real, checked []
+# ("checked every candidate, genuinely none qualify") -- see the
+# docstrings on compute_card_risks, compute_duel_vulnerabilities, and
+# compute_fullback_exposure. For these six fields specifically, an empty
+# list IS real, informative data (e.g. "no player currently at risk of
+# a card"), not a gap -- the generic list-emptiness check in
+# _is_populated would otherwise score a genuinely clean squad the same
+# as a squad we never got data for at all, silently understating
+# completeness for exactly the reports that turned out fine.
+_CHECKED_EMPTY_LIST_FIELDS = {
+    "home_card_risks", "away_card_risks",
+    "home_duel_vulnerabilities", "away_duel_vulnerabilities",
+    "home_fullback_exposure", "away_fullback_exposure",
+}
 
 
 def _is_populated(v) -> bool:
@@ -1054,11 +1076,23 @@ def compute_data_completeness(merged: MatchDetails, insights: Optional[MatchInsi
     a per-run signal, not a fixed target.
 
     Fields that can only exist once a match is live or finished
-    (formations, lineups, bench, in-match stats, timeline, player of the
-    match) are excluded from the total entirely for a not-yet-started
-    fixture, not merely counted as "missing" -- an upcoming fixture's
-    real analytical value is pre-match: difficulty/rest/form comparisons,
-    not data that doesn't exist yet."""
+    (attendance, in-match stats, timeline, player of the match) are
+    excluded from the total entirely for a not-yet-started fixture, not
+    merely counted as "missing" -- an upcoming fixture's real analytical
+    value is pre-match: difficulty/rest/form comparisons, not data that
+    doesn't exist yet. Lineups/bench/formation are deliberately NOT in
+    that excluded set even though they feel similar: sources publish a
+    "predicted" lineup pre-match (built from recent matches + injuries)
+    before it's confirmed near kickoff, so those fields count normally
+    at every status -- absence there is real, informative "not published
+    yet", the same as referee or odds, not a category error.
+
+    card_risks/duel_vulnerabilities/fullback_exposure (home+away) count
+    a real, checked [] as populated, not missing -- see
+    _CHECKED_EMPTY_LIST_FIELDS: their compute_* functions only return
+    None when there's no squad data to check at all, so an empty list
+    means "checked, genuinely nothing flagged" (e.g. no player currently
+    at card risk), which is real data, not a gap."""
     from dataclasses import fields as _fields
 
     not_started = merged.status in _NOT_STARTED_STATUSES
@@ -1077,9 +1111,11 @@ def compute_data_completeness(merged: MatchDetails, insights: Optional[MatchInsi
         for f in _fields(insights):
             if f.name in _COMPLETENESS_EXCLUDE:
                 continue
-            if not_started and f.name in _INSIGHTS_OUTCOME_ONLY_FIELDS:
-                continue
             total += 1
-            if _is_populated(getattr(insights, f.name)):
+            value = getattr(insights, f.name)
+            if f.name in _CHECKED_EMPTY_LIST_FIELDS:
+                if value is not None:
+                    populated += 1
+            elif _is_populated(value):
                 populated += 1
     return {"populated": populated, "total": total}

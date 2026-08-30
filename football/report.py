@@ -20,6 +20,7 @@ from .format_markdown import (
 from .insights import (
     _MATCH_OUTCOME_ONLY_FIELDS,
     _NOT_STARTED_STATUSES,
+    _PREDICTABLE_PREMATCH_FIELDS,
     compute_data_completeness,
     is_empty_value,
 )
@@ -29,9 +30,14 @@ from .orchestrate import RunSearchResult
 # separately (unconditionally excluded, not status-gated) by
 # insights.py's own _COMPLETENESS_EXCLUDE -- not repeated here since this
 # set is now shared with compute_data_completeness rather than a local
-# copy. Only add fields the JSON side needs pruned that the completeness
-# side doesn't already cover 1:1 with _MATCH_OUTCOME_ONLY_FIELDS.
-_JSON_ONLY_OUTCOME_FIELDS = _MATCH_OUTCOME_ONLY_FIELDS | {
+# copy. JSON pruning is deliberately broader than the completeness
+# denominator: it also strips home_lineup/away_lineup/home_bench/
+# away_bench/home_formation/away_formation when they're genuinely empty
+# (_PREDICTABLE_PREMATCH_FIELDS) -- those fields DO count toward
+# completeness (a "predicted" lineup can exist pre-match), but an empty
+# `""`/`[]` value still isn't worth showing a consumer of the JSON, same
+# cosmetic cleanup as the true outcome-only set.
+_JSON_ONLY_OUTCOME_FIELDS = _MATCH_OUTCOME_ONLY_FIELDS | _PREDICTABLE_PREMATCH_FIELDS | {
     "home_score", "away_score", "home_score_ht", "away_score_ht",
 }
 
