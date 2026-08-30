@@ -38,6 +38,13 @@ def _base_match(status: str) -> dict:
         "away_lineup": [],
         "referee": "Some Ref",
         "venue_name": "Some Stadium",
+        # Confirmed live: sofascore.py's extraction functions return a
+        # zero-filled shell for these two, never None, for an unplayed
+        # match -- this is exactly why they were missing from the
+        # original fixture and the bug went unnoticed until a live
+        # report was inspected directly.
+        "set_piece_goals": {"home": {"corner": 0, "penalty": 0, "free_kick": 0}, "away": {"corner": 0, "penalty": 0, "free_kick": 0}},
+        "shotmap_stats": {"home": {"non_penalty_xg": 0.0, "set_piece_xg": 0.0, "penalties_awarded": 0}, "away": {"non_penalty_xg": 0.0, "set_piece_xg": 0.0, "penalties_awarded": 0}},
     }
 
 
@@ -49,12 +56,32 @@ def test_prunes_outcome_only_fields_for_not_started_match():
         "home_score", "away_score", "home_score_ht", "away_score_ht",
         "attendance", "match_stats", "event_timeline", "player_of_the_match",
         "home_bench", "away_bench", "home_formation", "away_formation",
+        "set_piece_goals", "shotmap_stats",
     ):
         assert field not in result
 
     assert result["home_lineup"] == [{"name": "Player A", "position": "D", "substitute": False}]
     assert result["referee"] == "Some Ref"
     assert result["venue_name"] == "Some Stadium"
+
+
+def test_prunes_set_piece_goals_and_shotmap_stats_even_though_never_empty():
+    # These two are NOT None/[]/"" -- sofascore.py always returns a
+    # zero-filled shell for an unplayed match (confirmed live), so the
+    # generic is_empty_value-gated pruning loop can never catch them on
+    # its own. This is what _ALWAYS_PRUNE_WHEN_UNPLAYED exists for.
+    match = _base_match("notstarted")
+    assert match["set_piece_goals"]["home"] == {"corner": 0, "penalty": 0, "free_kick": 0}  # sanity: genuinely non-empty
+    result = _prune_unplayed_match_fields(match)
+    assert "set_piece_goals" not in result
+    assert "shotmap_stats" not in result
+
+
+def test_leaves_a_real_finished_match_set_piece_goals_untouched():
+    match = _base_match("finished")
+    match["set_piece_goals"] = {"home": {"corner": 2, "penalty": 1, "free_kick": 0}, "away": {"corner": 0, "penalty": 0, "free_kick": 0}}
+    result = _prune_unplayed_match_fields(dict(match))
+    assert result["set_piece_goals"]["home"]["corner"] == 2
 
 
 def test_prunes_outcome_only_fields_for_scheduled_match():
