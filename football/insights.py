@@ -1012,7 +1012,20 @@ _NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
 # _COMPLETENESS_EXCLUDE, unconditionally). Unlike the unconditional score
 # exclusion, these stay counted once a match is live or finished, where
 # they're real data.
-_MATCH_OUTCOME_ONLY_FIELDS = {"attendance", "match_stats", "event_timeline", "player_of_the_match"}
+_MATCH_OUTCOME_ONLY_FIELDS = {
+    "attendance", "match_stats", "event_timeline", "player_of_the_match",
+    # Confirmed live: sofascore.py's _extract_set_piece_goals/
+    # _extract_shotmap_stats deliberately return a zero-filled
+    # SetPieceGoals/ShotmapStats -- never None -- for an unplayed match
+    # ("empty (not null) for the not-yet-played upcoming match, same as
+    # other match-in-progress fields", per that function's own
+    # docstring). _is_populated treats any dataclass as populated
+    # unconditionally, so without this exclusion these two fields
+    # always counted as "populated" for every unplayed fixture
+    # regardless of how far out kickoff was -- fake data indistinguishable
+    # from a genuinely-played, zero-set-pieces match.
+    "set_piece_goals", "shotmap_stats",
+}
 
 # Lineup/bench/formation are NOT outcome-only, despite feeling similar:
 # Sofascore's own lineups payload goes absent -> predicted -> confirmed

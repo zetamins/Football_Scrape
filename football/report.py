@@ -53,6 +53,15 @@ _LINEUP_PLAYER_OUTCOME_FIELDS = [
 ]
 _LINEUP_LIST_FIELDS = ["home_lineup", "away_lineup", "home_bench", "away_bench"]
 
+# set_piece_goals/shotmap_stats are the one pair in _MATCH_OUTCOME_ONLY_
+# FIELDS that is_empty_value can never catch: sofascore.py's extraction
+# functions deliberately return a zero-filled dataclass, not None, for
+# an unplayed match (confirmed live -- {'home': {'corner': 0, ...}, ...}
+# survives the generic None/[]/"" check untouched). They need an
+# unconditional drop when the match hasn't kicked off, not an emptiness
+# check -- the "empty" shape here IS the populated shape.
+_ALWAYS_PRUNE_WHEN_UNPLAYED = {"set_piece_goals", "shotmap_stats"}
+
 
 def _prune_unplayed_match_fields(match_dict: dict[str, Any]) -> dict[str, Any]:
     if match_dict.get("status") not in _NOT_STARTED_STATUSES:
@@ -64,6 +73,8 @@ def _prune_unplayed_match_fields(match_dict: dict[str, Any]) -> dict[str, Any]:
     for field in _JSON_ONLY_OUTCOME_FIELDS:
         if field in match_dict and is_empty_value(match_dict[field]):
             del match_dict[field]
+    for field in _ALWAYS_PRUNE_WHEN_UNPLAYED:
+        match_dict.pop(field, None)
     return match_dict
 
 

@@ -79,11 +79,40 @@ def test_completeness_still_counts_lineup_and_bench_info_for_an_unplayed_match()
     result_finished = compute_data_completeness(merged_finished, insights)
 
     # The not-started total is still smaller than finished's -- but only
-    # by the 4 TRUE outcome-only fields (attendance, match_stats,
-    # event_timeline, player_of_the_match), not by lineup/bench/
-    # formation/bench_info too. If those were still being excluded
-    # pre-kickoff, the gap would be larger than 4.
-    assert result_finished["total"] - result_not_started["total"] == 4
+    # by the 6 TRUE outcome-only fields (attendance, match_stats,
+    # event_timeline, player_of_the_match, set_piece_goals,
+    # shotmap_stats), not by lineup/bench/formation/bench_info too. If
+    # those were still being excluded pre-kickoff, the gap would be
+    # larger than 6.
+    assert result_finished["total"] - result_not_started["total"] == 6
+
+
+def test_completeness_ignores_set_piece_goals_zero_shell_for_an_unplayed_match():
+    # sofascore.py's _extract_set_piece_goals/_extract_shotmap_stats
+    # deliberately return a zero-filled dataclass, never None, for an
+    # unplayed match (confirmed live) -- _is_populated treats any
+    # dataclass as populated unconditionally, so without excluding these
+    # two from the not-started denominator they'd always look
+    # "populated" even though nothing was actually fetched/computed.
+    from football.types import SetPieceGoals, SetPieceGoalCounts, ShotmapStats, ShotmapSideStats
+
+    zero_shell = SetPieceGoals(home=SetPieceGoalCounts(corner=0, penalty=0, free_kick=0), away=SetPieceGoalCounts(corner=0, penalty=0, free_kick=0))
+    zero_shotmap = ShotmapStats(
+        home=ShotmapSideStats(non_penalty_xg=0, set_piece_xg=0, penalties_awarded=0),
+        away=ShotmapSideStats(non_penalty_xg=0, set_piece_xg=0, penalties_awarded=0),
+    )
+    merged_with_shell = _all_none(MatchDetails, status="notstarted", set_piece_goals=zero_shell, shotmap_stats=zero_shotmap)
+    merged_without = _all_none(MatchDetails, status="notstarted", set_piece_goals=None, shotmap_stats=None)
+    insights = _all_none(MatchInsights)
+
+    result_with = compute_data_completeness(merged_with_shell, insights)
+    result_without = compute_data_completeness(merged_without, insights)
+
+    # Same total either way (both excluded from the denominator while
+    # not-started), and the same populated count -- the zero shell must
+    # NOT count as populated data for an unplayed match.
+    assert result_with["total"] == result_without["total"]
+    assert result_with["populated"] == result_without["populated"]
 
 
 def test_completeness_counts_a_real_checked_empty_card_risks_list_as_populated():
