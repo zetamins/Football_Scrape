@@ -72,51 +72,47 @@ def _normalize(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
-# Goal.com-specific slug overrides: normalized team name -> the exact
-# slug to search for instead, checked before the alias loop below.
-# Confirmed live: team_aliases.py's canonical alias for "Liverpool" is
-# "Liverpool FC", normalizing to "liverpool fc" -- Goal.com has no
-# "liverpool-fc" slug at all, so the exact-match branch misses, but the
-# SUBSTRING branch right after it doesn't: "liverpool fc" is contained
-# in the normalized form of "liverpool-fc-women" ("liverpool fc women"),
-# so that becomes the first (and only, since the loop returns on the
-# first alias that yields any candidate) candidate tried -- the men's
-# team's own bare "liverpool" slug, a separate and more precise entry,
-# is never reached. get_goal_matches("Liverpool") returned 36 fixtures,
-# ALL of them Liverpool FC Women's WSL/FA Cup matches, none of them the
-# men's Premier League team -- same bug class as fotmob.py's Uruguayan-
-# club collision, different mechanism (a substring false-positive here,
-# not a colliding exact match).
-_GOAL_SLUG_OVERRIDE: dict[str, str] = {
-    "liverpool": "liverpool",
-    "liverpool fc": "liverpool",
-}
-
-
 def _find_best_team_match(entries: list[_TeamIndexEntry], team_name: str) -> _TeamIndexEntry | None:
-    override_slug = _GOAL_SLUG_OVERRIDE.get(_normalize(team_name))
-    if override_slug:
-        exact = next((e for e in entries if e.slug == override_slug), None)
-        if exact:
-            return exact
-
-    # Try the searched name and every known alias (team_aliases.py) before
-    # falling back to reverse-substring guessing -- see fotmob.py's own
-    # copy of this fix for the exact failure mode (a connective word like
-    # "and" in the canonical name breaking the forward substring match and
-    # falling through to an unrelated short-slug false match). Same risk
-    # applies here since this is the same index+substring pattern.
-    for target in known_aliases_for(team_name):
+    # Exact-match pass across EVERY known alias (team_aliases.py) before
+    # ANY substring fallback for ANY alias -- trying each alias
+    # sequentially (exact-match THEN substring-fallback, returning on the
+    # first alias that yields anything) is unsafe: the canonical alias is
+    # usually tried first, and if ITS substring fallback happens to match
+    # a longer, wrong same-club-family entity (a women's/reserve/youth
+    # side), that wrong match returns before a later, more specific alias
+    # ever gets a chance at its own exact match. Confirmed live as exactly
+    # the mechanism behind get_goal_matches("Liverpool") previously
+    # returning 36 fixtures, ALL of them Liverpool FC Women's WSL/FA Cup
+    # matches: "liverpool fc" (the canonical alias, tried first) has no
+    # exact Goal.com slug, but IS a substring of "liverpool-fc-women"'s
+    # normalized form, so that wrong match returned before the shorter
+    # "liverpool" alias (which exact-matches the real men's club) was ever
+    # tried. A hardcoded per-team slug override previously patched this
+    # specific case; removed after confirming live that this general fix
+    # alone -- checked here, exact-match across every alias before any
+    # substring fallback -- already resolves it correctly without one
+    # (unlike fotmob.py, where the equivalent override is still required;
+    # see the comment there for why that case is genuinely different).
+    # soccerdesk.py/three65scores.py already use this safer
+    # exact-match-across-everything-first pattern; this brings goal.py in
+    # line with it instead of relying on a per-team override list that
+    # has to be extended by hand for every future collision found.
+    known = known_aliases_for(team_name)
+    for target in known:
         target_slug = target.replace(" ", "-")
-
         exact = next((e for e in entries if e.slug == target_slug), None)
         if exact:
             return exact
 
-        candidates = [e for e in entries if target in _normalize(e.slug)]
-        if candidates:
-            candidates.sort(key=lambda e: len(e.slug))
-            return candidates[0]
+    # No exact match for any alias -- pool substring candidates across
+    # EVERY alias (not just the first one that had any hits) before
+    # picking, same principle as the exact-match pass above.
+    candidates = []
+    for target in known:
+        candidates.extend(e for e in entries if target in _normalize(e.slug))
+    if candidates:
+        candidates.sort(key=lambda e: len(e.slug))
+        return candidates[0]
 
     # Reverse direction: Sofascore's official name is sometimes longer than
     # this source's short slug ("Girona FC" vs slug "girona") -- a 4-char

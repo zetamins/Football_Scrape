@@ -31,6 +31,50 @@ def test_liverpool_resolves_to_the_english_club_not_the_uruguayan_one():
     assert match.slug == "liverpool"
 
 
+def test_general_algorithm_prefers_a_later_aliass_exact_match_over_an_earlier_aliass_substring():
+    # Same structural fix as goal.py's equivalent test, using
+    # team_aliases.py's "leicester city" -> "leicester" pair: the
+    # canonical alias ("leicester-city", tried first) would
+    # substring-match a longer, wrong entity if checked in isolation, but
+    # the exact-match pass now runs across every alias before any
+    # substring fallback runs for any of them.
+    entries = [
+        _entry("real", "leicester"),
+        _entry("wrong", "leicester-city-academy"),
+    ]
+    match = _find_best_team_match(entries, "Leicester City")
+    assert match is not None
+    assert match.id == "real"
+
+
+def test_override_is_still_required_for_liverpool_unlike_goal_dot_com():
+    # Confirmed live by temporarily clearing _FOTMOB_SLUG_OVERRIDE and
+    # re-running the Liverpool case above: unlike goal.py (where the
+    # equivalent override turned out to be fully redundant with the
+    # general fix and was removed), Fotmob's Uruguayan club holds a
+    # GENUINE exact slug "liverpool-fc" -- not a substring false-positive
+    # -- so even a full exact-match-across-every-alias pass hits that
+    # real, exact, wrong match on the canonical alias before the shorter
+    # "liverpool" alias (tried second) is ever reached. This test proves
+    # the override is load-bearing, not belt-and-braces -- if it were
+    # ever removed under the assumption the general fix alone covers it,
+    # this would catch the regression.
+    from football.sites.fotmob import _FOTMOB_SLUG_OVERRIDE
+
+    entries = [
+        _entry(8650, "liverpool"),
+        _entry(2219, "liverpool-fc"),
+    ]
+    saved = dict(_FOTMOB_SLUG_OVERRIDE)
+    _FOTMOB_SLUG_OVERRIDE.clear()
+    try:
+        match = _find_best_team_match(entries, "Liverpool")
+        assert match is not None
+        assert match.id == 2219  # the WRONG club -- proves the override is necessary
+    finally:
+        _FOTMOB_SLUG_OVERRIDE.update(saved)
+
+
 def test_other_teams_still_resolve_via_the_normal_alias_exact_match():
     # The override table is scoped to specific known collisions -- this
     # confirms it doesn't interfere with the general case.
