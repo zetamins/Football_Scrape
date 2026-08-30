@@ -14,6 +14,8 @@ def _base_match(status: str) -> dict:
         "player_of_the_match": None,
         "home_bench": [],
         "away_bench": [],
+        "home_formation": "",
+        "away_formation": "",
         "home_lineup": [
             {
                 "name": "Player A",
@@ -46,7 +48,7 @@ def test_prunes_outcome_only_fields_for_not_started_match():
     for field in (
         "home_score", "away_score", "home_score_ht", "away_score_ht",
         "attendance", "match_stats", "event_timeline", "player_of_the_match",
-        "home_bench", "away_bench",
+        "home_bench", "away_bench", "home_formation", "away_formation",
     ):
         assert field not in result
 
@@ -80,3 +82,18 @@ def test_never_deletes_populated_score_even_if_status_not_started():
     result = _prune_unplayed_match_fields(match)
     assert result["home_score"] == 1
     assert result["away_score"] == 0
+
+
+def test_never_deletes_a_real_early_confirmed_formation():
+    # Regression coverage: home_formation/away_formation are
+    # Optional[str], so an unplayed match's genuinely-empty value is ""
+    # not None -- the pruning check previously only recognized None/[]
+    # as "empty", so these two fields silently survived pruning as
+    # pointless empty strings (confirmed live). Also confirms a REAL
+    # early-announced formation is never discarded just because the
+    # match hasn't kicked off yet.
+    match = _base_match("notstarted")
+    match["home_formation"] = "4-3-3"
+    result = _prune_unplayed_match_fields(match)
+    assert result["home_formation"] == "4-3-3"
+    assert "away_formation" not in result
