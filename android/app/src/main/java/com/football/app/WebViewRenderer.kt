@@ -40,6 +40,21 @@ import java.util.concurrent.atomic.AtomicLong
  * bridge at all -- doesn't have this failure mode, so it replaces
  * addJavascriptInterface entirely rather than trying to fix the binding
  * timing further.
+ *
+ * The onPageStarted/onPageFinished/onReceivedError/onReceivedHttpError
+ * logging below is kept permanently, not left over from debugging: it's
+ * what actually diagnosed why worldfootball.net's navigation time varies
+ * so widely (14s in some runs, still not settled at 90s in others) --
+ * the page carries a long chain of third-party ad/tracking requests
+ * (Sparteo, SmileWanted, Missena, LoopMe, SmartAdServer, ...) that
+ * frequently 403/429/502 or hang, and onPageFinished's timing tracks
+ * THEIR completion, not Cloudflare's own challenge (which resolves in a
+ * fairly consistent ~2-4s once triggered) or anything about the real
+ * content (the referee table) being ready. Not something this bridge
+ * can fix from here -- browser.py's Android goto()-timeout floor exists
+ * because of exactly this, and this logging is what a future fix (e.g.
+ * polling for the real content directly instead of trusting
+ * onPageFinished) would need to build on.
  */
 class WebViewRenderer(private val context: Context) {
     private var webView: WebView? = null
@@ -67,15 +82,32 @@ class WebViewRenderer(private val context: Context) {
             val wv = WebView(context)
             wv.settings.javaScriptEnabled = true
             wv.settings.domStorageEnabled = true
-            wv.settings.userAgentString = userAgent
+            // A blank userAgent (the Python side now always sends "" --
+            // see _WebViewBrowser.new_context()'s comment) leaves
+            // WebView's own default UA in place, rather than overriding
+            // it with a string built for real desktop Chrome under
+            // Playwright.
+            if (userAgent.isNotBlank()) {
+                wv.settings.userAgentString = userAgent
+            }
             wv.webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     isNavigating = true
+                    android.util.Log.d("WebViewRenderer", "onPageStarted: $url")
                 }
 
                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                     isNavigating = false
                     lastPageFinishedAt = System.currentTimeMillis()
+                    android.util.Log.d("WebViewRenderer", "onPageFinished: $finishedUrl")
+                }
+
+                override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                    android.util.Log.d("WebViewRenderer", "onReceivedError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} code=${error?.errorCode} desc=${error?.description}")
+                }
+
+                override fun onReceivedHttpError(view: WebView?, request: android.webkit.WebResourceRequest?, errorResponse: android.webkit.WebResourceResponse?) {
+                    android.util.Log.d("WebViewRenderer", "onReceivedHttpError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} status=${errorResponse?.statusCode}")
                 }
             }
             webView = wv

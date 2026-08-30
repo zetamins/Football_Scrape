@@ -41,8 +41,14 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser
 
 _DEFAULT_TIMEOUT_MS = 30000
-# See _WebViewPage.goto()'s comment -- confirmed live this matters.
-_ANDROID_MIN_GOTO_TIMEOUT_MS = 60000
+# See _WebViewPage.goto()'s comment. Not a guess: live navigation-event
+# logging against worldfootball.net (Cloudflare-protected) showed its
+# challenge triggering a second same-URL navigation that took ~51s
+# end-to-end to complete on this emulator's constrained CPU -- a 60000ms
+# floor passed by a matter of seconds in that run and failed outright in
+# earlier ones. 90s gives real margin above the observed worst case
+# rather than sitting right at its edge.
+_ANDROID_MIN_GOTO_TIMEOUT_MS = 90000
 
 
 def _is_android() -> bool:
@@ -116,7 +122,21 @@ class _WebViewBrowser:
         self._renderer = renderer
 
     async def new_context(self, user_agent: Optional[str] = None) -> _WebViewContext:
-        await asyncio.to_thread(self._renderer.open, user_agent or "")
+        # Deliberately NOT passing user_agent through, even though every
+        # call site sets one -- they all use http.py's USER_AGENT, a
+        # desktop Windows Chrome string, chosen when this project only
+        # targeted Playwright's real desktop Chromium. Overriding WebView's
+        # own UA with that string produces a fingerprint that CLAIMS
+        # desktop Windows Chrome while every other signal (touch events,
+        # mobile screen dimensions, navigator.platform, Android's own TLS
+        # stack) still says Android -- a strong, well-known bot-detection
+        # trigger, and a very plausible explanation for goto() hanging
+        # against Cloudflare-protected sites specifically (worldfootball.net
+        # confirmed live) far longer than the challenge itself should take.
+        # WebView's own default UA already correctly, consistently
+        # describes itself as Android Chrome, matching every other signal
+        # it presents -- so it's used unmodified here instead.
+        await asyncio.to_thread(self._renderer.open, "")
         return _WebViewContext(self._renderer)
 
     async def close(self) -> None:

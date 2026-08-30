@@ -34,11 +34,20 @@ class _FakeRenderer:
         pass
 
 
-def test_new_context_opens_renderer_with_user_agent():
+def test_new_context_never_overrides_webviews_own_user_agent():
+    # Confirmed live: overriding WebView's UA with the desktop Chrome
+    # string every call site passes (http.py's USER_AGENT, chosen for
+    # Playwright's real desktop Chromium) produces a fingerprint that
+    # claims desktop Windows while every other WebView signal (touch
+    # events, mobile screen, Android's TLS stack) still says Android --
+    # a strong bot-detection trigger against Cloudflare-protected sites.
+    # WebView's own default UA is used instead, regardless of what the
+    # caller asks for -- the parameter stays accepted for Playwright
+    # interface parity, just intentionally unused on this backend.
     renderer = _FakeRenderer()
     browser = _WebViewBrowser(renderer)
     ctx = asyncio.run(browser.new_context(user_agent="TestAgent/1.0"))
-    assert renderer.opened_with == "TestAgent/1.0"
+    assert renderer.opened_with == ""
     assert isinstance(ctx, _WebViewContext)
 
 
@@ -60,22 +69,24 @@ def test_goto_succeeds_silently_when_renderer_reports_loaded():
 def test_goto_floors_a_short_caller_timeout():
     # Confirmed live: worldfootball.py hard-codes timeout=30000 (written
     # against desktop Playwright), but WebView under an Android emulator
-    # measurably needs longer for the same Cloudflare-protected site.
+    # measurably needs longer for the same Cloudflare-protected site --
+    # navigation-event logging showed its challenge's second same-URL
+    # navigation taking ~51s end-to-end on this emulator's constrained CPU.
     renderer = _FakeRenderer()
     renderer.goto_result = True
     page = _WebViewPage(renderer)
     asyncio.run(page.goto("https://example.com", timeout=30000))
     url, effective_timeout = renderer.goto_calls[0]
-    assert effective_timeout >= 60000
+    assert effective_timeout >= 90000
 
 
 def test_goto_does_not_shrink_an_already_generous_caller_timeout():
     renderer = _FakeRenderer()
     renderer.goto_result = True
     page = _WebViewPage(renderer)
-    asyncio.run(page.goto("https://example.com", timeout=120000))
+    asyncio.run(page.goto("https://example.com", timeout=150000))
     _url, effective_timeout = renderer.goto_calls[0]
-    assert effective_timeout == 120000
+    assert effective_timeout == 150000
 
 
 def test_goto_raises_when_renderer_reports_not_loaded():
