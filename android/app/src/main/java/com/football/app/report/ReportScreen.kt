@@ -1,16 +1,26 @@
 package com.football.app.report
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
@@ -21,7 +31,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.football.app.data.AppJson
 import com.football.app.data.model.InsightsDiscipline
@@ -60,7 +72,17 @@ import kotlinx.serialization.json.JsonElement
 @Composable
 fun ReportScreen(viewModel: ReportViewModel) {
     val state by viewModel.state.collectAsState()
-    val report = (state as? SearchState.Success)?.report
+    val success = state as? SearchState.Success
+    val report = success?.report
+
+    val context = LocalContext.current
+    val saveJsonLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val rawJson = success?.rawJson
+        if (uri != null && rawJson != null) {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(rawJson.toByteArray()) }
+            Toast.makeText(context, "Saved.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (report == null) {
@@ -83,9 +105,21 @@ fun ReportScreen(viewModel: ReportViewModel) {
         val opponentProfile = remember(report.opponentProfile) { decodeTeamProfile(report.opponentProfile) }
         val squadStrength = remember(report.insights) { decodeInsightsSquadStrength(report.insights) }
 
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
-            Text(report.team, style = MaterialTheme.typography.headlineMedium)
-            Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(report.team, style = MaterialTheme.typography.headlineMedium)
+                Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall)
+            }
+            IconButton(onClick = {
+                val safeTeam = report.team.replace(Regex("[^A-Za-z0-9]+"), "_")
+                saveJsonLauncher.launch("${safeTeam}_report.json")
+            }) {
+                Icon(Icons.Default.Download, contentDescription = "Download JSON")
+            }
         }
 
         if (match != null) {

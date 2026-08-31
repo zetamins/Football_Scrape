@@ -35,7 +35,7 @@ class ReportRepository {
                     onState(SearchState.Loading(sources = sourcesSeen.toList(), message = ""))
                 },
             )
-            onState(SearchState.Success(AppJsonTopLevel.decodeFromString(ReportJson.serializer(), json)))
+            onState(SearchState.Success(AppJsonTopLevel.decodeFromString(ReportJson.serializer(), json), json))
         } catch (e: PyException) {
             onState(SearchState.Error(e.message ?: "Search failed"))
         } catch (e: SerializationException) {

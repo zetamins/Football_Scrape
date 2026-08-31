@@ -1,5 +1,6 @@
 package com.football.app.search
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,7 +35,7 @@ import com.football.app.report.SearchState
 import com.football.app.ui.theme.AppTheme
 
 @Composable
-fun SearchScreen(viewModel: ReportViewModel, onReportReady: () -> Unit) {
+fun SearchScreen(viewModel: ReportViewModel, onReportReady: () -> Unit, onHistoryClick: () -> Unit) {
     val state by viewModel.state.collectAsState()
     var teamName by remember { mutableStateOf("") }
 
@@ -51,7 +54,16 @@ fun SearchScreen(viewModel: ReportViewModel, onReportReady: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(48.dp))
-        Text("Football", style = MaterialTheme.typography.headlineMedium)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                "Football",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            IconButton(onClick = onHistoryClick, modifier = Modifier.align(Alignment.CenterEnd)) {
+                Icon(Icons.Default.History, contentDescription = "History")
+            }
+        }
         Spacer(Modifier.height(32.dp))
 
         OutlinedTextField(
