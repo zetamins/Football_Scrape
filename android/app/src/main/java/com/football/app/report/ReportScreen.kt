@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,7 +71,7 @@ import kotlinx.serialization.json.JsonElement
  * transition).
  */
 @Composable
-fun ReportScreen(viewModel: ReportViewModel) {
+fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val success = state as? SearchState.Success
     val report = success?.report
@@ -114,11 +115,16 @@ fun ReportScreen(viewModel: ReportViewModel) {
                 Text(report.team, style = MaterialTheme.typography.headlineMedium)
                 Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall)
             }
-            IconButton(onClick = {
-                val safeTeam = report.team.replace(Regex("[^A-Za-z0-9]+"), "_")
-                saveJsonLauncher.launch("${safeTeam}_report.json")
-            }) {
-                Icon(Icons.Default.Download, contentDescription = "Download JSON")
+            Row {
+                IconButton(onClick = onHistoryClick) {
+                    Icon(Icons.Default.History, contentDescription = "History")
+                }
+                IconButton(onClick = {
+                    val safeTeam = report.team.replace(Regex("[^A-Za-z0-9]+"), "_")
+                    saveJsonLauncher.launch("${safeTeam}_report.json")
+                }) {
+                    Icon(Icons.Default.Download, contentDescription = "Download JSON")
+                }
             }
         }
 

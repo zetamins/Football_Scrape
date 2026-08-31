@@ -59,7 +59,10 @@ fun FootballNavHost(navController: NavHostController = rememberNavController()) 
             )
         }
         composable(Destinations.REPORT) {
-            ReportScreen(viewModel = reportViewModel)
+            ReportScreen(
+                viewModel = reportViewModel,
+                onHistoryClick = { navController.navigate(Destinations.HISTORY) },
+            )
         }
         composable(Destinations.HISTORY) {
             HistoryScreen(
