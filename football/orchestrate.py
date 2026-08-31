@@ -460,10 +460,6 @@ async def run_search(
         except Exception:  # noqa: BLE001
             merged.betting_odds = None
 
-        insights_result.prediction = compute_match_prediction(
-            merged.betting_odds, insights_result.home_elo_rating, insights_result.away_elo_rating
-        )
-
         # Candidate names are each team's OWN recent competitions, not the
         # upcoming match's specific competition.
         from .merge import enrich_squad_with_defensive_stats
@@ -521,6 +517,27 @@ async def run_search(
         opponent_squad_strength = ins.compute_squad_strength(opponent_profile.squad if opponent_profile else None, opponent_profile.injuries if opponent_profile else None, merged.away_suspended_players if own_is_home else merged.home_suspended_players)
         insights_result.home_squad_strength = own_squad_strength if own_is_home else opponent_squad_strength
         insights_result.away_squad_strength = opponent_squad_strength if own_is_home else own_squad_strength
+
+        # After squad_strength (needs the fully-enriched squad/injuries
+        # above) and rest_comparison (already set inside insights_result
+        # by compute_insights near the top of this function) are both
+        # available -- see prediction.py's own module docstring for why
+        # rest-days and available-squad-value specifically feed the
+        # heuristic model, and why xg_model is deliberately computed
+        # without them.
+        home_rest_days = own_rest_days if own_is_home else opponent_context.rest_days
+        away_rest_days = opponent_context.rest_days if own_is_home else own_rest_days
+        insights_result.prediction = compute_match_prediction(
+            merged.betting_odds,
+            insights_result.home_elo_rating,
+            insights_result.away_elo_rating,
+            home_rest_days,
+            away_rest_days,
+            insights_result.home_squad_strength,
+            insights_result.away_squad_strength,
+            insights_result.home_xg_estimate,
+            insights_result.away_xg_estimate,
+        )
 
         own_rotation = await ins.compute_rotation_info(team_name, merged.base_source, matches_by_source.get(form_source, []) if form_source else [])
         opponent_rotation = (

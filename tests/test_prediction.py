@@ -1,5 +1,5 @@
 from football.prediction import compute_match_prediction
-from football.types import BettingOdds, EloRating
+from football.types import BettingOdds, EloRating, SeasonXGEstimate, SquadStrengthInfo
 
 
 def _elo(value: float) -> EloRating:
@@ -11,6 +11,20 @@ def _odds(home_pct, draw_pct, away_pct) -> BettingOdds:
         home_win_odds=None, draw_odds=None, away_win_odds=None,
         home_win_implied_pct=home_pct, draw_implied_pct=draw_pct, away_win_implied_pct=away_pct,
         over_2_5_odds=None, under_2_5_odds=None,
+    )
+
+
+def _xg(xg_for: float, xg_against: float, sample_size: int = 10) -> SeasonXGEstimate:
+    return SeasonXGEstimate(
+        sample_size=sample_size, xg_for=xg_for, xg_against=xg_against,
+        actual_goals_for=0, actual_goals_against=0, source="fotmob",
+    )
+
+
+def _strength(total_value: float, available_value: float) -> SquadStrengthInfo:
+    return SquadStrengthInfo(
+        total_value=total_value, attack_value=None, midfield_value=None,
+        defense_value=None, goalkeeper_value=None, available_value=available_value,
     )
 
 
@@ -58,3 +72,109 @@ def test_both_methods_populate_independently_when_both_available():
     result = compute_match_prediction(_odds(50.0, 25.0, 25.0), _elo(1500), _elo(1500))
     assert result.market_implied is not None
     assert result.heuristic_blend is not None
+
+
+# -- rest-day adjustment --------------------------------------------------
+
+def test_more_rested_home_team_gets_a_higher_win_share_than_equal_rest():
+    baseline = compute_match_prediction(None, _elo(1500), _elo(1500), 3, 3).heuristic_blend
+    rested = compute_match_prediction(None, _elo(1500), _elo(1500), 6, 1).heuristic_blend
+    assert rested.home_win_pct > baseline.home_win_pct
+    assert rested.away_win_pct < baseline.away_win_pct
+
+
+def test_rest_adjustment_is_capped_not_unbounded():
+    # 5 days' worth (the cap) vs. a much larger 20-day gap should land on
+    # the same probabilities -- proves the cap actually engages rather
+    # than just being a documentation comment.
+    capped = compute_match_prediction(None, _elo(1500), _elo(1500), 8, 3).heuristic_blend
+    far_beyond_cap = compute_match_prediction(None, _elo(1500), _elo(1500), 28, 3).heuristic_blend
+    assert capped.home_win_pct == far_beyond_cap.home_win_pct
+
+
+def test_missing_rest_days_leaves_heuristic_blend_unchanged():
+    baseline = compute_match_prediction(None, _elo(1500), _elo(1500)).heuristic_blend
+    with_partial_data = compute_match_prediction(None, _elo(1500), _elo(1500), 6, None).heuristic_blend
+    assert baseline.home_win_pct == with_partial_data.home_win_pct
+
+
+# -- availability (injury) adjustment --------------------------------------
+
+def test_team_missing_squad_value_gets_a_lower_win_share():
+    full_strength = compute_match_prediction(
+        None, _elo(1500), _elo(1500), home_squad_strength=_strength(100_000_000, 100_000_000),
+    ).heuristic_blend
+    depleted = compute_match_prediction(
+        None, _elo(1500), _elo(1500), home_squad_strength=_strength(100_000_000, 60_000_000),
+    ).heuristic_blend
+    assert depleted.home_win_pct < full_strength.home_win_pct
+
+
+def test_availability_penalty_is_capped():
+    half_missing = compute_match_prediction(
+        None, _elo(1500), _elo(1500), home_squad_strength=_strength(100_000_000, 50_000_000),
+    ).heuristic_blend
+    almost_all_missing = compute_match_prediction(
+        None, _elo(1500), _elo(1500), home_squad_strength=_strength(100_000_000, 1_000_000),
+    ).heuristic_blend
+    # Both exceed the fraction where the cap engages (60 Elo points), so
+    # they should land on the same result, not scale further down.
+    assert half_missing.home_win_pct == almost_all_missing.home_win_pct
+
+
+def test_zero_total_value_does_not_crash_or_apply_a_penalty():
+    result = compute_match_prediction(
+        None, _elo(1500), _elo(1500), home_squad_strength=_strength(0, 0),
+    ).heuristic_blend
+    baseline = compute_match_prediction(None, _elo(1500), _elo(1500)).heuristic_blend
+    assert result.home_win_pct == baseline.home_win_pct
+
+
+# -- xg_model (Poisson) ----------------------------------------------------
+
+def test_xg_model_none_when_either_teams_xg_missing():
+    # odds also passed so the overall result isn't None outright (that
+    # "nothing at all available" case is covered separately above) --
+    # this test is specifically about xg_model staying None when only
+    # one side's xG estimate exists.
+    result = compute_match_prediction(_odds(50.0, 25.0, 25.0), None, None, home_xg=_xg(15.0, 10.0))
+    assert result.xg_model is None
+
+
+def test_xg_model_equal_attack_and_defense_still_favors_home_via_home_advantage():
+    # Same rates both sides -- only _HOME_ADVANTAGE_GOALS should separate them.
+    result = compute_match_prediction(None, None, None, home_xg=_xg(15.0, 12.0), away_xg=_xg(15.0, 12.0))
+    m = result.xg_model
+    assert m is not None
+    assert m.home_win_pct > m.away_win_pct
+    assert abs((m.home_win_pct + m.draw_pct + m.away_win_pct) - 100.0) < 0.5
+
+
+def test_xg_model_stronger_attack_and_weaker_opponent_defense_favors_that_side():
+    # Home team scores a lot (18/10), away team concedes a lot (25/10) --
+    # both push the same direction, so home should be heavily favored.
+    result = compute_match_prediction(
+        None, None, None,
+        home_xg=_xg(xg_for=18.0, xg_against=8.0, sample_size=10),
+        away_xg=_xg(xg_for=6.0, xg_against=25.0, sample_size=10),
+    )
+    m = result.xg_model
+    assert m.home_win_pct > 70.0
+
+
+def test_xg_model_zero_sample_size_returns_none_not_a_divide_by_zero():
+    result = compute_match_prediction(
+        None, None, None, home_xg=_xg(0.0, 0.0, sample_size=0), away_xg=_xg(15.0, 12.0),
+    )
+    assert result is None
+
+
+def test_all_three_methods_populate_independently():
+    result = compute_match_prediction(
+        _odds(50.0, 25.0, 25.0),
+        _elo(1500), _elo(1500),
+        home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0),
+    )
+    assert result.market_implied is not None
+    assert result.heuristic_blend is not None
+    assert result.xg_model is not None

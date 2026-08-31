@@ -10,14 +10,18 @@ data class WinProbabilities(
 )
 
 /**
- * Mirrors insights.prediction exactly -- confirmed shape from real
- * sample data (backend/output/brentford-2026-08-29T23-38-47-868Z.json):
- * marketImplied (from betting odds, when available) and heuristicBlend
- * (the backend's own Elo-based estimate). Both nullable independently --
- * either can be absent on its own (e.g. no odds found for this match).
+ * Mirrors insights.prediction exactly -- marketImplied (from betting
+ * odds, when available), heuristicBlend (Elo + rest/availability-
+ * adjusted, see prediction.py's own module doc for exactly which
+ * adjustments and why), and xgModel (an independent Poisson goal model
+ * from each team's own rolling xG rates, deliberately free of the
+ * rest/availability adjustments so it stays a clean third read). All
+ * three nullable independently -- any can be absent on its own (e.g. no
+ * odds found, or one team's xG estimate unavailable).
  */
 @Serializable
 data class Prediction(
     val marketImplied: WinProbabilities? = null,
     val heuristicBlend: WinProbabilities? = null,
+    val xgModel: WinProbabilities? = null,
 )

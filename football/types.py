@@ -1026,9 +1026,9 @@ class OutcomeProbabilities:
 
 @dataclass
 class MatchPrediction:
-    """Two independent methods, shown side by side rather than merged into
-    one number, so a reader can see where they agree or disagree instead
-    of trusting an opaque blend.
+    """Three independent methods, shown side by side rather than merged
+    into one number, so a reader can see where they agree or disagree
+    instead of trusting an opaque blend.
 
     market_implied: the de-vig implied probability from real bookmaker
     odds (football-data.co.uk's betting_odds, already fetched) --
@@ -1048,10 +1048,27 @@ class MatchPrediction:
     formula, with its draw parameter calibrated to football's commonly-
     cited ~25% average draw rate. Read this as "what a simple, documented
     formula built from signals we already compute says" -- a transparent
-    heuristic, not a claim of accuracy comparable to market_implied."""
+    heuristic, not a claim of accuracy comparable to market_implied.
+    Also folds in two small, capped, directional heuristic adjustments
+    (rest-days differential, available-squad-value differential) -- see
+    prediction.py's own doc comment for exactly why those two and not
+    others (e.g. head-to-head, discipline, weather), and for the
+    real research each is grounded in.
+
+    xg_model: a genuine Poisson goal model (Maher 1982 / the standard
+    academic approach Dixon & Coles 1997 refined) using each team's own
+    already-computed rolling xG-for/xG-against rates (insights.py's
+    SeasonXGEstimate, last 10 finished matches) as the expected-goals
+    inputs -- not a heuristic like the other two, an actual statistical
+    model of the thing being predicted (goals). None whenever either
+    team's xG estimate is unavailable. Deliberately kept free of the
+    rest/injury adjustments heuristic_blend applies, so this stays a
+    clean, independent read to compare against the other two rather than
+    a third copy of the same adjustments."""
 
     market_implied: Optional[OutcomeProbabilities]
     heuristic_blend: Optional[OutcomeProbabilities]
+    xg_model: Optional[OutcomeProbabilities] = None
 
 
 @dataclass

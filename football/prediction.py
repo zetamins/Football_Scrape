@@ -1,19 +1,60 @@
 """Combines already-computed signals into a match outcome prediction.
-Two independent methods, shown side by side rather than merged into one
+Three independent methods, shown side by side rather than merged into one
 opaque number -- see MatchPrediction's own doc comment in types.py for the
 full reasoning behind each and their real citations.
 
-Neither method here fetches anything new: market_implied reads the
-already-fetched football-data.co.uk betting_odds, and heuristic_blend
-reads the already-computed home/away EloRating (elo.py). Zero extra
-requests either way.
+None of the three methods here fetch anything new: market_implied reads
+the already-fetched football-data.co.uk betting_odds, heuristic_blend
+reads the already-computed home/away EloRating (elo.py) plus rest_days/
+squad_strength (both already computed by insights.py for the report's own
+Context/Squad tabs), and xg_model reads the already-computed rolling xG
+estimates (insights.py's SeasonXGEstimate). Zero extra requests for any
+of the three.
+
+Why rest-days and available-squad-value, and not the other signals this
+project already computes (head-to-head, card discipline, weather,
+manager tenure, set-piece threat)? Researched, not guessed, before
+adding this:
+
+- Rest/fixture-congestion: real, if not precisely quantified, evidence
+  that less-rested teams underperform (e.g. teams on 2-3 days' rest show
+  a measurable physical/tactical deficit vs. teams on 6+ days' rest in
+  published sports-science reviews of fixture congestion). No study
+  found gives a clean "N Elo points per rest-day" coefficient, so the
+  magnitude below is a modest, capped heuristic, not a fitted one --
+  same honesty standard elo.py's own goal-margin scaling already holds
+  itself to (that one's own comment: "not tuned").
+- Key-player availability: real evidence that injuries measurably move
+  bookmaker odds and player market value (published research: a 1%
+  higher probability of a serious injury is associated with a ~2.3%
+  market-value drop). No clean "N Elo points per €M of missing value"
+  coefficient exists either, so this is likewise a modest, capped
+  heuristic using the already-computed available_value/total_value
+  ratio (insights.py's SquadStrengthInfo) as the input.
+- Explicitly NOT folded into the outcome math: head-to-head record
+  (published research is consistent that standalone H2H is a weak
+  predictor once current team strength is already accounted for --
+  exactly what Elo and xG already are); card discipline, weather,
+  set-piece threat, and manager tenure (no research found quantifying
+  any of these as outcome-probability predictors specifically, as
+  opposed to their own narrower things -- discipline predicts cards,
+  not who wins). All four stay in the report as genuinely useful
+  context, just not as invented prediction-math inputs.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
-from .types import BettingOdds, EloRating, MatchPrediction, OutcomeProbabilities
+from .types import (
+    BettingOdds,
+    EloRating,
+    MatchPrediction,
+    OutcomeProbabilities,
+    SeasonXGEstimate,
+    SquadStrengthInfo,
+)
 
 # World Football Elo Ratings' (eloratings.net) publicly documented home-
 # advantage constant -- a widely-cited approximation (other sources cite
@@ -27,6 +68,44 @@ _HOME_ADVANTAGE_ELO_POINTS = 100.0
 # d = nu / (2 + nu) = 0.25 for two exactly-equal-strength teams), not a
 # league-specific or empirically-fitted value.
 _DAVIDSON_NU = 0.6667
+
+# Rest-day adjustment: direction supported by published fixture-congestion
+# research (see module docstring), magnitude is a modest, capped heuristic
+# -- 5 Elo points per day of rest advantage, capped at 5 days' worth so a
+# large rest gap (e.g. after an international break) can't dominate the
+# whole prediction on its own.
+_REST_DAY_ELO_POINTS = 5.0
+_REST_DAY_ELO_CAP = 25.0
+
+# Availability adjustment: direction supported by published injury/market-
+# value research (see module docstring), magnitude is a modest, capped
+# heuristic -- up to 60 Elo points off (roughly the same order of
+# magnitude as the home-advantage constant above, deliberately not
+# larger) for a team missing a large share of its squad's transfer value,
+# scaling linearly with the missing fraction below that cap.
+_AVAILABILITY_ELO_SCALE = 200.0
+_AVAILABILITY_ELO_CAP = 60.0
+
+# Poisson model: goal counts beyond this per side contribute negligible
+# probability mass for realistic football xG rates (a rate of 4.0, on the
+# high end of anything real, still has <0.1% mass beyond 10) -- capping
+# the summation here rather than an unbounded/analytic approach keeps the
+# implementation simple and dependency-free (no scipy).
+_POISSON_MAX_GOALS = 10
+
+# Home-advantage goal adjustment: the xG rates that feed this model
+# (insights.py's SeasonXGEstimate) are blended across a team's last 10
+# finished matches regardless of venue, so without this the Poisson model
+# would have no home advantage in it at all. A precise, per-league-fitted
+# home-goals bump (the standard way real Dixon-Coles implementations do
+# this) needs a historical result archive this project doesn't have --
+# same limitation elo.py's own docstring already states for its rating.
+# Deliberately kept small and explicit rather than fitted: multiple
+# practitioner sources describe home teams outscoring away teams by
+# roughly a few tenths of a goal per match on average across Europe's top
+# leagues; +/-0.15 sits within that commonly-cited range without claiming
+# more precision than a web-search-level source actually supports.
+_HOME_ADVANTAGE_GOALS = 0.15
 
 
 def _davidson_probabilities(home_elo: float, away_elo: float) -> OutcomeProbabilities:
@@ -49,8 +128,99 @@ def _davidson_probabilities(home_elo: float, away_elo: float) -> OutcomeProbabil
     )
 
 
+def _rest_elo_adjustment(own_rest_days: Optional[int], opponent_rest_days: Optional[int]) -> float:
+    """Positive means this side has the rest advantage, negative means
+    the opponent does. Zero (no adjustment) whenever either side's
+    rest-days figure is unknown -- an absent signal should never
+    silently become "even", which would be a fabricated data point, not
+    a documented default."""
+    if own_rest_days is None or opponent_rest_days is None:
+        return 0.0
+    diff_days = own_rest_days - opponent_rest_days
+    points = diff_days * _REST_DAY_ELO_POINTS
+    return max(-_REST_DAY_ELO_CAP, min(_REST_DAY_ELO_CAP, points))
+
+
+def _availability_elo_penalty(strength: Optional[SquadStrengthInfo]) -> float:
+    """Always <= 0 -- a penalty for the team's own missing squad value,
+    never a bonus. Zero whenever total/available value isn't known
+    (can't compute a missing fraction without both)."""
+    if strength is None or not strength.total_value or strength.total_value <= 0:
+        return 0.0
+    if strength.available_value is None:
+        return 0.0
+    missing_fraction = max(0.0, 1.0 - (strength.available_value / strength.total_value))
+    penalty = missing_fraction * _AVAILABILITY_ELO_SCALE
+    return -min(_AVAILABILITY_ELO_CAP, penalty)
+
+
+def _poisson_pmf(k: int, rate: float) -> float:
+    return math.exp(-rate) * (rate**k) / math.factorial(k)
+
+
+def _poisson_outcome_probabilities(home_rate: float, away_rate: float) -> OutcomeProbabilities:
+    """Maher (1982)'s independent-Poisson goal model -- the foundational
+    version of the approach Dixon & Coles (1997) later refined with a
+    low-score dependence correction. That correction's own dependence
+    parameter (rho) is normally fit from a large historical result
+    archive this project doesn't have (see elo.py's own docstring on the
+    same limitation for its rating), so this implementation is the plain
+    independent-Poisson version, not the full Dixon-Coles correction --
+    stated plainly rather than silently claiming more sophistication
+    than what's actually implemented."""
+    home_win = draw = away_win = 0.0
+    home_probs = [_poisson_pmf(i, home_rate) for i in range(_POISSON_MAX_GOALS + 1)]
+    away_probs = [_poisson_pmf(j, away_rate) for j in range(_POISSON_MAX_GOALS + 1)]
+    for i, p_i in enumerate(home_probs):
+        for j, p_j in enumerate(away_probs):
+            p = p_i * p_j
+            if i > j:
+                home_win += p
+            elif i == j:
+                draw += p
+            else:
+                away_win += p
+    total = home_win + draw + away_win  # ~1.0; the tiny excluded tail beyond _POISSON_MAX_GOALS is renormalized away here
+    if total <= 0:
+        return OutcomeProbabilities(home_win_pct=0.0, draw_pct=0.0, away_win_pct=0.0)
+    return OutcomeProbabilities(
+        home_win_pct=round(100 * home_win / total, 1),
+        draw_pct=round(100 * draw / total, 1),
+        away_win_pct=round(100 * away_win / total, 1),
+    )
+
+
+def _expected_goal_rates(home_xg: SeasonXGEstimate, away_xg: SeasonXGEstimate) -> Optional[tuple[float, float]]:
+    """Standard simple attack/defense blend (average "how many I usually
+    score" with "how many this opponent usually concedes") used across
+    most practical from-scratch Poisson-football implementations --
+    xg_for/xg_against are sums over sample_size matches (insights.py),
+    divided here to get each team's own per-game rate first. Then
+    _HOME_ADVANTAGE_GOALS is applied (see that constant's own comment) --
+    the only adjustment this model gets; unlike heuristic_blend it does
+    not receive the rest/availability adjustments, so it stays a clean
+    independent read."""
+    if home_xg.sample_size <= 0 or away_xg.sample_size <= 0:
+        return None
+    home_attack = home_xg.xg_for / home_xg.sample_size
+    home_defense = home_xg.xg_against / home_xg.sample_size
+    away_attack = away_xg.xg_for / away_xg.sample_size
+    away_defense = away_xg.xg_against / away_xg.sample_size
+    home_rate = max(0.05, (home_attack + away_defense) / 2 + _HOME_ADVANTAGE_GOALS)
+    away_rate = max(0.05, (away_attack + home_defense) / 2 - _HOME_ADVANTAGE_GOALS)
+    return home_rate, away_rate
+
+
 def compute_match_prediction(
-    betting_odds: Optional[BettingOdds], home_elo: Optional[EloRating], away_elo: Optional[EloRating]
+    betting_odds: Optional[BettingOdds],
+    home_elo: Optional[EloRating],
+    away_elo: Optional[EloRating],
+    home_rest_days: Optional[int] = None,
+    away_rest_days: Optional[int] = None,
+    home_squad_strength: Optional[SquadStrengthInfo] = None,
+    away_squad_strength: Optional[SquadStrengthInfo] = None,
+    home_xg: Optional[SeasonXGEstimate] = None,
+    away_xg: Optional[SeasonXGEstimate] = None,
 ) -> Optional[MatchPrediction]:
     market_implied: Optional[OutcomeProbabilities] = None
     if betting_odds and betting_odds.home_win_implied_pct is not None:
@@ -62,8 +232,24 @@ def compute_match_prediction(
 
     heuristic_blend: Optional[OutcomeProbabilities] = None
     if home_elo and away_elo:
-        heuristic_blend = _davidson_probabilities(home_elo.elo, away_elo.elo)
+        adjusted_home = (
+            home_elo.elo
+            + _rest_elo_adjustment(home_rest_days, away_rest_days)
+            + _availability_elo_penalty(home_squad_strength)
+        )
+        adjusted_away = (
+            away_elo.elo
+            + _rest_elo_adjustment(away_rest_days, home_rest_days)
+            + _availability_elo_penalty(away_squad_strength)
+        )
+        heuristic_blend = _davidson_probabilities(adjusted_home, adjusted_away)
 
-    if market_implied is None and heuristic_blend is None:
+    xg_model: Optional[OutcomeProbabilities] = None
+    if home_xg and away_xg:
+        rates = _expected_goal_rates(home_xg, away_xg)
+        if rates is not None:
+            xg_model = _poisson_outcome_probabilities(rates[0], rates[1])
+
+    if market_implied is None and heuristic_blend is None and xg_model is None:
         return None
-    return MatchPrediction(market_implied=market_implied, heuristic_blend=heuristic_blend)
+    return MatchPrediction(market_implied=market_implied, heuristic_blend=heuristic_blend, xg_model=xg_model)

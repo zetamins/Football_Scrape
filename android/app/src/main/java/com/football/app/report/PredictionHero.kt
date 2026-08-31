@@ -41,7 +41,7 @@ import kotlinx.serialization.json.JsonObject
 @Composable
 fun PredictionHero(insightsJson: JsonElement?, homeTeam: String, awayTeam: String) {
     val prediction = remember(insightsJson) { decodePrediction(insightsJson) } ?: return
-    if (prediction.marketImplied == null && prediction.heuristicBlend == null) return
+    if (prediction.marketImplied == null && prediction.heuristicBlend == null && prediction.xgModel == null) return
 
     // A gradient-fill hero, not a flat Card -- the single most prominent
     // element on the Report screen (shown above every tab), so it gets
@@ -62,7 +62,11 @@ fun PredictionHero(insightsJson: JsonElement?, homeTeam: String, awayTeam: Strin
             Spacer(Modifier.height(8.dp))
         }
         prediction.heuristicBlend?.let {
-            ProbabilityRow(label = "Model", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
+            ProbabilityRow(label = "Elo model", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
+            Spacer(Modifier.height(8.dp))
+        }
+        prediction.xgModel?.let {
+            ProbabilityRow(label = "xG model", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
         }
     }
 }
