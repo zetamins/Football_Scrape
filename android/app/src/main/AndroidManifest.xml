@@ -4,7 +4,8 @@
 
     <application
         android:allowBackup="true"
-        android:label="Football Backend"
+        android:label="DeepXI"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.FootballApp">
         <activity
             android:name=".MainActivity"

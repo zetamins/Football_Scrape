@@ -1,0 +1,28 @@
+<!--
+  Same mark as components/Logo.kt (a corner-kick arc + goal-frame
+  chevron), re-derived here as static path coordinates for the adaptive
+  icon. VectorDrawable can't share Canvas draw code directly.
+  Coordinates: Logo.kt's math (arc/chevron sized against the icon box,
+  corner-arc bottom-left, chevron top-right) applied to a 66x66 safe
+  zone centered in the 108x108 viewport (offset 21,21), matching the
+  adaptive-icon spec's mask-safe area.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M31.56,43.44 A33,33 0 0 1 64.56,76.44"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="8.1"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M48.72,40.8 L69.84,40.8 L69.84,61.92"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="8.1"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+</vector>

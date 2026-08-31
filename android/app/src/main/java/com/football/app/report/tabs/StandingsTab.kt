@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
+import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.InsightsStandings
 import com.football.app.data.model.StandingsTableRow
@@ -38,16 +39,6 @@ fun StandingsTab(
     }
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            content()
-        }
-    }
-}
 
 @Composable
 private fun StrengthSection(insights: InsightsStandings, homeTeam: String, awayTeam: String) {

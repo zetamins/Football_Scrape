@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -33,10 +35,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.football.app.components.TeamBadge
 import com.football.app.data.history.HistoryEntry
 import com.football.app.report.HistoryViewModel
 import com.football.app.report.ReportViewModel
 import com.football.app.report.SearchState
+import com.football.app.ui.theme.AppTheme
 
 /**
  * Lists every completed search (newest first), saved automatically by
@@ -145,10 +149,20 @@ private fun HistoryRow(entry: HistoryEntry, onOpen: () -> Unit, onDeleteRequest:
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
-                val title = if (entry.opponent != null) "${entry.team} vs ${entry.opponent}" else entry.team
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text("Generated ${entry.generatedAt}", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                TeamBadge(entry.team, AppTheme.colors.homeSeries, size = 30.dp)
+                if (entry.opponent != null) {
+                    Spacer(Modifier.width(4.dp))
+                    Text("vs", style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.width(4.dp))
+                    TeamBadge(entry.opponent, AppTheme.colors.awaySeries, size = 30.dp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    val title = if (entry.opponent != null) "${entry.team} vs ${entry.opponent}" else entry.team
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text("Generated ${entry.generatedAt}", style = MaterialTheme.typography.bodySmall)
+                }
             }
             IconButton(onClick = onDeleteRequest) {
                 Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")

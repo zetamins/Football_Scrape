@@ -24,6 +24,13 @@ data class AppColors(
     // slice) -- dataviz's own baseline/axis token, not a categorical or
     // status color, since a draw isn't "team identity" or "good/bad".
     val neutral: Color,
+    // Brand accent, not chart-categorical -- used for icons/badges/active
+    // indicators/live-status chips (the reference sports-app aesthetic's
+    // vibrant green), never for team identity or chart series. Validated
+    // for contrast against its own theme's surface (dataviz's method,
+    // scripts/validate_palette.js), not eyeballed -- see the commit that
+    // introduced this for the exact contrast numbers checked.
+    val brandBright: Color,
 )
 
 val LightAppColors = AppColors(
@@ -33,6 +40,7 @@ val LightAppColors = AppColors(
     statusWarning = Color(0xFFFAB219),
     statusCritical = Color(0xFFD03B3B),
     neutral = Color(0xFFC3C2B7),
+    brandBright = Color(0xFF3E8A24),
 )
 
 val DarkAppColors = AppColors(
@@ -44,6 +52,7 @@ val DarkAppColors = AppColors(
     statusWarning = Color(0xFFFAB219),
     statusCritical = Color(0xFFD03B3B),
     neutral = Color(0xFF383835),
+    brandBright = Color(0xFF8FD13F),
 )
 
 val LocalAppColors = staticCompositionLocalOf { LightAppColors }

@@ -1,5 +1,6 @@
 package com.football.app.report.tabs
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +18,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
+import com.football.app.components.SectionCard
+import com.football.app.components.DotPill
 import com.football.app.components.InfoRow
+import com.football.app.components.OutlinedPill
 import com.football.app.data.model.HeadToHeadSummary
 import com.football.app.data.model.MatchOverview
 import com.football.app.data.model.VenueDetails
@@ -51,16 +55,6 @@ fun OverviewTab(overview: MatchOverview, venueDetails: VenueDetails?, homeTeam: 
     }
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            content()
-        }
-    }
-}
 
 @Composable
 private fun MatchInfoSection(overview: MatchOverview) {
@@ -210,17 +204,42 @@ private fun OddsSection(overview: MatchOverview) {
     val odds = overview.bettingOdds ?: return
     SectionCard("Betting odds") {
         val moneyline = listOfNotNull(
-            odds.homeWinOdds?.let { "home $it" },
-            odds.drawOdds?.let { "draw $it" },
-            odds.awayWinOdds?.let { "away $it" },
+            odds.homeWinOdds?.let { Triple("Home", it, AppTheme.colors.homeSeries) },
+            odds.drawOdds?.let { Triple("Draw", it, AppTheme.colors.neutral) },
+            odds.awayWinOdds?.let { Triple("Away", it, AppTheme.colors.awaySeries) },
         )
-        if (moneyline.isNotEmpty()) InfoRow("Moneyline", moneyline.joinToString(" / "))
+        if (moneyline.isNotEmpty()) {
+            Text("Moneyline", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                moneyline.forEach { (label, value, dotColor) ->
+                    DotPill(
+                        text = "$label $value",
+                        dotColor = dotColor,
+                        borderColor = AppTheme.colors.brandBright,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         val overUnder = listOfNotNull(
-            odds.over25Odds?.let { "over 2.5: $it" },
-            odds.under25Odds?.let { "under 2.5: $it" },
+            odds.over25Odds?.let { "O 2.5" to it },
+            odds.under25Odds?.let { "U 2.5" to it },
         )
-        if (overUnder.isNotEmpty()) InfoRow("Over/under", overUnder.joinToString(" / "))
+        if (overUnder.isNotEmpty()) {
+            Text("Over/under", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                overUnder.forEach { (label, value) -> OddsPill(label, value) }
+            }
+        }
     }
+}
+
+@Composable
+private fun OddsPill(label: String, value: Double) {
+    OutlinedPill(text = "$label $value", borderColor = AppTheme.colors.brandBright, contentColor = MaterialTheme.colorScheme.onSurface)
 }
 
 @Composable

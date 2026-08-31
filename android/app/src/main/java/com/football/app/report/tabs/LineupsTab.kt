@@ -12,27 +12,26 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.football.app.charts.PitchDiagram
+import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.LineupPlayer
 import com.football.app.data.model.MatchLineups
 import com.football.app.ui.theme.AppTheme
 
 /**
- * frontend/DESIGN.md's Lineups & match detail tab. Starters/bench render
- * as grouped lists (name, position, shirt number) rather than a literal
- * pitch-diagram formation graphic -- the data-completeness pass across
- * all 9 tabs took priority this round; a real pitch layout (positioning
- * players by formation string + position) is a scoped-out visual
- * upgrade, not a missing requirement -- every field is still shown, just
- * not yet as a diagram.
+ * frontend/DESIGN.md's Lineups & match detail tab. Starting XIs render
+ * on a pitch diagram (PitchDiagram, positioned by formation string +
+ * G/D/M/F position), not a flat name list, plus season stats/bench/
+ * availability/match-detail sections below.
  */
 @Composable
 fun LineupsTab(lineups: MatchLineups, homeTeam: String, awayTeam: String) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         SeasonStatsSection(lineups, homeTeam, awayTeam)
         FormationsSection(lineups)
-        LineupSection("$homeTeam starting XI", lineups.homeLineup)
-        LineupSection("$awayTeam starting XI", lineups.awayLineup)
+        PitchSection("$homeTeam starting XI (${lineups.homeFormation ?: "?"})", lineups.homeLineup, lineups.homeFormation, AppTheme.colors.homeSeries)
+        PitchSection("$awayTeam starting XI (${lineups.awayFormation ?: "?"})", lineups.awayLineup, lineups.awayFormation, AppTheme.colors.awaySeries)
         BenchSection("$homeTeam bench", lineups.homeBench)
         BenchSection("$awayTeam bench", lineups.awayBench)
         UnavailableSection(homeTeam, lineups.homeSuspendedPlayers, lineups.homeMissingPlayers)
@@ -41,16 +40,6 @@ fun LineupsTab(lineups: MatchLineups, homeTeam: String, awayTeam: String) {
     }
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            content()
-        }
-    }
-}
 
 @Composable
 private fun SeasonStatsSection(lineups: MatchLineups, homeTeam: String, awayTeam: String) {
@@ -71,6 +60,21 @@ private fun FormationsSection(lineups: MatchLineups) {
     SectionCard("Formations") {
         InfoRow("Shape", "${lineups.homeFormation ?: "?"} vs ${lineups.awayFormation ?: "?"}")
         lineups.lineupConfirmed?.let { InfoRow("Confirmed", if (it) "Yes" else "Predicted") }
+    }
+}
+
+@Composable
+private fun PitchSection(title: String, players: List<LineupPlayer>?, formation: String?, teamColor: androidx.compose.ui.graphics.Color) {
+    if (players.isNullOrEmpty()) return
+    SectionCard(title) {
+        PitchDiagram(formation = formation, players = players, teamColor = teamColor)
+    }
+    // Pre-kickoff (the common case -- see LineupPlayer's own doc comment)
+    // every stat below is pruned to null, so this list would just repeat
+    // name/position/shirt the pitch diagram above already shows -- only
+    // worth its own section once there's real per-player stat data to add.
+    if (players.any { it.minutesPlayed != null || it.rating != null }) {
+        LineupSection("$title -- stats", players)
     }
 }
 

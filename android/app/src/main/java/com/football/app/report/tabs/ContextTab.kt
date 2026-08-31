@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.InsightsContext
 import com.football.app.data.model.PresenceEntry
@@ -30,16 +31,6 @@ fun ContextTab(insights: InsightsContext, homeTeam: String, awayTeam: String) {
     }
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            content()
-        }
-    }
-}
 
 @Composable
 private fun RestSection(insights: InsightsContext, homeTeam: String, awayTeam: String) {

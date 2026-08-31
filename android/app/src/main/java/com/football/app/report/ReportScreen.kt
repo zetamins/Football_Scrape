@@ -9,6 +9,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -23,8 +27,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -34,8 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.football.app.components.TeamBadge
 import com.football.app.data.AppJson
 import com.football.app.data.model.InsightsDiscipline
 import com.football.app.data.model.InsightsPerformance
@@ -59,6 +65,7 @@ import com.football.app.report.tabs.PerformanceTab
 import com.football.app.report.tabs.ProfileTab
 import com.football.app.report.tabs.SquadTab
 import com.football.app.report.tabs.StandingsTab
+import com.football.app.ui.theme.AppTheme
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 
@@ -113,9 +120,12 @@ fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
-                Text(report.team, style = MaterialTheme.typography.headlineMedium)
-                Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TeamBadge(report.team, AppTheme.colors.homeSeries, size = 36.dp)
+                Column(modifier = Modifier.padding(start = 10.dp)) {
+                    Text(report.team, style = MaterialTheme.typography.headlineMedium)
+                    Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall)
+                }
             }
             Row {
                 IconButton(onClick = onHistoryClick) {
@@ -136,12 +146,28 @@ fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
 
         var selectedTab by remember { mutableStateOf(ReportTab.OVERVIEW) }
 
-        ScrollableTabRow(selectedTabIndex = selectedTab.ordinal) {
+        // A scrollable row of pill buttons, not ScrollableTabRow's default
+        // underline indicator -- matches the reference's segmented-pill
+        // tab bar (active = solid brand fill, inactive = plain text) used
+        // throughout this session's reskin.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             ReportTab.entries.forEach { tab ->
-                Tab(
-                    selected = selectedTab == tab,
-                    onClick = { selectedTab = tab },
-                    text = { Text(tab.title) },
+                val selected = selectedTab == tab
+                Text(
+                    tab.title,
+                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { selectedTab = tab }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }
         }

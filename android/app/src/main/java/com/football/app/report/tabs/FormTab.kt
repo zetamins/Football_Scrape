@@ -17,6 +17,7 @@ import com.football.app.charts.FormGuideStrip
 import com.football.app.charts.LineTrend
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
+import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.FormSummary
 import com.football.app.ui.theme.AppTheme
@@ -47,16 +48,6 @@ private fun OneTeamForm(form: FormSummary) {
     NextFixturesSection(form)
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            content()
-        }
-    }
-}
 
 @Composable
 private fun StreakSection(form: FormSummary) {

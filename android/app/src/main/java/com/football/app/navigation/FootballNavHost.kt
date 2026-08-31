@@ -12,6 +12,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.football.app.data.history.HistoryRepository
 import com.football.app.history.HistoryScreen
+import com.football.app.onboarding.OnboardingPrefs
+import com.football.app.onboarding.OnboardingScreen
 import com.football.app.report.HistoryViewModel
 import com.football.app.report.ReportScreen
 import com.football.app.report.ReportViewModel
@@ -19,6 +21,7 @@ import com.football.app.search.SearchScreen
 import java.io.File
 
 object Destinations {
+    const val ONBOARDING = "onboarding"
     const val SEARCH = "search"
     const val REPORT = "report"
     const val HISTORY = "history"
@@ -32,6 +35,7 @@ fun FootballNavHost(navController: NavHostController = rememberNavController()) 
     // own storage).
     val context = LocalContext.current
     val historyRepository = remember { HistoryRepository(File(context.filesDir, "history")) }
+    val onboardingPrefs = remember { OnboardingPrefs(context) }
 
     // Shared across all three destinations, scoped to this NavHost's
     // default ViewModelStoreOwner (the hosting Activity) -- retrieved
@@ -50,7 +54,17 @@ fun FootballNavHost(navController: NavHostController = rememberNavController()) 
         factory = viewModelFactory { initializer { HistoryViewModel(historyRepository) } },
     )
 
-    NavHost(navController = navController, startDestination = Destinations.SEARCH) {
+    val startDestination = if (onboardingPrefs.hasSeenOnboarding) Destinations.SEARCH else Destinations.ONBOARDING
+
+    NavHost(navController = navController, startDestination = startDestination) {
+        composable(Destinations.ONBOARDING) {
+            OnboardingScreen(
+                onGetStarted = {
+                    onboardingPrefs.hasSeenOnboarding = true
+                    navController.navigate(Destinations.SEARCH) { popUpTo(Destinations.ONBOARDING) { inclusive = true } }
+                },
+            )
+        }
         composable(Destinations.SEARCH) {
             SearchScreen(
                 viewModel = reportViewModel,

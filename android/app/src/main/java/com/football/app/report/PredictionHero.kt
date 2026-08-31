@@ -1,17 +1,22 @@
 package com.football.app.report
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.Segment
@@ -38,25 +43,37 @@ fun PredictionHero(insightsJson: JsonElement?, homeTeam: String, awayTeam: Strin
     val prediction = remember(insightsJson) { decodePrediction(insightsJson) } ?: return
     if (prediction.marketImplied == null && prediction.heuristicBlend == null) return
 
-    Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Prediction", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(12.dp))
-            prediction.marketImplied?.let {
-                ProbabilityRow(label = "Market", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
-                Spacer(Modifier.height(8.dp))
-            }
-            prediction.heuristicBlend?.let {
-                ProbabilityRow(label = "Model", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
-            }
+    // A gradient-fill hero, not a flat Card -- the single most prominent
+    // element on the Report screen (shown above every tab), so it gets
+    // the reference's vibrant "headline card" treatment rather than
+    // blending in with every other SectionCard.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF1E8E3E), Color(0xFF74C43F))))
+            .padding(16.dp),
+    ) {
+        Text("Prediction", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+        prediction.marketImplied?.let {
+            ProbabilityRow(label = "Market", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
+            Spacer(Modifier.height(8.dp))
+        }
+        prediction.heuristicBlend?.let {
+            ProbabilityRow(label = "Model", probs = it, homeTeam = homeTeam, awayTeam = awayTeam)
         }
     }
 }
 
 @Composable
 private fun ProbabilityRow(label: String, probs: WinProbabilities, homeTeam: String, awayTeam: String) {
+    // Explicit white throughout -- this sits on PredictionHero's green
+    // gradient fill, not the theme surface, so the default onSurface
+    // text color (near-black in light mode) would be unreadable here.
     Column {
-        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
         Spacer(Modifier.height(4.dp))
         SegmentedBar(
             segments = listOf(
@@ -71,18 +88,21 @@ private fun ProbabilityRow(label: String, probs: WinProbabilities, homeTeam: Str
                 "$homeTeam ${probs.homeWinPct.format1()}%",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
+                color = Color.White,
             )
             Text(
                 "Draw ${probs.drawPct.format1()}%",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
+                color = Color.White,
             )
             Text(
                 "$awayTeam ${probs.awayWinPct.format1()}%",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.End,
+                color = Color.White,
             )
         }
     }

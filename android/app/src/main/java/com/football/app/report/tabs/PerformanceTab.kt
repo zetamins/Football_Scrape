@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
 import com.football.app.charts.RadarAxis
 import com.football.app.charts.RadarChart
+import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.AdvancedStats
 import com.football.app.data.model.InsightsPerformance
@@ -30,16 +31,6 @@ fun PerformanceTab(insights: InsightsPerformance, homeTeam: String, awayTeam: St
     }
 }
 
-@Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            content()
-        }
-    }
-}
 
 @Composable
 private fun AttackProfileRadar(insights: InsightsPerformance, homeTeam: String, awayTeam: String) {
