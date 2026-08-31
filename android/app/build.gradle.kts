@@ -2,11 +2,18 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.chaquo.python")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
     namespace = "com.football.app"
-    compileSdk = 34
+    // 35, not 34: androidx.core 1.15.0 (a transitive Compose dependency)
+    // requires compiling against API 35+ (verified via a real
+    // checkDebugAarMetadata failure, not assumed). targetSdk/minSdk
+    // unchanged -- this only affects which compile-time APIs are
+    // available, not runtime behavior or device compatibility.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.football.app"
@@ -47,6 +54,7 @@ android {
         // Generates BuildConfig.DEBUG -- WebViewRenderer.kt gates its
         // diagnostic logging behind it, off by default since AGP 8.
         buildConfig = true
+        compose = true
     }
 
     compileOptions {
@@ -86,6 +94,29 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
 
+    // Compose UI -- BOM pins every androidx.compose.* artifact below to
+    // one mutually-compatible set, so only the BOM itself carries a
+    // version number.
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.navigation:navigation-compose:2.8.4")
+
+    // Report JSON -> Kotlin data classes (see data/model/).
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // Bar/line charts (see frontend/DESIGN.md's Chart library section --
+    // radar/segmented/stacked bars are hand-rolled Canvas composables
+    // instead, Vico doesn't cover those forms).
+    implementation("com.patrykandpatrick.vico:compose:2.0.0")
+    implementation("com.patrykandpatrick.vico:compose-m3:2.0.0")
+
     // Instrumented tests for WebViewRenderer.kt run on-device (a real
     // WebView can't run in a plain JVM unit test) against local, static
     // HTML served from a WebViewClient override -- not live external
@@ -94,6 +125,12 @@ dependencies {
     // android_test.py-driven runs do.
     androidTestImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+
+    // Local JVM unit tests for data/model/* -- pure Kotlin serialization
+    // logic, no Android framework needed, so these run on the plain JVM
+    // (testDebugUnitTest) rather than needing a device/emulator like the
+    // androidTest ones above.
+    testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestImplementation("androidx.test:core:1.7.0")
