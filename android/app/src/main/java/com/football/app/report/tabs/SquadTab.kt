@@ -24,6 +24,7 @@ import com.football.app.charts.RankedEntry
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
 import com.football.app.components.OutlinedPill
+import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.SquadStrengthInfo
@@ -118,20 +119,21 @@ private fun FormSection(profile: TeamProfileData) {
     if (!hasBench && !hasLeaders) return
     SectionCard("Recent form (last 20)") {
         profile.benchRegulars?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow(
-                "Bench regulars",
-                list.joinToString(", ") { "${it.name} (${it.starts} starts, ${it.subAppearances} sub apps, ${it.unusedBench} unused)" },
-            )
+            Text("Bench regulars", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            PlayerStatRows(list.map { it.name to "${it.starts} starts, ${it.subAppearances} sub, ${it.unusedBench} unused" })
+            Spacer(Modifier.height(8.dp))
         }
         profile.recentFormLeaders?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow(
-                "Form leaders",
-                list.joinToString(", ") { l ->
+            Text("Form leaders", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            PlayerStatRows(
+                list.map { l ->
                     val xgText = "%.2f".format(l.xg)
                     val keyPassesText = if (l.keyPasses > 0) ", ${l.keyPasses} KP" else ""
                     val per90Text = l.goalsPer90?.let { ", $it/90" } ?: ""
                     val ratingText = l.avgRating?.let { ", $it rating" } ?: ""
-                    "${l.name} (${l.goals}g/${l.assists}a, ${xgText}xG$keyPassesText$per90Text$ratingText)"
+                    l.name to "${l.goals}g/${l.assists}a, ${xgText}xG$keyPassesText$per90Text$ratingText"
                 },
             )
         }
@@ -145,16 +147,26 @@ private fun RoleFormSection(profile: TeamProfileData) {
     if (!hasMid && !hasDef) return
     SectionCard("Form by role (ranked by minutes)") {
         profile.midfieldersForm?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow(
-                "Midfielders",
-                list.joinToString(", ") { m -> "${m.name} (${m.totalMinutes}min in ${m.matchesInSquad} (${m.starts} starts), ${m.goals}g/${m.assists}a)" },
-            )
+            Text("Midfielders", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            PlayerStatRows(list.map { m -> m.name to "${m.totalMinutes}min in ${m.matchesInSquad} (${m.starts} starts), ${m.goals}g/${m.assists}a" })
+            Spacer(Modifier.height(8.dp))
         }
         profile.defendersForm?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow(
-                "Defenders",
-                list.joinToString(", ") { m -> "${m.name} (${m.totalMinutes}min in ${m.matchesInSquad} (${m.starts} starts), ${m.goals}g/${m.assists}a)" },
-            )
+            Text("Defenders", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            PlayerStatRows(list.map { m -> m.name to "${m.totalMinutes}min in ${m.matchesInSquad} (${m.starts} starts), ${m.goals}g/${m.assists}a" })
+        }
+    }
+}
+
+/** One row per player: name left, stat text right -- not a comma-joined string. Shared by every dense per-player list in this tab. */
+@Composable
+private fun PlayerStatRows(rows: List<Pair<String, String>>) {
+    rows.forEach { (name, stat) ->
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            Text(name, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(stat, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -201,9 +213,15 @@ private fun LegendChip(label: String, value: String, color: Color) {
 private fun TransfersSection(profile: TeamProfileData) {
     val transfers = profile.recentTransfers?.takeIf { it.isNotEmpty() } ?: return
     SectionCard("Recent transfers") {
-        Text(
-            transfers.take(5).joinToString("; ") { "${it.playerName} (${it.direction}${it.date?.let { d -> ", ${d.take(10)}" } ?: ""})" },
-            style = MaterialTheme.typography.bodySmall,
-        )
+        PillFlow {
+            transfers.take(5).forEach { t ->
+                val color = if (t.direction == "in") AppTheme.colors.statusGood else AppTheme.colors.statusCritical
+                OutlinedPill(
+                    text = "${if (t.direction == "in") "→" else "←"} ${t.playerName}${t.date?.let { d -> " (${d.take(10)})" } ?: ""}",
+                    borderColor = color,
+                    contentColor = color,
+                )
+            }
+        }
     }
 }

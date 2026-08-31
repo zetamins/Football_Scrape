@@ -17,6 +17,8 @@ import com.football.app.charts.FormGuideStrip
 import com.football.app.charts.LineTrend
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
+import com.football.app.components.OutlinedPill
+import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.FormSummary
@@ -179,13 +181,22 @@ private fun CongestionSection(form: FormSummary) {
             InfoRow("Fixture gaps", "${form.gapsBetweenLastThree.joinToString(", ")} days")
         }
         if (form.recentCompetitions.size > 1) {
-            InfoRow("Competitions", form.recentCompetitions.joinToString(", "))
+            Text("Competitions", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            PillFlow {
+                form.recentCompetitions.forEach { c -> OutlinedPill(text = c, borderColor = MaterialTheme.colorScheme.outline, contentColor = MaterialTheme.colorScheme.onSurface) }
+            }
+            Spacer(Modifier.height(8.dp))
         }
         if (form.formByCompetition.size > 1) {
-            InfoRow(
-                "Form by competition",
-                form.formByCompetition.joinToString(" | ") { "${it.competition} ${it.wins}W-${it.draws}D-${it.losses}L, ${it.goalsFor}-${it.goalsAgainst}" },
-            )
+            Text("Form by competition", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            form.formByCompetition.forEach { c ->
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    Text(c.competition, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Text("${c.wins}W-${c.draws}D-${c.losses}L, ${c.goalsFor}-${c.goalsAgainst}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
         }
     }
 }

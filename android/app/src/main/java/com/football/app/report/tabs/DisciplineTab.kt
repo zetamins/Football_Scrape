@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
+import com.football.app.components.OutlinedPill
+import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.InsightsDiscipline
@@ -136,21 +138,25 @@ private fun MatchedSampleSection(insights: InsightsDiscipline, homeTeam: String,
 private fun CardRisksSection(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
     if (insights.homeCardRisks.isNullOrEmpty() && insights.awayCardRisks.isNullOrEmpty()) return
     SectionCard("Card risk") {
-        insights.homeCardRisks?.takeIf { it.isNotEmpty() }?.let { risks ->
-            InfoRow(
-                "$homeTeam players",
-                risks.joinToString(", ") { "${it.name} (${it.yellowCards}Y${if (it.redCards > 0) "/${it.redCards}R" else ""})" },
-                valueColor = AppTheme.colors.statusWarning,
-            )
-        }
-        insights.awayCardRisks?.takeIf { it.isNotEmpty() }?.let { risks ->
-            InfoRow(
-                "$awayTeam players",
-                risks.joinToString(", ") { "${it.name} (${it.yellowCards}Y${if (it.redCards > 0) "/${it.redCards}R" else ""})" },
-                valueColor = AppTheme.colors.statusWarning,
+        insights.homeCardRisks?.takeIf { it.isNotEmpty() }?.let { risks -> CardRiskPills(homeTeam, risks) }
+        insights.awayCardRisks?.takeIf { it.isNotEmpty() }?.let { risks -> CardRiskPills(awayTeam, risks) }
+    }
+}
+
+@Composable
+private fun CardRiskPills(team: String, risks: List<com.football.app.data.model.PlayerCardRisk>) {
+    Text("$team players", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(6.dp))
+    PillFlow {
+        risks.forEach { p ->
+            OutlinedPill(
+                text = "${p.name} ${p.yellowCards}Y${if (p.redCards > 0) "/${p.redCards}R" else ""}",
+                borderColor = AppTheme.colors.statusWarning,
+                contentColor = AppTheme.colors.statusWarning,
             )
         }
     }
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
@@ -159,8 +165,16 @@ private fun RefereeNoteSection(insights: InsightsDiscipline) {
     SectionCard("Referee ${note.refereeName}") {
         InfoRow(
             "Yellow cards per game",
-            "${note.yellowCardsPerGame}${if (note.flaggedPlayers.isNotEmpty()) " -- flags " + note.flaggedPlayers.joinToString(", ") { it.name } else ""}",
+            "${note.yellowCardsPerGame}",
             valueColor = if (note.elevatedCardReferee) AppTheme.colors.statusWarning else Color.Unspecified,
         )
+        if (note.flaggedPlayers.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Flagged players", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            PillFlow {
+                note.flaggedPlayers.forEach { p -> OutlinedPill(text = p.name, borderColor = AppTheme.colors.statusWarning, contentColor = AppTheme.colors.statusWarning) }
+            }
+        }
     }
 }

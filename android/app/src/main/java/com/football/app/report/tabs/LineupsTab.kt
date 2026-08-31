@@ -13,6 +13,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.PitchDiagram
+import com.football.app.components.OutlinedPill
+import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.LineupPlayer
@@ -105,7 +107,9 @@ private fun LineupSection(title: String, players: List<LineupPlayer>?) {
 private fun BenchSection(title: String, players: List<LineupPlayer>?) {
     if (players.isNullOrEmpty()) return
     SectionCard(title) {
-        Text(players.joinToString(", ") { it.name }, style = MaterialTheme.typography.bodySmall)
+        PillFlow {
+            players.forEach { p -> OutlinedPill(text = p.name, borderColor = MaterialTheme.colorScheme.outline, contentColor = MaterialTheme.colorScheme.onSurface) }
+        }
     }
 }
 
@@ -113,15 +117,26 @@ private fun BenchSection(title: String, players: List<LineupPlayer>?) {
 private fun UnavailableSection(team: String, suspended: List<String>?, missing: List<com.football.app.data.model.MissingPlayer>?) {
     if (suspended.isNullOrEmpty() && missing.isNullOrEmpty()) return
     SectionCard("$team availability") {
-        suspended?.takeIf { it.isNotEmpty() }?.let {
-            InfoRow("Suspended", it.joinToString(", "), valueColor = AppTheme.colors.statusCritical)
+        suspended?.takeIf { it.isNotEmpty() }?.let { list ->
+            Text("Suspended", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            PillFlow {
+                list.forEach { name -> OutlinedPill(text = name, borderColor = AppTheme.colors.statusCritical, contentColor = AppTheme.colors.statusCritical) }
+            }
+            Spacer(Modifier.height(8.dp))
         }
         missing?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow(
-                "Missing",
-                list.joinToString(", ") { m -> "${m.name}${m.description?.let { " ($it)" } ?: ""}" },
-                valueColor = AppTheme.colors.statusCritical,
-            )
+            Text("Missing", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            PillFlow {
+                list.forEach { m ->
+                    OutlinedPill(
+                        text = "${m.name}${m.description?.let { " ($it)" } ?: ""}",
+                        borderColor = AppTheme.colors.statusCritical,
+                        contentColor = AppTheme.colors.statusCritical,
+                    )
+                }
+            }
         }
     }
 }
