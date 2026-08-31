@@ -9,42 +9,42 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.football.app.R
 
-// Manrope (SIL Open Font License, bundled as res/font/manrope_variable.ttf)
-// -- a geometric sans with a distinct, modern character, replacing the
-// platform default per an explicit request for an app-wide distinctive
-// typeface (this project's prior default-platform-font stance was
-// "override only with a reason"; a direct ask for one is that reason).
-// One variable-font file, multiple Font() entries selecting different
-// weights from it via FontVariation.Settings -- the standard Compose
-// pattern for variable fonts, rather than bundling 6 separate static
-// files.
-private val Manrope = FontFamily(
-    Font(R.font.manrope_variable, weight = FontWeight.Normal),
-    Font(R.font.manrope_variable, weight = FontWeight.Medium),
-    Font(R.font.manrope_variable, weight = FontWeight.SemiBold),
-    Font(R.font.manrope_variable, weight = FontWeight.Bold),
-    Font(R.font.manrope_variable, weight = FontWeight.ExtraBold),
+// Barlow (SIL Open Font License, bundled as 5 static-weight res/font/
+// files -- Barlow ships as separate weight files on Google Fonts, not a
+// single variable font like the previous typeface, Manrope, did) -- a
+// grotesque genuinely associated with sports broadcast/scoreboard
+// graphics (ESPN-style stat displays), replacing Manrope per an
+// explicit "a real stats font" request. Distinct from Manrope's softer
+// geometric character: Barlow reads as data/scoreboard-native, which
+// this app -- almost entirely numbers and comparisons -- specifically
+// wants.
+private val Barlow = FontFamily(
+    Font(R.font.barlow_regular, weight = FontWeight.Normal),
+    Font(R.font.barlow_medium, weight = FontWeight.Medium),
+    Font(R.font.barlow_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.barlow_bold, weight = FontWeight.Bold),
+    Font(R.font.barlow_extrabold, weight = FontWeight.ExtraBold),
 )
 
 private val Base = Typography()
 
 /** Every Material3 text role, same sizes/weights as the default Typography, only the font family swapped. */
 val AppTypography = Typography(
-    displayLarge = Base.displayLarge.copy(fontFamily = Manrope),
-    displayMedium = Base.displayMedium.copy(fontFamily = Manrope),
-    displaySmall = Base.displaySmall.copy(fontFamily = Manrope),
-    headlineLarge = Base.headlineLarge.copy(fontFamily = Manrope),
-    headlineMedium = Base.headlineMedium.copy(fontFamily = Manrope),
-    headlineSmall = Base.headlineSmall.copy(fontFamily = Manrope),
-    titleLarge = Base.titleLarge.copy(fontFamily = Manrope),
-    titleMedium = Base.titleMedium.copy(fontFamily = Manrope),
-    titleSmall = Base.titleSmall.copy(fontFamily = Manrope),
-    bodyLarge = Base.bodyLarge.copy(fontFamily = Manrope),
-    bodyMedium = Base.bodyMedium.copy(fontFamily = Manrope),
-    bodySmall = Base.bodySmall.copy(fontFamily = Manrope),
-    labelLarge = Base.labelLarge.copy(fontFamily = Manrope),
-    labelMedium = Base.labelMedium.copy(fontFamily = Manrope),
-    labelSmall = Base.labelSmall.copy(fontFamily = Manrope),
+    displayLarge = Base.displayLarge.copy(fontFamily = Barlow),
+    displayMedium = Base.displayMedium.copy(fontFamily = Barlow),
+    displaySmall = Base.displaySmall.copy(fontFamily = Barlow),
+    headlineLarge = Base.headlineLarge.copy(fontFamily = Barlow),
+    headlineMedium = Base.headlineMedium.copy(fontFamily = Barlow),
+    headlineSmall = Base.headlineSmall.copy(fontFamily = Barlow),
+    titleLarge = Base.titleLarge.copy(fontFamily = Barlow),
+    titleMedium = Base.titleMedium.copy(fontFamily = Barlow),
+    titleSmall = Base.titleSmall.copy(fontFamily = Barlow),
+    bodyLarge = Base.bodyLarge.copy(fontFamily = Barlow),
+    bodyMedium = Base.bodyMedium.copy(fontFamily = Barlow),
+    bodySmall = Base.bodySmall.copy(fontFamily = Barlow),
+    labelLarge = Base.labelLarge.copy(fontFamily = Barlow),
+    labelMedium = Base.labelMedium.copy(fontFamily = Barlow),
+    labelSmall = Base.labelSmall.copy(fontFamily = Barlow),
 )
 
 /**
@@ -56,7 +56,7 @@ val AppTypography = Typography(
  * reads as expertise, and misaligned numbers read as carelessness).
  */
 val StatNumberStyle = TextStyle(
-    fontFamily = Manrope,
+    fontFamily = Barlow,
     fontFeatureSettings = "tnum",
     fontWeight = FontWeight.SemiBold,
 )
