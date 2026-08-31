@@ -1,6 +1,8 @@
 package com.football.app.report.tabs
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,6 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.football.app.charts.BarComparison
+import com.football.app.components.Pill
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.InsightsContext
@@ -38,7 +42,21 @@ private fun RestSection(insights: InsightsContext, homeTeam: String, awayTeam: S
     val hasPerf = insights.homeRestPerformance != null || insights.awayRestPerformance != null
     if (rest == null && !hasPerf) return
     SectionCard("Rest") {
-        rest?.let { InfoRow("Days since last match", "$homeTeam ${it.ownRestDays ?: "n/a"}d vs $awayTeam ${it.opponentRestDays ?: "n/a"}d") }
+        rest?.let {
+            if (it.ownRestDays != null && it.opponentRestDays != null) {
+                BarComparison(
+                    "Days since last match",
+                    it.ownRestDays.toFloat(),
+                    it.opponentRestDays.toFloat(),
+                    AppTheme.colors.homeSeries,
+                    AppTheme.colors.awaySeries,
+                    "$homeTeam ${it.ownRestDays}d",
+                    "$awayTeam ${it.opponentRestDays}d",
+                )
+            } else {
+                InfoRow("Days since last match", "$homeTeam ${it.ownRestDays ?: "n/a"}d vs $awayTeam ${it.opponentRestDays ?: "n/a"}d")
+            }
+        }
         insights.homeRestPerformance?.let { p ->
             InfoRow(
                 "$homeTeam performance by rest",
@@ -60,27 +78,48 @@ private fun FatigueRotationSection(insights: InsightsContext, homeTeam: String, 
     val hasRotation = insights.homeRotation != null || insights.awayRotation != null
     if (!hasFatigue && !hasRotation) return
     SectionCard("Fatigue & rotation") {
-        insights.homeFatigueFlag?.let { f ->
-            InfoRow(homeTeam, if (f.flagged) "elevated" else "normal", valueColor = if (f.flagged) AppTheme.colors.statusWarning else AppTheme.colors.statusGood)
-        }
-        insights.awayFatigueFlag?.let { f ->
-            InfoRow(awayTeam, if (f.flagged) "elevated" else "normal", valueColor = if (f.flagged) AppTheme.colors.statusWarning else AppTheme.colors.statusGood)
+        if (insights.homeFatigueFlag != null || insights.awayFatigueFlag != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                insights.homeFatigueFlag?.let { f -> FatiguePill(homeTeam, f.flagged) }
+                insights.awayFatigueFlag?.let { f -> FatiguePill(awayTeam, f.flagged) }
+            }
+            Spacer(Modifier.height(8.dp))
         }
         insights.homeRotation?.let { r ->
             val resultText = resultWord(r.precedingResult)
-            InfoRow(
+            BarComparison(
                 "$homeTeam rotation",
-                "${r.changedPlayers}/${r.startingXiSize} changed${r.formationChanged?.let { ", shape ${if (it) "changed" else "unchanged"}" } ?: ""}${resultText?.let { " (after a $it)" } ?: ""}",
+                r.changedPlayers.toFloat(),
+                r.startingXiSize.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.neutral,
+                "${r.changedPlayers} changed${r.formationChanged?.let { ", shape ${if (it) "changed" else "unchanged"}" } ?: ""}${resultText?.let { " (after a $it)" } ?: ""}",
+                "of ${r.startingXiSize} starters",
             )
+            Spacer(Modifier.height(6.dp))
         }
         insights.awayRotation?.let { r ->
             val resultText = resultWord(r.precedingResult)
-            InfoRow(
+            BarComparison(
                 "$awayTeam rotation",
-                "${r.changedPlayers}/${r.startingXiSize} changed${r.formationChanged?.let { ", shape ${if (it) "changed" else "unchanged"}" } ?: ""}${resultText?.let { " (after a $it)" } ?: ""}",
+                r.changedPlayers.toFloat(),
+                r.startingXiSize.toFloat(),
+                AppTheme.colors.awaySeries,
+                AppTheme.colors.neutral,
+                "${r.changedPlayers} changed${r.formationChanged?.let { ", shape ${if (it) "changed" else "unchanged"}" } ?: ""}${resultText?.let { " (after a $it)" } ?: ""}",
+                "of ${r.startingXiSize} starters",
             )
         }
     }
+}
+
+@Composable
+private fun FatiguePill(team: String, flagged: Boolean) {
+    Pill(
+        text = "$team: ${if (flagged) "elevated" else "normal"}",
+        containerColor = if (flagged) AppTheme.colors.statusWarning else AppTheme.colors.statusGood,
+        contentColor = Color.Black,
+    )
 }
 
 private fun resultWord(result: String?): String? = when (result) {
@@ -127,7 +166,19 @@ private fun ExperienceSection(insights: InsightsContext, homeTeam: String, awayT
     if (insights.experienceComparison == null && insights.experienceH2h == null) return
     SectionCard("Experience") {
         insights.experienceComparison?.let { e ->
-            InfoRow("Average age", "$homeTeam ${e.ownAverageAge ?: "n/a"} vs $awayTeam ${e.opponentAverageAge ?: "n/a"}")
+            if (e.ownAverageAge != null && e.opponentAverageAge != null) {
+                BarComparison(
+                    "Average age",
+                    e.ownAverageAge.toFloat(),
+                    e.opponentAverageAge.toFloat(),
+                    AppTheme.colors.homeSeries,
+                    AppTheme.colors.awaySeries,
+                    "$homeTeam ${e.ownAverageAge}",
+                    "$awayTeam ${e.opponentAverageAge}",
+                )
+            } else {
+                InfoRow("Average age", "$homeTeam ${e.ownAverageAge ?: "n/a"} vs $awayTeam ${e.opponentAverageAge ?: "n/a"}")
+            }
         }
         insights.experienceH2h?.let { h ->
             InfoRow(
@@ -169,18 +220,39 @@ private fun AvailabilitySection(insights: InsightsContext, homeTeam: String, awa
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun PresenceRow(team: String, entries: List<PresenceEntry>) {
     val absent = entries.filter { it.status == "A" }
-    InfoRow(
-        "$team availability",
-        if (absent.isNotEmpty()) "${entries.size - absent.size} present, ${absent.size} absent: ${absent.joinToString(", ") { it.name }}" else "${entries.size} present, none absent",
-        valueColor = if (absent.isNotEmpty()) AppTheme.colors.statusWarning else AppTheme.colors.statusGood,
-    )
+    if (absent.isEmpty()) {
+        InfoRow("$team availability", "${entries.size} present, none absent", valueColor = AppTheme.colors.statusGood)
+        return
+    }
+    Text("$team availability: ${entries.size - absent.size} present, ${absent.size} absent", style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(6.dp))
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        absent.forEach { p -> Pill(text = p.name, containerColor = AppTheme.colors.statusWarning, contentColor = Color.Black) }
+    }
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
 private fun BenchRow(team: String, size: Int, benchValue: Double?, startingValue: Double?) {
     fun fmt(v: Double?) = v?.let { "€${(it / 1_000_000).toInt()}m" } ?: "n/a"
-    InfoRow("$team bench", "$size named, ${fmt(benchValue)} combined value vs starting XI's ${fmt(startingValue)}")
+    if (benchValue != null && startingValue != null && (benchValue > 0 || startingValue > 0)) {
+        BarComparison(
+            "$team bench vs starting XI value",
+            benchValue.toFloat(),
+            startingValue.toFloat(),
+            AppTheme.colors.neutral,
+            AppTheme.colors.homeSeries,
+            "$size named, ${fmt(benchValue)}",
+            "starting XI ${fmt(startingValue)}",
+        )
+    } else {
+        InfoRow("$team bench", "$size named, ${fmt(benchValue)} combined value vs starting XI's ${fmt(startingValue)}")
+    }
 }

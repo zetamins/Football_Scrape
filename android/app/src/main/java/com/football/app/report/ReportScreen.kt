@@ -40,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.football.app.components.TeamBadge
 import com.football.app.data.AppJson
@@ -120,11 +121,16 @@ fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 TeamBadge(report.team, AppTheme.colors.homeSeries, size = 36.dp)
-                Column(modifier = Modifier.padding(start = 10.dp)) {
-                    Text(report.team, style = MaterialTheme.typography.headlineMedium)
-                    Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall)
+                Column(modifier = Modifier.padding(start = 10.dp).weight(1f, fill = false)) {
+                    Text(
+                        report.team,
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text("Generated ${report.generatedAt}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Row {
@@ -141,6 +147,7 @@ fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
         }
 
         if (match != null) {
+            MatchupHeader(homeTeam = match.homeTeam, awayTeam = match.awayTeam)
             PredictionHero(insightsJson = report.insights, homeTeam = match.homeTeam, awayTeam = match.awayTeam)
         }
 

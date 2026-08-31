@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.football.app.charts.BarComparison
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
 import com.football.app.components.SectionCard
@@ -147,13 +148,26 @@ private fun ManagersSection(overview: MatchOverview, homeTeam: String, awayTeam:
 
 @Composable
 private fun StandingsSection(overview: MatchOverview, homeTeam: String, awayTeam: String) {
-    if (overview.homeTeamStanding == null && overview.awayTeamStanding == null) return
+    val h = overview.homeTeamStanding
+    val a = overview.awayTeamStanding
+    if (h == null && a == null) return
     SectionCard("Standings") {
-        overview.homeTeamStanding?.let { s ->
-            InfoRow(homeTeam, "#${s.position}${s.totalTeams?.let { "/$it" } ?: ""} (${s.points}pts, ${s.wins}W-${s.draws}D-${s.losses}L, GD ${s.goalDiff})")
-        }
-        overview.awayTeamStanding?.let { s ->
-            InfoRow(awayTeam, "#${s.position}${s.totalTeams?.let { "/$it" } ?: ""} (${s.points}pts, ${s.wins}W-${s.draws}D-${s.losses}L, GD ${s.goalDiff})")
+        if (h != null && a != null) {
+            BarComparison(
+                "Points",
+                h.points.toFloat(),
+                a.points.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam #${h.position}${h.totalTeams?.let { "/$it" } ?: ""}, ${h.points}pts",
+                "$awayTeam #${a.position}${a.totalTeams?.let { "/$it" } ?: ""}, ${a.points}pts",
+            )
+            Spacer(Modifier.height(6.dp))
+            InfoRow(homeTeam, "${h.wins}W-${h.draws}D-${h.losses}L, GD ${h.goalDiff}")
+            InfoRow(awayTeam, "${a.wins}W-${a.draws}D-${a.losses}L, GD ${a.goalDiff}")
+        } else {
+            h?.let { InfoRow(homeTeam, "#${it.position}${it.totalTeams?.let { t -> "/$t" } ?: ""} (${it.points}pts, ${it.wins}W-${it.draws}D-${it.losses}L, GD ${it.goalDiff})") }
+            a?.let { InfoRow(awayTeam, "#${it.position}${it.totalTeams?.let { t -> "/$t" } ?: ""} (${it.points}pts, ${it.wins}W-${it.draws}D-${it.losses}L, GD ${it.goalDiff})") }
         }
     }
 }

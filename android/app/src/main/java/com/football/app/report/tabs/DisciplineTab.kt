@@ -33,23 +33,41 @@ fun DisciplineTab(insights: InsightsDiscipline, homeTeam: String, awayTeam: Stri
 
 @Composable
 private fun CardsSection(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
-    if (insights.homeCardDiscipline == null && insights.awayCardDiscipline == null) return
+    val home = insights.homeCardDiscipline
+    val away = insights.awayCardDiscipline
+    if (home == null && away == null) return
     SectionCard("Cards per game") {
-        insights.homeCardDiscipline?.let { c ->
-            InfoRow(
-                homeTeam,
-                "${c.yellowPerGame}Y / ${c.redPerGame}R per game",
-                valueColor = if (c.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified,
+        if (home != null && away != null) {
+            BarComparison(
+                "Yellow cards per game",
+                home.yellowPerGame.toFloat(),
+                away.yellowPerGame.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${home.yellowPerGame}",
+                "$awayTeam ${away.yellowPerGame}",
             )
-        }
-        insights.awayCardDiscipline?.let { c ->
-            InfoRow(
-                awayTeam,
-                "${c.yellowPerGame}Y / ${c.redPerGame}R per game",
-                valueColor = if (c.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified,
+            if (home.elevatedRisk || away.elevatedRisk) {
+                Spacer(Modifier.height(6.dp))
+                val flagged = listOfNotNull(homeTeam.takeIf { home.elevatedRisk }, awayTeam.takeIf { away.elevatedRisk })
+                InfoRow("Elevated card risk", flagged.joinToString(", "), valueColor = AppTheme.colors.statusWarning)
+            }
+            Spacer(Modifier.height(8.dp))
+            BarComparison(
+                "Red cards per game",
+                home.redPerGame.toFloat(),
+                away.redPerGame.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${home.redPerGame}",
+                "$awayTeam ${away.redPerGame}",
             )
+        } else {
+            home?.let { InfoRow(homeTeam, "${it.yellowPerGame}Y / ${it.redPerGame}R per game", valueColor = if (it.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified) }
+            away?.let { InfoRow(awayTeam, "${it.yellowPerGame}Y / ${it.redPerGame}R per game", valueColor = if (it.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified) }
         }
         insights.homeCardDisciplineVenueSplit?.let { s ->
+            Spacer(Modifier.height(8.dp))
             InfoRow(
                 "$homeTeam by venue",
                 "at home ${s.atHomeYellowPerGame ?: "n/a"}Y (n=${s.atHomeSampleSize}) / away ${s.awayYellowPerGame ?: "n/a"}Y (n=${s.awaySampleSize})",

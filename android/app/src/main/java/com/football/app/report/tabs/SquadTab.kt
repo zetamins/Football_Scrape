@@ -1,16 +1,29 @@
 package com.football.app.report.tabs
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.football.app.charts.RankedBarList
+import com.football.app.charts.RankedEntry
+import com.football.app.charts.Segment
+import com.football.app.charts.SegmentedBar
+import com.football.app.components.OutlinedPill
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.SquadStrengthInfo
@@ -41,13 +54,22 @@ private fun TopPerformersSection(profile: TeamProfileData) {
     if (!hasAny) return
     SectionCard("Top performers") {
         profile.topScorers?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("Top scorers", list.joinToString(", ") { "${it.name} (${it.goals}g)" })
+            Text("Top scorers", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            RankedBarList(list.map { RankedEntry(it.name, it.goals, "${it.goals}g") }, AppTheme.colors.statusGood)
+            Spacer(Modifier.height(10.dp))
         }
         profile.topAssists?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("Top assists", list.joinToString(", ") { "${it.name} (${it.assists}a)" })
+            Text("Top assists", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            RankedBarList(list.map { RankedEntry(it.name, it.assists, "${it.assists}a") }, AppTheme.colors.brandBright)
+            Spacer(Modifier.height(10.dp))
         }
         profile.topDefenders?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("Top defenders", list.joinToString(", ") { "${it.name} (${it.tacklesMade}T/${it.interceptions}I)" })
+            Text("Top defenders", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+            RankedBarList(list.map { RankedEntry(it.name, it.tacklesMade, "${it.tacklesMade}T/${it.interceptions}I") }, AppTheme.colors.statusWarning)
+            Spacer(Modifier.height(6.dp))
         }
         profile.averageAge?.let { InfoRow("Average age", "$it") }
     }
@@ -66,16 +88,26 @@ private fun AvailabilitySection(profile: TeamProfileData) {
     if (keyInjuries == null && injuries == null && missing.isEmpty()) return
     SectionCard("Availability") {
         (keyInjuries ?: injuries)?.let { list ->
-            InfoRow(
-                if (keyInjuries != null) "Key injuries" else "Injuries",
-                list.joinToString(", ") { it.name },
-                valueColor = AppTheme.colors.statusCritical,
-            )
+            Text(if (keyInjuries != null) "Key injuries" else "Injuries", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            PlayerPillRow(list.map { it.name })
+            Spacer(Modifier.height(8.dp))
         }
-        profile.missingGoalkeepers?.takeIf { it.isNotEmpty() }?.let { InfoRow("Missing goalkeepers", it.joinToString(", "), valueColor = AppTheme.colors.statusCritical) }
-        profile.missingDefenders?.takeIf { it.isNotEmpty() }?.let { InfoRow("Missing defenders", it.joinToString(", "), valueColor = AppTheme.colors.statusCritical) }
-        profile.missingMidfielders?.takeIf { it.isNotEmpty() }?.let { InfoRow("Missing midfielders", it.joinToString(", "), valueColor = AppTheme.colors.statusCritical) }
-        profile.missingAttackers?.takeIf { it.isNotEmpty() }?.let { InfoRow("Missing attackers", it.joinToString(", "), valueColor = AppTheme.colors.statusCritical) }
+        if (missing.isNotEmpty()) {
+            Text("Missing", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            PlayerPillRow(missing)
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun PlayerPillRow(names: List<String>) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        names.forEach { name ->
+            OutlinedPill(text = name, borderColor = AppTheme.colors.statusCritical, contentColor = AppTheme.colors.statusCritical)
+        }
     }
 }
 
@@ -127,6 +159,7 @@ private fun RoleFormSection(profile: TeamProfileData) {
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SquadValueSection(strength: SquadStrengthInfo?) {
     if (strength == null) return
@@ -136,10 +169,31 @@ private fun SquadValueSection(strength: SquadStrengthInfo?) {
             "Total (available)",
             "${fmt(strength.totalValue)} (${fmt(strength.availableValue)} available)",
         )
-        InfoRow(
-            "Attack / midfield / defense / GK",
-            "${fmt(strength.attackValue)} / ${fmt(strength.midfieldValue)} / ${fmt(strength.defenseValue)} / ${fmt(strength.goalkeeperValue)}",
+        val parts = listOfNotNull(
+            strength.attackValue?.let { "Attack" to it },
+            strength.midfieldValue?.let { "Midfield" to it },
+            strength.defenseValue?.let { "Defense" to it },
+            strength.goalkeeperValue?.let { "GK" to it },
         )
+        if (parts.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            val colors = AppTheme.colors.squadCategorical
+            SegmentedBar(segments = parts.mapIndexed { i, (_, v) -> Segment(v.toFloat(), colors[i % colors.size]) })
+            Spacer(Modifier.height(6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                parts.forEachIndexed { i, (label, v) ->
+                    LegendChip(label, fmt(v), colors[i % colors.size])
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendChip(label: String, value: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(8.dp).background(color, CircleShape))
+        Text("$label $value", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 4.dp))
     }
 }
 

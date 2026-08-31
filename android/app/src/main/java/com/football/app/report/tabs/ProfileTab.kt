@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
 import com.football.app.charts.RadarAxis
 import com.football.app.charts.RadarChart
+import com.football.app.components.OutlinedPill
 import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
 import com.football.app.data.model.InsightsProfile
@@ -59,11 +60,34 @@ private fun StyleRadar(insights: InsightsProfile) {
 private fun PassingSection(insights: InsightsProfile, homeTeam: String, awayTeam: String) {
     if (insights.homePassingStyle == null && insights.awayPassingStyle == null) return
     SectionCard("Passing") {
-        insights.homePassingStyle?.let { p ->
-            InfoRow(homeTeam, "${p.passAccuracyPct ?: "n/a"}% accuracy, ${p.longBallSharePct ?: "n/a"}% long balls")
+        val hp = insights.homePassingStyle
+        val ap = insights.awayPassingStyle
+        if (hp?.passAccuracyPct != null && ap?.passAccuracyPct != null) {
+            BarComparison(
+                "Pass accuracy",
+                hp.passAccuracyPct.toFloat(),
+                ap.passAccuracyPct.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${hp.passAccuracyPct}%",
+                "$awayTeam ${ap.passAccuracyPct}%",
+            )
+            Spacer(Modifier.height(8.dp))
         }
-        insights.awayPassingStyle?.let { p ->
-            InfoRow(awayTeam, "${p.passAccuracyPct ?: "n/a"}% accuracy, ${p.longBallSharePct ?: "n/a"}% long balls")
+        if (hp?.longBallSharePct != null && ap?.longBallSharePct != null) {
+            BarComparison(
+                "Long-ball share",
+                hp.longBallSharePct.toFloat(),
+                ap.longBallSharePct.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${hp.longBallSharePct}%",
+                "$awayTeam ${ap.longBallSharePct}%",
+            )
+        }
+        if (hp?.passAccuracyPct == null || ap?.passAccuracyPct == null) {
+            hp?.let { InfoRow(homeTeam, "${it.passAccuracyPct ?: "n/a"}% accuracy, ${it.longBallSharePct ?: "n/a"}% long balls") }
+            ap?.let { InfoRow(awayTeam, "${it.passAccuracyPct ?: "n/a"}% accuracy, ${it.longBallSharePct ?: "n/a"}% long balls") }
         }
     }
 }
@@ -101,11 +125,21 @@ private fun AerialAndGoalkeepingSection(insights: InsightsProfile, homeTeam: Str
 private fun DefensiveErrorsSection(insights: InsightsProfile, homeTeam: String, awayTeam: String) {
     if (insights.homeDefensiveErrorsEstimate == null && insights.awayDefensiveErrorsEstimate == null) return
     SectionCard("Defensive errors") {
-        insights.homeDefensiveErrorsEstimate?.let { e ->
-            InfoRow(homeTeam, "${e.defensiveErrorsFor} for / ${e.defensiveErrorsAgainst} against", valueColor = AppTheme.colors.statusWarning)
-        }
-        insights.awayDefensiveErrorsEstimate?.let { e ->
-            InfoRow(awayTeam, "${e.defensiveErrorsFor} for / ${e.defensiveErrorsAgainst} against", valueColor = AppTheme.colors.statusWarning)
+        val h = insights.homeDefensiveErrorsEstimate
+        val a = insights.awayDefensiveErrorsEstimate
+        if (h != null && a != null) {
+            BarComparison(
+                "Defensive errors leading to a chance",
+                h.defensiveErrorsFor.toFloat(),
+                a.defensiveErrorsFor.toFloat(),
+                AppTheme.colors.statusWarning,
+                AppTheme.colors.statusWarning,
+                "$homeTeam ${h.defensiveErrorsFor} for / ${h.defensiveErrorsAgainst} against",
+                "$awayTeam ${a.defensiveErrorsFor} for / ${a.defensiveErrorsAgainst} against",
+            )
+        } else {
+            h?.let { InfoRow(homeTeam, "${it.defensiveErrorsFor} for / ${it.defensiveErrorsAgainst} against", valueColor = AppTheme.colors.statusWarning) }
+            a?.let { InfoRow(awayTeam, "${it.defensiveErrorsFor} for / ${it.defensiveErrorsAgainst} against", valueColor = AppTheme.colors.statusWarning) }
         }
     }
 }
@@ -117,18 +151,32 @@ private fun RiskSection(insights: InsightsProfile, homeTeam: String, awayTeam: S
     if (!hasDuel && !hasFullback) return
     SectionCard("Risk") {
         insights.homeDuelVulnerabilities?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("$homeTeam duel risk", list.joinToString(", ") { "${it.name} (${it.groundDuelSuccessPct}%)" }, valueColor = AppTheme.colors.statusWarning)
+            RiskPillGroup("$homeTeam duel risk", list.map { "${it.name} ${it.groundDuelSuccessPct}%" })
         }
         insights.awayDuelVulnerabilities?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("$awayTeam duel risk", list.joinToString(", ") { "${it.name} (${it.groundDuelSuccessPct}%)" }, valueColor = AppTheme.colors.statusWarning)
+            RiskPillGroup("$awayTeam duel risk", list.map { "${it.name} ${it.groundDuelSuccessPct}%" })
         }
         insights.homeFullbackExposure?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("$homeTeam exposed fullbacks", list.joinToString(", ") { it.name }, valueColor = AppTheme.colors.statusWarning)
+            RiskPillGroup("$homeTeam exposed fullbacks", list.map { it.name })
         }
         insights.awayFullbackExposure?.takeIf { it.isNotEmpty() }?.let { list ->
-            InfoRow("$awayTeam exposed fullbacks", list.joinToString(", ") { it.name }, valueColor = AppTheme.colors.statusWarning)
+            RiskPillGroup("$awayTeam exposed fullbacks", list.map { it.name })
         }
     }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun RiskPillGroup(label: String, items: List<String>) {
+    Text(label, style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(6.dp))
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+    ) {
+        items.forEach { item -> OutlinedPill(text = item, borderColor = AppTheme.colors.statusWarning, contentColor = AppTheme.colors.statusWarning) }
+    }
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable

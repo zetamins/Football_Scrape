@@ -31,6 +31,18 @@ data class AppColors(
     // scripts/validate_palette.js), not eyeballed -- see the commit that
     // introduced this for the exact contrast numbers checked.
     val brandBright: Color,
+    // Squad value's Attack/Midfield/Defense/GK breakdown -- a distinct
+    // categorical dimension from home/away (composition of one team's
+    // value, not "which side"), so it uses slots 3/4/5/7 of dataviz's
+    // palette (aqua/yellow/magenta/violet), never slots 1/2 (blue/orange,
+    // already meaning home/away everywhere else in this app). Fixed
+    // order, always Attack-Midfield-Defense-GK, never reassigned per
+    // team. Validated (scripts/validate_palette.js): dark passes all
+    // checks against #0F1A12; light gets a contrast WARN against its
+    // surface, accepted because SquadValueSection always pairs each
+    // segment with a direct text label, satisfying the "legal only with
+    // secondary encoding" condition the WARN band requires.
+    val squadCategorical: List<Color>,
 )
 
 val LightAppColors = AppColors(
@@ -41,6 +53,7 @@ val LightAppColors = AppColors(
     statusCritical = Color(0xFFD03B3B),
     neutral = Color(0xFFC3C2B7),
     brandBright = Color(0xFF3E8A24),
+    squadCategorical = listOf(Color(0xFF1BAF7A), Color(0xFFEDA100), Color(0xFFE87BA4), Color(0xFF4A3AA7)),
 )
 
 val DarkAppColors = AppColors(
@@ -53,6 +66,7 @@ val DarkAppColors = AppColors(
     statusCritical = Color(0xFFD03B3B),
     neutral = Color(0xFF383835),
     brandBright = Color(0xFF8FD13F),
+    squadCategorical = listOf(Color(0xFF199E70), Color(0xFFC98500), Color(0xFFD55181), Color(0xFF9085E9)),
 )
 
 val LocalAppColors = staticCompositionLocalOf { LightAppColors }
