@@ -158,6 +158,12 @@ private fun VenueSplitSection(form: FormSummary) {
             "Away",
             "${v.awayWins}W-${v.awayDraws}D-${v.awayLosses}L, ${v.awayGoalsFor}-${v.awayGoalsAgainst} (n=${v.awaySampleSize})",
         )
+        if (v.neutralSampleSize > 0) {
+            InfoRow(
+                "Neutral",
+                "${v.neutralWins}W-${v.neutralDraws}D-${v.neutralLosses}L, ${v.neutralGoalsFor}-${v.neutralGoalsAgainst} (n=${v.neutralSampleSize})",
+            )
+        }
         form.detailedVenueSplit?.let { d ->
             fun bucketStr(b: com.football.app.data.model.VenueSplitStats): String {
                 if (b.sampleSize == 0) return "n=0"

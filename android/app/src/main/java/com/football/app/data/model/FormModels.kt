@@ -60,6 +60,16 @@ data class VenueSplitForm(
     val awayLosses: Int,
     val awayGoalsFor: Int,
     val awayGoalsAgainst: Int,
+    // Neutral-venue matches (cup finals, etc.) -- usually all zero, but a
+    // real field the backend always sends; was silently dropped before
+    // (ignoreUnknownKeys swallowed it) since this class had no matching
+    // properties at all.
+    val neutralSampleSize: Int = 0,
+    val neutralWins: Int = 0,
+    val neutralDraws: Int = 0,
+    val neutralLosses: Int = 0,
+    val neutralGoalsFor: Int = 0,
+    val neutralGoalsAgainst: Int = 0,
 )
 
 @Serializable

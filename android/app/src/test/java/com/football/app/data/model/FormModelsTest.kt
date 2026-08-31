@@ -59,6 +59,15 @@ class FormModelsTest {
 
         val venueSplit = assertNotNullAndReturn(form.venueSplitForm)
         assertEquals(4, venueSplit.homeWins)
+        // Was silently dropped before -- VenueSplitForm had no
+        // neutral*-prefixed properties at all, so ignoreUnknownKeys
+        // swallowed these 6 real fields on every decode.
+        assertEquals(4, venueSplit.neutralSampleSize)
+        assertEquals(1, venueSplit.neutralWins)
+        assertEquals(1, venueSplit.neutralDraws)
+        assertEquals(2, venueSplit.neutralLosses)
+        assertEquals(9, venueSplit.neutralGoalsFor)
+        assertEquals(12, venueSplit.neutralGoalsAgainst)
 
         val detailed = assertNotNullAndReturn(form.detailedVenueSplit)
         assertEquals(17.72, detailed.home.xgFor, 0.0)

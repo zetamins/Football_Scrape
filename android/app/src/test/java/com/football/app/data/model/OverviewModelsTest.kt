@@ -34,6 +34,38 @@ class OverviewModelsTest {
     }
 
     @Test
+    fun `kickoff, round, and season decode correctly`() {
+        val overview = AppJson.decodeFromString(MatchOverview.serializer(), loadSample())
+
+        assertEquals("2026-09-05T14:00:00.000Z", overview.kickoffUtc)
+        assertEquals(3, overview.round)
+        assertEquals("Premier League 26/27", overview.season)
+    }
+
+    private fun loadVenueDetailsSample(): String =
+        checkNotNull(javaClass.classLoader?.getResourceAsStream("sample_venue_details.json")) {
+            "sample_venue_details.json not found on the test classpath"
+        }.bufferedReader().readText()
+
+    @Test
+    fun `VenueDetails decodes, including string-typed renovated and recordAttendance`() {
+        val venue = AppJson.decodeFromString(VenueDetails.serializer(), loadVenueDetailsSample())
+
+        assertEquals("Stadium of Light", venue.stadiumName)
+        assertEquals(48095, venue.capacity)
+        assertEquals(1997, venue.opened)
+        // Not an Int -- "2000, 2002" isn't a single year (see the class's
+        // own doc comment). A wrong Int type here would make every team
+        // with a non-null renovated/recordAttendance value silently lose
+        // its whole VenueDetails section (ReportScreen's decode catches
+        // SerializationException and returns null).
+        assertEquals("2000, 2002", venue.renovated)
+        assertEquals("48 353 (Sunderland - Liverpool; 13.04.2002)", venue.recordAttendance)
+        assertEquals(listOf("Sunderland"), venue.clubs)
+        assertEquals("TTH Architects", venue.architect)
+    }
+
+    @Test
     fun `weather_detail single-letter-suffix fields decode correctly (temp_c, precip_mm, feels_like_c)`() {
         val overview = AppJson.decodeFromString(MatchOverview.serializer(), loadSample())
         val weather = assertNotNullAndReturn(overview.weatherDetail)

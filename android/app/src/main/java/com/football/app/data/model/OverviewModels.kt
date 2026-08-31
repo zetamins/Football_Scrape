@@ -122,6 +122,35 @@ data class WeatherDetail(
 data class AdditionalNote(val note: String)
 
 /**
+ * report.venueDetails -- a whole top-level section (stadium profile, not
+ * match-specific) that was decoded into ReportJson but never actually
+ * read by any tab until now. Distinct from MatchOverview's
+ * venueName/venueCity/venueCountry/venueCapacity, which come from
+ * `match` and can legitimately disagree (e.g. a sponsor-renamed stadium)
+ * -- shown as additional facts in the same Venue card, not a merge/dedupe
+ * of the two sources.
+ */
+/**
+ * renovated/recordAttendance are String, not Int, despite looking
+ * numeric -- renovated can be a range ("2000, 2002", "1998-1999") and
+ * recordAttendance is a full free-text description ("48 353 (Sunderland
+ * - Liverpool; 13.04.2002)"), confirmed across 4 real backend/output/
+ * samples, not assumed from the field name.
+ */
+@Serializable
+data class VenueDetails(
+    val stadiumName: String? = null,
+    val capacity: Int? = null,
+    val opened: Int? = null,
+    val renovated: String? = null,
+    val clubs: List<String>? = null,
+    val city: String? = null,
+    val address: String? = null,
+    val architect: String? = null,
+    val recordAttendance: String? = null,
+)
+
+/**
  * Everything Overview needs from `match` (frontend/DESIGN.md's Overview
  * section) -- a growing subset, same pattern as MatchSummary.kt. Field
  * name mappings verified against real backend JSON in
@@ -129,6 +158,9 @@ data class AdditionalNote(val note: String)
  */
 @Serializable
 data class MatchOverview(
+    val kickoffUtc: String? = null,
+    val round: Int? = null,
+    val season: String? = null,
     val venueName: String? = null,
     val venueCity: String? = null,
     val venueCountry: String? = null,

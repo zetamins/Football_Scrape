@@ -49,6 +49,7 @@ import com.football.app.data.model.MatchOverview
 import com.football.app.data.model.MatchStandingsTable
 import com.football.app.data.model.MatchSummary
 import com.football.app.data.model.TeamProfileData
+import com.football.app.data.model.VenueDetails
 import com.football.app.report.tabs.ContextTab
 import com.football.app.report.tabs.DisciplineTab
 import com.football.app.report.tabs.FormTab
@@ -93,6 +94,7 @@ fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
 
         val match = remember(report.match) { decodeMatchSummary(report.match) }
         val overview = remember(report.match) { decodeMatchOverview(report.match) }
+        val venueDetails = remember(report.venueDetails) { decodeVenueDetails(report.venueDetails) }
         val lineups = remember(report.match) { decodeMatchLineups(report.match) }
         val performance = remember(report.insights) { decodeInsightsPerformance(report.insights) }
         val discipline = remember(report.insights) { decodeInsightsDiscipline(report.insights) }
@@ -166,7 +168,7 @@ fun ReportScreen(viewModel: ReportViewModel, onHistoryClick: () -> Unit) {
                 when (tab) {
                     ReportTab.OVERVIEW -> {
                         if (overview != null) {
-                            OverviewTab(overview = overview, homeTeam = match?.homeTeam ?: "Home", awayTeam = match?.awayTeam ?: "Away")
+                            OverviewTab(overview = overview, venueDetails = venueDetails, homeTeam = match?.homeTeam ?: "Home", awayTeam = match?.awayTeam ?: "Away")
                         } else {
                             PlaceholderTab(tab)
                         }
@@ -271,6 +273,15 @@ private fun decodeMatchOverview(matchJson: JsonElement?): MatchOverview? {
     if (matchJson == null) return null
     return try {
         AppJson.decodeFromJsonElement(MatchOverview.serializer(), matchJson)
+    } catch (e: SerializationException) {
+        null
+    }
+}
+
+private fun decodeVenueDetails(venueDetailsJson: JsonElement?): VenueDetails? {
+    if (venueDetailsJson == null) return null
+    return try {
+        AppJson.decodeFromJsonElement(VenueDetails.serializer(), venueDetailsJson)
     } catch (e: SerializationException) {
         null
     }

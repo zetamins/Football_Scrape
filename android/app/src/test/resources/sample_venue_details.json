@@ -1,0 +1,14 @@
+{
+  "stadium_name": "Stadium of Light",
+  "capacity": 48095,
+  "opened": 1997,
+  "renovated": "2000, 2002",
+  "clubs": [
+    "Sunderland"
+  ],
+  "source_url": "https://stadiumdb.com/stadiums/eng/stadium_of_light",
+  "city": "Sunderland",
+  "address": null,
+  "architect": "TTH Architects",
+  "record_attendance": "48 353 (Sunderland - Liverpool; 13.04.2002)"
+}

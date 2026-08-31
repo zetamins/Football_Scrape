@@ -20,6 +20,7 @@ import com.football.app.charts.SegmentedBar
 import com.football.app.components.InfoRow
 import com.football.app.data.model.HeadToHeadSummary
 import com.football.app.data.model.MatchOverview
+import com.football.app.data.model.VenueDetails
 import com.football.app.ui.theme.AppTheme
 
 /**
@@ -36,9 +37,10 @@ import com.football.app.ui.theme.AppTheme
  * %) are shown instead, since those aren't shown anywhere else.
  */
 @Composable
-fun OverviewTab(overview: MatchOverview, homeTeam: String, awayTeam: String) {
+fun OverviewTab(overview: MatchOverview, venueDetails: VenueDetails?, homeTeam: String, awayTeam: String) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        VenueSection(overview)
+        MatchInfoSection(overview)
+        VenueSection(overview, venueDetails)
         WeatherSection(overview)
         RefereeSection(overview)
         ManagersSection(overview, homeTeam, awayTeam)
@@ -61,12 +63,30 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun VenueSection(overview: MatchOverview) {
-    if (overview.venueName == null && overview.venueCity == null) return
+private fun MatchInfoSection(overview: MatchOverview) {
+    if (overview.kickoffUtc == null && overview.round == null && overview.season == null) return
+    SectionCard("Match") {
+        overview.kickoffUtc?.let { InfoRow("Kickoff", "${it.replace("T", " ").take(16)} UTC") }
+        val roundSeason = listOfNotNull(overview.round?.let { "Round $it" }, overview.season).joinToString(" -- ")
+        if (roundSeason.isNotEmpty()) InfoRow("Competition", roundSeason)
+    }
+}
+
+@Composable
+private fun VenueSection(overview: MatchOverview, venueDetails: VenueDetails?) {
+    if (overview.venueName == null && overview.venueCity == null && venueDetails == null) return
     SectionCard("Venue") {
         val location = listOfNotNull(overview.venueName, overview.venueCity, overview.venueCountry).joinToString(", ")
-        InfoRow("Location", location)
+        if (location.isNotEmpty()) InfoRow("Location", location)
         overview.venueCapacity?.let { InfoRow("Capacity", "%,d".format(it)) }
+        venueDetails?.let { v ->
+            v.address?.let { InfoRow("Address", it) }
+            val built = listOfNotNull(v.opened?.let { "opened $it" }, v.renovated?.let { "renovated $it" })
+            if (built.isNotEmpty()) InfoRow("Built", built.joinToString(", "))
+            v.architect?.let { InfoRow("Architect", it) }
+            v.recordAttendance?.let { InfoRow("Record attendance", it) }
+            v.clubs?.takeIf { it.size > 1 }?.let { InfoRow("Shared by", it.joinToString(", ")) }
+        }
     }
 }
 
