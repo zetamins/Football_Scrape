@@ -32,6 +32,15 @@ dev = [
 # symlink's own commit) -- every test collected and run twice.
 testpaths = ["tests"]
 
+[tool.coverage.run]
+# Store file paths in coverage.xml relative to the repo root rather than
+# as absolute host paths -- without this, a coverage.xml generated on
+# the host is unusable by any tool reading it from a different mount
+# point (e.g. a Docker-based SonarQube scanner mounting this repo at
+# /usr/src instead of its real host path), silently dropping coverage
+# for every file it can't resolve.
+relative_files = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

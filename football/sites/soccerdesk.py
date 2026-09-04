@@ -252,7 +252,7 @@ def _apply_event_to_stats(e: dict[str, Any], entry, name_to_id: dict[str, str]) 
             entry(out_id)["sub_off_minute"] = minute
 
 
-def _build_player_event_stats(incs: dict[str, Any] | None, name_to_id: dict[str, str]) -> dict[str, dict[str, Any]]:  # NOSONAR(python:S3516) -- both returns are the same *variable* (`stats`), but it's a dict mutated differently along each path (empty vs. populated), not actually a constant value
+def _build_player_event_stats(incs: dict[str, Any] | None, name_to_id: dict[str, str]) -> dict[str, dict[str, Any]]:  # NOSONAR(S3516) -- both returns are the same *variable* (`stats`), but it's a dict mutated differently along each path (empty vs. populated), not actually a constant value
     """Goals (type 4) carry the scorer's real pl_id, but each entry in
     their own `assists` array only has a name (confirmed live -- its own
     "id" field is the incident id, a different namespace from a player

@@ -81,10 +81,8 @@ class PitchDiagramComposeTest {
                 defaultLayoutDirection = androidx.compose.ui.unit.LayoutDirection.Ltr,
             )
         val rows = buildRows("4-4-2", eleven())
-        runDrawScope(widthPx = 300f, heightPx = 420f) {
-            drawPitchDiagram(
-                rows = rows,
-                teamColor = Color.Blue,
+        val style =
+            PitchDiagramStyle(
                 textMeasurer = textMeasurer,
                 shirtNumberStyle = TextStyle(fontSize = 12.sp),
                 playerNameStyle = TextStyle(fontSize = 9.sp),
@@ -92,6 +90,8 @@ class PitchDiagramComposeTest {
                 pitchGreenLight = Color(0xFF247A3A),
                 lineColor = Color.White.copy(alpha = 0.55f),
             )
+        runDrawScope(widthPx = 300f, heightPx = 420f) {
+            drawPitchDiagram(rows = rows, teamColor = Color.Blue, style = style)
         }
     }
 }

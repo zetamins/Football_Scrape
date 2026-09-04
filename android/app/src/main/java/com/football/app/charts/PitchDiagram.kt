@@ -67,10 +67,26 @@ fun PitchDiagram(
     val shirtNumberStyle = StatNumberStyle.copy(color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
     val playerNameStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontSize = 9.sp, textAlign = TextAlign.Center)
 
+    val style = PitchDiagramStyle(textMeasurer, shirtNumberStyle, playerNameStyle, pitchGreenDark, pitchGreenLight, lineColor)
     Canvas(modifier = Modifier.fillMaxWidth().aspectRatio(0.72f)) {
-        drawPitchDiagram(rows, teamColor, textMeasurer, shirtNumberStyle, playerNameStyle, pitchGreenDark, pitchGreenLight, lineColor)
+        drawPitchDiagram(rows, teamColor, style)
     }
 }
+
+/**
+ * The 6 draw-time constants drawPitchDiagram needs beyond the data it's
+ * actually drawing (rows, teamColor) -- bundled so the function stays
+ * under kotlin:S107's 7-parameter threshold, same pattern already used
+ * by ReportTabData for the same reason.
+ */
+internal data class PitchDiagramStyle(
+    val textMeasurer: TextMeasurer,
+    val shirtNumberStyle: TextStyle,
+    val playerNameStyle: TextStyle,
+    val pitchGreenDark: Color,
+    val pitchGreenLight: Color,
+    val lineColor: Color,
+)
 
 /**
  * The actual pitch-drawing logic, extracted from PitchDiagram's
@@ -83,13 +99,9 @@ fun PitchDiagram(
 internal fun DrawScope.drawPitchDiagram(
     rows: List<List<LineupPlayer>>,
     teamColor: Color,
-    textMeasurer: TextMeasurer,
-    shirtNumberStyle: TextStyle,
-    playerNameStyle: TextStyle,
-    pitchGreenDark: Color,
-    pitchGreenLight: Color,
-    lineColor: Color,
+    style: PitchDiagramStyle,
 ) {
+    val (textMeasurer, shirtNumberStyle, playerNameStyle, pitchGreenDark, pitchGreenLight, lineColor) = style
     val w = size.width
     val h = size.height
 

@@ -66,7 +66,7 @@ def _extract_kpi(html: str, label: str) -> float | None:
     if not m:
         return None
     n = js_number(m.group(1))
-    return n if n == n else None  # noqa: PLR0124 - NOSONAR(python:S1764) -- portable NaN check, not a typo
+    return n if n == n else None  # noqa: PLR0124  # NOSONAR(S1764) -- portable NaN check, not a typo
 
 
 class RefereeKpis:

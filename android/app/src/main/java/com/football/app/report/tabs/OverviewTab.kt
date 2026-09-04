@@ -21,6 +21,8 @@ import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
 import com.football.app.components.SectionCard
 import com.football.app.data.model.HeadToHeadSummary
+import com.football.app.data.model.ManagerClubRecord
+import com.football.app.data.model.ManagerInfo
 import com.football.app.data.model.MatchOverview
 import com.football.app.data.model.VenueDetails
 import com.football.app.ui.theme.AppTheme
@@ -138,16 +140,8 @@ private fun ManagersSection(
 ) {
     if (overview.homeManager == null && overview.awayManager == null) return
     SectionCard("Managers") {
-        overview.homeManager?.let { m ->
-            val tenure = m.recordAtClub?.let { r -> ", ${r.wins}W-${r.draws}D-${r.losses}L at club" } ?: ""
-            val recent = if (m.recentAppointment == true) " (recent appointment)" else ""
-            InfoRow(homeTeam, "${m.name}${m.country?.let { " ($it)" } ?: ""}$tenure$recent")
-        }
-        overview.awayManager?.let { m ->
-            val tenure = m.recordAtClub?.let { r -> ", ${r.wins}W-${r.draws}D-${r.losses}L at club" } ?: ""
-            val recent = if (m.recentAppointment == true) " (recent appointment)" else ""
-            InfoRow(awayTeam, "${m.name}${m.country?.let { " ($it)" } ?: ""}$tenure$recent")
-        }
+        overview.homeManager?.let { ManagerInfoRow(homeTeam, it) }
+        overview.awayManager?.let { ManagerInfoRow(awayTeam, it) }
         overview.managerDuel?.let { duel ->
             if (duel.homeWins + duel.awayWins + duel.draws > 0) {
                 InfoRow("Head-to-head as managers", "${duel.homeWins}W-${duel.draws}D-${duel.awayWins}L")
@@ -163,22 +157,36 @@ private fun ManagersSection(
         // direct grep of OverviewTab.kt finding no reference to either
         // field at all, despite football/types.py defining them and every
         // *.py site module populating -- or explicitly None-ing -- them).
-        overview.homeManagerVsAwayClub?.let { r ->
-            if (r.sampleSize > 0) {
-                InfoRow(
-                    "${r.managerName} vs ${r.opponentClub}",
-                    "${r.wins}W-${r.draws}D-${r.losses}L (last ${r.sampleSize})",
-                )
-            }
-        }
-        overview.awayManagerVsHomeClub?.let { r ->
-            if (r.sampleSize > 0) {
-                InfoRow(
-                    "${r.managerName} vs ${r.opponentClub}",
-                    "${r.wins}W-${r.draws}D-${r.losses}L (last ${r.sampleSize})",
-                )
-            }
-        }
+        overview.homeManagerVsAwayClub?.let { ManagerVsClubRow(it) }
+        overview.awayManagerVsHomeClub?.let { ManagerVsClubRow(it) }
+    }
+}
+
+/** homeManager/awayManager's identical name+country+tenure+recent-
+ * appointment rendering, differing only in which side and its label --
+ * extracted so ManagersSection's own cognitive complexity stays under
+ * kotlin:S3776's threshold, and so this shape isn't duplicated twice
+ * inline. */
+@Composable
+private fun ManagerInfoRow(
+    team: String,
+    manager: ManagerInfo,
+) {
+    val tenure = manager.recordAtClub?.let { r -> ", ${r.wins}W-${r.draws}D-${r.losses}L at club" } ?: ""
+    val recent = if (manager.recentAppointment == true) " (recent appointment)" else ""
+    InfoRow(team, "${manager.name}${manager.country?.let { " ($it)" } ?: ""}$tenure$recent")
+}
+
+/** homeManagerVsAwayClub/awayManagerVsHomeClub's identical
+ * sample-size-gated rendering -- see ManagersSection's own comment on
+ * the field for what this represents. */
+@Composable
+private fun ManagerVsClubRow(record: ManagerClubRecord) {
+    if (record.sampleSize > 0) {
+        InfoRow(
+            "${record.managerName} vs ${record.opponentClub}",
+            "${record.wins}W-${record.draws}D-${record.losses}L (last ${record.sampleSize})",
+        )
     }
 }
 
