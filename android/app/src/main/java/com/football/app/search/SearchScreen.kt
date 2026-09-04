@@ -133,9 +133,12 @@ fun SearchScreen(
                 Spacer(Modifier.width(10.dp))
                 Text(
                     "DeepXI",
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.01).em,
+                    style =
+                        MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.01).em,
+                        ),
                 )
             }
             IconButton(onClick = onHistoryClick, modifier = Modifier.align(Alignment.CenterEnd)) {
@@ -239,15 +242,25 @@ private fun rememberStartQueue(context: Context): (List<String>) -> Unit {
 private fun SingleSearchProgress(running: QueueState.Running) {
     Column(modifier = Modifier.fillMaxWidth()) {
         val displayMessage = running.message.ifBlank { "Computing match insights..." }
-        val stepProgress = remember(displayMessage) { parseStepProgress(displayMessage) }
-        if (stepProgress != null) {
-            LinearProgressIndicator(progress = { stepProgress }, modifier = Modifier.fillMaxWidth())
-        } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
+        StepProgressBar(displayMessage)
         Spacer(Modifier.height(12.dp))
         Text("Searching \"${running.currentTeam}\"...", style = MaterialTheme.typography.bodyMedium)
         Text(displayMessage, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** Determinate when `message` carries a "(step/total)" prefix (see
+ * parseStepProgress below), indeterminate otherwise -- shared by
+ * SingleSearchProgress and QueueStatusCard's own Running state, which
+ * previously showed plain text with no progress bar at all despite
+ * being driven by the exact same QueueState.Running.message. */
+@Composable
+private fun StepProgressBar(message: String) {
+    val stepProgress = remember(message) { parseStepProgress(message) }
+    if (stepProgress != null) {
+        LinearProgressIndicator(progress = { stepProgress }, modifier = Modifier.fillMaxWidth())
+    } else {
+        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -324,6 +337,8 @@ private fun QueueStatusCard(queueState: QueueState) {
     when (queueState) {
         is QueueState.Running -> {
             Spacer(Modifier.height(16.dp))
+            StepProgressBar(queueState.message)
+            Spacer(Modifier.height(8.dp))
             Text(
                 "Queue: ${queueState.currentTeam} (${queueState.index + 1}/${queueState.total}) -- ${queueState.message.ifBlank {
                     "working…"

@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.football.app.ui.theme.StatNumberStyle
 
 /** One ranked row: a name, a value to bar-encode, and the text already formatted for display (e.g. "9g", "6a"). */
 data class RankedEntry(
@@ -65,7 +66,7 @@ fun RankedBarList(
                     drawRect(color = barColor, topLeft = Offset.Zero, size = Size(size.width * fraction, size.height))
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(entry.valueText, style = MaterialTheme.typography.bodySmall)
+                Text(entry.valueText, style = MaterialTheme.typography.bodySmall.merge(StatNumberStyle))
             }
         }
     }

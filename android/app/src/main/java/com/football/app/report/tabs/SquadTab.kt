@@ -109,10 +109,9 @@ private fun AvailabilitySection(profile: TeamProfileData) {
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun PlayerPillRow(names: List<String>) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    PillFlow {
         names.forEach { name ->
             OutlinedPill(text = name, borderColor = AppTheme.colors.statusCritical, contentColor = AppTheme.colors.statusCritical)
         }

@@ -7,18 +7,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
-import com.football.app.charts.Segment
-import com.football.app.charts.SegmentedBar
+import com.football.app.charts.ThreeWaySegmentedBar
 import com.football.app.components.DotPill
 import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
@@ -27,6 +24,7 @@ import com.football.app.data.model.HeadToHeadSummary
 import com.football.app.data.model.MatchOverview
 import com.football.app.data.model.VenueDetails
 import com.football.app.ui.theme.AppTheme
+import com.football.app.ui.theme.StatNumberStyle
 
 /**
  * frontend/DESIGN.md's Overview tab. Every block below checks its own
@@ -243,25 +241,18 @@ private fun H2HBar(
     homeTeam: String,
     awayTeam: String,
 ) {
-    SegmentedBar(
-        segments =
-            listOf(
-                Segment(summary.homeWins.toFloat(), AppTheme.colors.homeSeries),
-                Segment(summary.draws.toFloat(), AppTheme.colors.neutral),
-                Segment(summary.awayWins.toFloat(), AppTheme.colors.awaySeries),
-            ),
+    ThreeWaySegmentedBar(
+        homeFraction = summary.homeWins.toFloat(),
+        drawFraction = summary.draws.toFloat(),
+        awayFraction = summary.awayWins.toFloat(),
+        homeColor = AppTheme.colors.homeSeries,
+        drawColor = AppTheme.colors.neutral,
+        awayColor = AppTheme.colors.awaySeries,
+        homeText = "$homeTeam ${summary.homeWins}W",
+        drawText = "${summary.draws}D",
+        awayText = "$awayTeam ${summary.awayWins}W",
+        labelStyle = MaterialTheme.typography.bodySmall.merge(StatNumberStyle),
     )
-    Spacer(Modifier.height(4.dp))
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text("$homeTeam ${summary.homeWins}W", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        Text("${summary.draws}D", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-        Text(
-            "$awayTeam ${summary.awayWins}W",
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.End,
-        )
-    }
 }
 
 @Composable

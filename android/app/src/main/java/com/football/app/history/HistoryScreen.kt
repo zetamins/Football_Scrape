@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.football.app.components.TeamBadge
+import com.football.app.components.cardSurface
 import com.football.app.data.history.HistoryEntry
 import com.football.app.report.HistoryViewModel
 import com.football.app.report.ReportViewModel
@@ -140,39 +140,34 @@ private fun HistoryRow(
     onOpen: () -> Unit,
     onDeleteRequest: () -> Unit,
 ) {
-    Card(
+    Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 6.dp)
+                .cardSurface(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceVariant)
+                .clickable(onClick = onOpen)
+                .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpen)
-                    .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                TeamBadge(entry.team, AppTheme.colors.homeSeries, size = 30.dp)
-                if (entry.opponent != null) {
-                    Spacer(Modifier.width(4.dp))
-                    Text("vs", style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.width(4.dp))
-                    TeamBadge(entry.opponent, AppTheme.colors.awaySeries, size = 30.dp)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    val title = if (entry.opponent != null) "${entry.team} vs ${entry.opponent}" else entry.team
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    Text("Generated ${entry.generatedAt}", style = MaterialTheme.typography.bodySmall)
-                }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            TeamBadge(entry.team, AppTheme.colors.homeSeries, size = TeamBadge.SizeSmall)
+            if (entry.opponent != null) {
+                Spacer(Modifier.width(4.dp))
+                Text("vs", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.width(4.dp))
+                TeamBadge(entry.opponent, AppTheme.colors.awaySeries, size = TeamBadge.SizeSmall)
             }
-            IconButton(onClick = onDeleteRequest) {
-                Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
+            Spacer(Modifier.width(12.dp))
+            Column {
+                val title = if (entry.opponent != null) "${entry.team} vs ${entry.opponent}" else entry.team
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text("Generated ${entry.generatedAt}", style = MaterialTheme.typography.bodySmall)
             }
+        }
+        IconButton(onClick = onDeleteRequest) {
+            Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete")
         }
     }
 }

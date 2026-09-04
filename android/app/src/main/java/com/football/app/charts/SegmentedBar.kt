@@ -2,15 +2,22 @@ package com.football.app.charts
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -61,6 +68,47 @@ fun SegmentedBar(
                 )
                 x += widthPx
             }
+        }
+    }
+}
+
+/**
+ * SegmentedBar's most common shape in this app: a 3-way (home/neutral/
+ * away) bar with a left/center/right-aligned label row directly below,
+ * summarizing each segment's own value -- previously duplicated between
+ * PredictionHero's ProbabilityRow (win/draw/win %) and OverviewTab's
+ * H2HBar (head-to-head W/D/L), identical layout differing only in text
+ * content/color. One shared implementation here instead.
+ */
+@Composable
+fun ThreeWaySegmentedBar(
+    homeFraction: Float,
+    drawFraction: Float,
+    awayFraction: Float,
+    homeColor: Color,
+    drawColor: Color,
+    awayColor: Color,
+    homeText: String,
+    drawText: String,
+    awayText: String,
+    modifier: Modifier = Modifier,
+    labelColor: Color = Color.Unspecified,
+    labelStyle: TextStyle = MaterialTheme.typography.bodySmall,
+) {
+    Column(modifier = modifier) {
+        SegmentedBar(
+            segments =
+                listOf(
+                    Segment(homeFraction, homeColor),
+                    Segment(drawFraction, drawColor),
+                    Segment(awayFraction, awayColor),
+                ),
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(homeText, modifier = Modifier.weight(1f), style = labelStyle, color = labelColor)
+            Text(drawText, modifier = Modifier.weight(1f), style = labelStyle, textAlign = TextAlign.Center, color = labelColor)
+            Text(awayText, modifier = Modifier.weight(1f), style = labelStyle, textAlign = TextAlign.End, color = labelColor)
         }
     }
 }

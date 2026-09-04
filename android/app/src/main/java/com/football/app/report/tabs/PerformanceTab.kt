@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -175,12 +174,12 @@ private fun AdvancedStatsSection(
         AdvancedBar("Tackles", h.teamTacklesFor, a.teamTacklesFor, homeTeam, awayTeam)
         AdvancedBar("Interceptions", h.teamInterceptionsFor, a.teamInterceptionsFor, homeTeam, awayTeam)
         AdvancedBar("Clearances", h.teamClearancesFor, a.teamClearancesFor, homeTeam, awayTeam)
-        AdvancedBarDouble("xA", h.xaFor, a.xaFor, homeTeam, awayTeam)
-        AdvancedBarDouble("Distance covered (km)", h.distanceCoveredKmFor, a.distanceCoveredKmFor, homeTeam, awayTeam)
+        AdvancedBar("xA", h.xaFor, a.xaFor, homeTeam, awayTeam)
+        AdvancedBar("Distance covered (km)", h.distanceCoveredKmFor, a.distanceCoveredKmFor, homeTeam, awayTeam)
         AdvancedBar("Total shots (sofascore)", h.totalShotsFor, a.totalShotsFor, homeTeam, awayTeam)
         AdvancedBar("Shots on target (sofascore)", h.shotsOnTargetFor, a.shotsOnTargetFor, homeTeam, awayTeam)
-        AdvancedBarDouble("Non-penalty xG", h.nonPenaltyXgFor, a.nonPenaltyXgFor, homeTeam, awayTeam)
-        AdvancedBarDouble("Set-piece xG", h.setPieceXgFor, a.setPieceXgFor, homeTeam, awayTeam)
+        AdvancedBar("Non-penalty xG", h.nonPenaltyXgFor, a.nonPenaltyXgFor, homeTeam, awayTeam)
+        AdvancedBar("Set-piece xG", h.setPieceXgFor, a.setPieceXgFor, homeTeam, awayTeam)
         AdvancedBar("Big chances created (sofascore)", h.bigChancesCreatedFor, a.bigChancesCreatedFor, homeTeam, awayTeam)
 
         InfoRow("$homeTeam set-piece goals (corner/pen/FK)", "${h.cornerGoalsFor}/${h.penaltyGoalsFor}/${h.freeKickGoalsFor}")
@@ -206,31 +205,14 @@ private fun AdvancedStatsSection(
     }
 }
 
+/** One bar comparison row for an Int- or Double-valued advanced stat --
+ * previously two byte-for-byte identical functions (AdvancedBar/
+ * AdvancedBarDouble) differing only in parameter type. */
 @Composable
 private fun AdvancedBar(
     label: String,
-    home: Int,
-    away: Int,
-    homeTeam: String,
-    awayTeam: String,
-) {
-    BarComparison(
-        label,
-        home.toFloat(),
-        away.toFloat(),
-        AppTheme.colors.homeSeries,
-        AppTheme.colors.awaySeries,
-        "$homeTeam $home",
-        "$awayTeam $away",
-    )
-    Spacer(Modifier.height(8.dp))
-}
-
-@Composable
-private fun AdvancedBarDouble(
-    label: String,
-    home: Double,
-    away: Double,
+    home: Number,
+    away: Number,
     homeTeam: String,
     awayTeam: String,
 ) {

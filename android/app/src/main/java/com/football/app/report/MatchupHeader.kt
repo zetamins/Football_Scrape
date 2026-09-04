@@ -54,7 +54,7 @@ private fun TeamColumn(
     horizontalAlignment: Alignment.Horizontal,
 ) {
     Column(modifier = modifier, horizontalAlignment = horizontalAlignment) {
-        TeamBadge(team, color, size = 52.dp)
+        TeamBadge(team, color, size = TeamBadge.SizeLarge)
         Spacer(Modifier.width(4.dp))
         Text(
             team,

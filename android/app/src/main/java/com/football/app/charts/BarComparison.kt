@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.football.app.ui.theme.StatNumberStyle
 
 /**
  * Paired home/away horizontal bar comparison -- the most common chart
@@ -80,6 +81,6 @@ private fun SingleBar(
                 )
             }
         }
-        Text(valueText, style = MaterialTheme.typography.bodySmall)
+        Text(valueText, style = MaterialTheme.typography.bodySmall.merge(StatNumberStyle))
     }
 }

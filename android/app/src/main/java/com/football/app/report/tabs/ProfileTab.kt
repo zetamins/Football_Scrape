@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,6 +16,7 @@ import com.football.app.charts.RadarAxis
 import com.football.app.charts.RadarChart
 import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
+import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
 import com.football.app.data.model.InsightsProfile
 import com.football.app.data.model.SeasonAerialEstimate
@@ -232,7 +232,6 @@ private fun RiskSection(
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun RiskPillGroup(
     label: String,
@@ -240,14 +239,7 @@ private fun RiskPillGroup(
 ) {
     Text(label, style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(6.dp))
-    androidx.compose.foundation.layout.FlowRow(
-        horizontalArrangement =
-            androidx.compose.foundation.layout.Arrangement
-                .spacedBy(6.dp),
-        verticalArrangement =
-            androidx.compose.foundation.layout.Arrangement
-                .spacedBy(6.dp),
-    ) {
+    PillFlow {
         items.forEach { item ->
             OutlinedPill(text = item, borderColor = AppTheme.colors.statusWarning, contentColor = AppTheme.colors.statusWarning)
         }

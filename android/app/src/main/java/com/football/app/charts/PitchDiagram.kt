@@ -3,6 +3,7 @@ package com.football.app.charts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -10,13 +11,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.football.app.data.model.LineupPlayer
+import com.football.app.ui.theme.StatNumberStyle
 
 /**
  * Starting XI laid out on a pitch by formation, not a flat name list --
@@ -50,6 +51,18 @@ fun PitchDiagram(
     val pitchGreenDark = Color(0xFF1E5E2E)
     val pitchGreenLight = Color(0xFF247A3A)
     val lineColor = Color.White.copy(alpha = 0.55f)
+
+    // Built from MaterialTheme.typography here, in the @Composable
+    // function body -- not inside the Canvas draw lambda below, which
+    // isn't itself a @Composable context (same reason RadarChart.kt
+    // reads its own labelStyle outside its Canvas block). Previously a
+    // bare TextStyle(fontSize = ...) with no fontFamily at all, which
+    // silently rendered in the system default font instead of the app's
+    // Barlow -- the only text in the app that did. The shirt number
+    // specifically also gets StatNumberStyle (tabular figures), being a
+    // genuine stat-tile number per that style's own stated purpose.
+    val shirtNumberStyle = StatNumberStyle.copy(color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+    val playerNameStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontSize = 9.sp, textAlign = TextAlign.Center)
 
     Canvas(modifier = Modifier.fillMaxWidth().aspectRatio(0.72f)) {
         val w = size.width
@@ -95,19 +108,11 @@ fun PitchDiagram(
                 drawCircle(color = Color.White, radius = 16.dp.toPx(), center = Offset(x, y), style = Stroke(width = 1.5.dp.toPx()))
 
                 val shirt = player.shirtNumber?.toString() ?: "-"
-                val numberLayout =
-                    textMeasurer.measure(
-                        shirt,
-                        style = TextStyle(color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center),
-                    )
+                val numberLayout = textMeasurer.measure(shirt, style = shirtNumberStyle)
                 drawText(numberLayout, topLeft = Offset(x - numberLayout.size.width / 2f, y - numberLayout.size.height / 2f))
 
                 val shortName = player.name.substringAfterLast(' ').take(10)
-                val nameLayout =
-                    textMeasurer.measure(
-                        shortName,
-                        style = TextStyle(color = Color.White, fontSize = 9.sp, textAlign = TextAlign.Center),
-                    )
+                val nameLayout = textMeasurer.measure(shortName, style = playerNameStyle)
                 drawText(nameLayout, topLeft = Offset(x - nameLayout.size.width / 2f, y + 18.dp.toPx()))
             }
         }

@@ -11,12 +11,12 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -45,7 +44,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -54,8 +52,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.football.app.components.Pill
 import com.football.app.components.TeamBadge
 import com.football.app.data.AppJson
 import com.football.app.data.model.FormSummary
@@ -83,6 +83,7 @@ import com.football.app.report.tabs.ProfileTab
 import com.football.app.report.tabs.SquadTab
 import com.football.app.report.tabs.StandingsTab
 import com.football.app.ui.theme.AppTheme
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import java.io.File
@@ -124,7 +125,7 @@ fun ReportScreen(
         }
         val report = success.report
 
-        val match = remember(report.match) { decodeMatchSummary(report.match) }
+        val match = remember(report.match) { decodeOrNull(report.match, MatchSummary.serializer()) }
         val data = rememberReportTabData(report)
 
         ReportHeaderRow(
@@ -294,7 +295,7 @@ private fun ReportHeaderRow(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-            TeamBadge(team, AppTheme.colors.homeSeries, size = 36.dp)
+            TeamBadge(team, AppTheme.colors.homeSeries, size = TeamBadge.SizeMedium)
             Column(modifier = Modifier.padding(start = 10.dp).weight(1f, fill = false)) {
                 Text(team, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("Generated $generatedAt", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -337,22 +338,24 @@ private fun ReportTabBar(
     }
 }
 
+/** Reuses the shared Pill shape/background/clip logic (previously
+ * hand-rolled here, duplicating it) -- its own font size/padding stay
+ * exactly what they were (ambient tab-bar size, 16/8 padding), since
+ * this is a distinct, already-tuned use, not a plain Pill call site. */
 @Composable
 private fun ReportTabPill(
     tab: ReportTab,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Text(
-        tab.title,
-        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+    Pill(
+        text = tab.title,
+        containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        modifier =
-            Modifier
-                .clip(RoundedCornerShape(50))
-                .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+        fontSize = TextUnit.Unspecified,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.clickable(onClick = onClick),
     )
 }
 
@@ -427,26 +430,29 @@ private data class ReportTabData(
     val squadStrength: InsightsSquadStrength?,
 )
 
-/** Same `remember(report.X) { decodeX(report.X) }` keys as before this
- * was factored out -- each field only re-decodes when its own specific
- * report sub-field changes, not on every ReportTabData construction. */
+/** Same `remember(report.X) { decodeOrNull(report.X, ...) }` keys as
+ * before this was factored out -- each field only re-decodes when its
+ * own specific report sub-field changes, not on every ReportTabData
+ * construction. */
 @Composable
 private fun rememberReportTabData(report: ReportJson): ReportTabData =
     ReportTabData(
-        overview = remember(report.match) { decodeMatchOverview(report.match) },
-        venueDetails = remember(report.venueDetails) { decodeVenueDetails(report.venueDetails) },
-        lineups = remember(report.match) { decodeMatchLineups(report.match) },
-        performance = remember(report.insights) { decodeInsightsPerformance(report.insights) },
-        discipline = remember(report.insights) { decodeInsightsDiscipline(report.insights) },
-        profile = remember(report.insights) { decodeInsightsProfile(report.insights) },
-        standings = remember(report.insights) { decodeInsightsStandings(report.insights) },
-        standingsTable = remember(report.match) { decodeMatchStandingsTable(report.match)?.standingsTable },
-        context = remember(report.insights) { decodeInsightsContext(report.insights) },
-        teamForm = remember(report.form) { decodeFormSummary(report.form) },
-        opponentForm = remember(report.opponentForm) { decodeFormSummary(report.opponentForm) },
-        teamProfile = remember(report.teamProfile) { decodeTeamProfile(report.teamProfile) },
-        opponentProfile = remember(report.opponentProfile) { decodeTeamProfile(report.opponentProfile) },
-        squadStrength = remember(report.insights) { decodeInsightsSquadStrength(report.insights) },
+        overview = remember(report.match) { decodeOrNull(report.match, MatchOverview.serializer()) },
+        venueDetails = remember(report.venueDetails) { decodeOrNull(report.venueDetails, VenueDetails.serializer()) },
+        lineups = remember(report.match) { decodeOrNull(report.match, MatchLineups.serializer()) },
+        performance = remember(report.insights) { decodeOrNull(report.insights, InsightsPerformance.serializer()) },
+        discipline = remember(report.insights) { decodeOrNull(report.insights, InsightsDiscipline.serializer()) },
+        profile = remember(report.insights) { decodeOrNull(report.insights, InsightsProfile.serializer()) },
+        standings = remember(report.insights) { decodeOrNull(report.insights, InsightsStandings.serializer()) },
+        standingsTable =
+            remember(report.match) { decodeOrNull(report.match, MatchStandingsTable.serializer())?.standingsTable },
+        context = remember(report.insights) { decodeOrNull(report.insights, InsightsContext.serializer()) },
+        teamForm = remember(report.form) { decodeOrNull(report.form, FormSummary.serializer()) },
+        opponentForm = remember(report.opponentForm) { decodeOrNull(report.opponentForm, FormSummary.serializer()) },
+        teamProfile = remember(report.teamProfile) { decodeOrNull(report.teamProfile, TeamProfileData.serializer()) },
+        opponentProfile =
+            remember(report.opponentProfile) { decodeOrNull(report.opponentProfile, TeamProfileData.serializer()) },
+        squadStrength = remember(report.insights) { decodeOrNull(report.insights, InsightsSquadStrength.serializer()) },
     )
 
 /**
@@ -565,118 +571,25 @@ private fun PlaceholderTab(tab: ReportTab) {
     )
 }
 
-private fun decodeMatchSummary(matchJson: JsonElement?): MatchSummary? {
-    if (matchJson == null) return null
+/**
+ * Every report sub-field's own decode-with-null-safety, in one place --
+ * previously 13 separate functions (decodeMatchSummary, decodeMatchOverview,
+ * decodeVenueDetails, ... through decodeInsightsSquadStrength), each the
+ * exact same 6-line body differing only by type. `json` is `null` for a
+ * genuinely absent report section (matches ReportJson field nullability);
+ * decode failure (a malformed/unexpected shape) is treated the same way
+ * as absence, not surfaced as an error -- this screen's whole per-tab
+ * design already renders "not yet implemented" for a null section (see
+ * DecodedTab/PlaceholderTab above), so a bad decode just falls into that
+ * same, already-handled path.
+ */
+private fun <T> decodeOrNull(
+    json: JsonElement?,
+    serializer: KSerializer<T>,
+): T? {
+    if (json == null) return null
     return try {
-        AppJson.decodeFromJsonElement(MatchSummary.serializer(), matchJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeMatchOverview(matchJson: JsonElement?): MatchOverview? {
-    if (matchJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(MatchOverview.serializer(), matchJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeVenueDetails(venueDetailsJson: JsonElement?): VenueDetails? {
-    if (venueDetailsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(VenueDetails.serializer(), venueDetailsJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeMatchLineups(matchJson: JsonElement?): MatchLineups? {
-    if (matchJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(MatchLineups.serializer(), matchJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeInsightsPerformance(insightsJson: JsonElement?): InsightsPerformance? {
-    if (insightsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(InsightsPerformance.serializer(), insightsJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeInsightsDiscipline(insightsJson: JsonElement?): InsightsDiscipline? {
-    if (insightsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(InsightsDiscipline.serializer(), insightsJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeInsightsProfile(insightsJson: JsonElement?): InsightsProfile? {
-    if (insightsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(InsightsProfile.serializer(), insightsJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeInsightsStandings(insightsJson: JsonElement?): InsightsStandings? {
-    if (insightsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(InsightsStandings.serializer(), insightsJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeMatchStandingsTable(matchJson: JsonElement?): MatchStandingsTable? {
-    if (matchJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(MatchStandingsTable.serializer(), matchJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeInsightsContext(insightsJson: JsonElement?): InsightsContext? {
-    if (insightsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(InsightsContext.serializer(), insightsJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeFormSummary(formJson: JsonElement?): FormSummary? {
-    if (formJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(FormSummary.serializer(), formJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeTeamProfile(profileJson: JsonElement?): TeamProfileData? {
-    if (profileJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(TeamProfileData.serializer(), profileJson)
-    } catch (e: SerializationException) {
-        null
-    }
-}
-
-private fun decodeInsightsSquadStrength(insightsJson: JsonElement?): InsightsSquadStrength? {
-    if (insightsJson == null) return null
-    return try {
-        AppJson.decodeFromJsonElement(InsightsSquadStrength.serializer(), insightsJson)
+        AppJson.decodeFromJsonElement(serializer, json)
     } catch (e: SerializationException) {
         null
     }

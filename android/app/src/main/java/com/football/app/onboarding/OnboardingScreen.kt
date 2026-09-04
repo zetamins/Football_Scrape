@@ -54,9 +54,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit) {
             Text(
                 "Every match,\nfully broken down.",
                 color = Color.White,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 36.sp,
+                style = MaterialTheme.typography.headlineMedium.copy(fontSize = 30.sp, fontWeight = FontWeight.Bold, lineHeight = 36.sp),
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(12.dp))
@@ -64,8 +62,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit) {
                 "Search any team and get the full picture -- form, lineups, " +
                     "predictions, and everything else the numbers say, in one report.",
                 color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 20.sp),
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(32.dp))
@@ -75,7 +72,7 @@ fun OnboardingScreen(onGetStarted: () -> Unit) {
                 shape = MaterialTheme.shapes.extraLarge,
                 modifier = Modifier.fillMaxWidth().height(56.dp),
             ) {
-                Text("Get started", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text("Get started", style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold))
             }
             Spacer(Modifier.height(40.dp))
         }

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
 import com.football.app.components.InfoRow
 import com.football.app.components.Pill
+import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
 import com.football.app.data.model.InsightsContext
 import com.football.app.data.model.LosingStreakContextInfo
@@ -283,7 +283,6 @@ private fun AvailabilitySection(
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun PresenceRow(
     team: String,
@@ -296,10 +295,7 @@ private fun PresenceRow(
     }
     Text("$team availability: ${entries.size - absent.size} present, ${absent.size} absent", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(6.dp))
-    androidx.compose.foundation.layout.FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    PillFlow {
         absent.forEach { p -> Pill(text = p.name, containerColor = AppTheme.colors.statusWarning, contentColor = Color.Black) }
     }
     Spacer(Modifier.height(8.dp))

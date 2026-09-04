@@ -24,11 +24,22 @@ import androidx.compose.ui.unit.sp
  * "which side" (home/away), the same categorical meaning the segmented
  * bars and pitch diagram already use, not a literal brand color.
  */
+/** Named size tokens for TeamBadge's 3 real call sites -- previously each
+ * passed its own unexplained magic dp value (30/36/52) with no shared
+ * scale connecting them. The hierarchy is deliberate (biggest in the
+ * one-per-screen matchup header, smallest in a dense list row), so this
+ * documents that intent rather than forcing all call sites to one size. */
+object TeamBadge {
+    val SizeSmall = 30.dp // History list rows -- one of several rows on screen at once.
+    val SizeMedium = 36.dp // Report screen's header row -- one badge alongside a back/action button row.
+    val SizeLarge = 52.dp // MatchupHeader -- the report's own headline team-vs-team display.
+}
+
 @Composable
 fun TeamBadge(
     teamName: String,
     color: Color,
-    size: Dp = 32.dp,
+    size: Dp = TeamBadge.SizeMedium,
 ) {
     Box(
         modifier =

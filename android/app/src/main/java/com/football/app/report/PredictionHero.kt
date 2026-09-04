@@ -2,12 +2,10 @@ package com.football.app.report
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,14 +15,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.football.app.charts.Segment
-import com.football.app.charts.SegmentedBar
+import com.football.app.charts.ThreeWaySegmentedBar
 import com.football.app.data.AppJson
 import com.football.app.data.model.Prediction
 import com.football.app.data.model.WinProbabilities
 import com.football.app.ui.theme.AppTheme
+import com.football.app.ui.theme.StatNumberStyle
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -56,7 +53,12 @@ fun PredictionHero(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
-                .clip(RoundedCornerShape(20.dp))
+                // MaterialTheme.shapes.large (AppShapes in Theme.kt), not a
+                // one-off hardcoded radius -- previously 20.dp, a value that
+                // matched neither AppShapes' scale (medium=18/large=22) nor
+                // SectionCard's own hardcoded 18.dp, an unintentional
+                // one-off rather than a deliberate departure from it.
+                .clip(MaterialTheme.shapes.large)
                 .background(Brush.linearGradient(listOf(Color(0xFF1E8E3E), Color(0xFF74C43F))))
                 .padding(16.dp),
     ) {
@@ -89,37 +91,19 @@ private fun ProbabilityRow(
     Column {
         Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
         Spacer(Modifier.height(4.dp))
-        SegmentedBar(
-            segments =
-                listOf(
-                    Segment(probs.homeWinPct.toFloat(), AppTheme.colors.homeSeries),
-                    Segment(probs.drawPct.toFloat(), AppTheme.colors.neutral),
-                    Segment(probs.awayWinPct.toFloat(), AppTheme.colors.awaySeries),
-                ),
+        ThreeWaySegmentedBar(
+            homeFraction = probs.homeWinPct.toFloat(),
+            drawFraction = probs.drawPct.toFloat(),
+            awayFraction = probs.awayWinPct.toFloat(),
+            homeColor = AppTheme.colors.homeSeries,
+            drawColor = AppTheme.colors.neutral,
+            awayColor = AppTheme.colors.awaySeries,
+            homeText = "$homeTeam ${probs.homeWinPct.format1()}%",
+            drawText = "Draw ${probs.drawPct.format1()}%",
+            awayText = "$awayTeam ${probs.awayWinPct.format1()}%",
+            labelColor = Color.White,
+            labelStyle = MaterialTheme.typography.bodySmall.merge(StatNumberStyle),
         )
-        Spacer(Modifier.height(4.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                "$homeTeam ${probs.homeWinPct.format1()}%",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White,
-            )
-            Text(
-                "Draw ${probs.drawPct.format1()}%",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                color = Color.White,
-            )
-            Text(
-                "$awayTeam ${probs.awayWinPct.format1()}%",
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.End,
-                color = Color.White,
-            )
-        }
     }
 }
 
