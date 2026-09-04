@@ -26,4 +26,13 @@ class ReportJsonTest {
         assertEquals("Brentford", decoded.team)
         assertEquals("2026-08-31T02:21:23.778Z", decoded.generatedAt)
     }
+
+    // sources defaults to emptyList() -- every real fixture in this suite
+    // includes it, so that default was previously never exercised.
+    @Test
+    fun `sources defaults to an empty list when the field is absent`() {
+        val json = """{"team": "Brentford", "generatedAt": "2026-08-31T02:21:23.778Z"}"""
+        val decoded = AppJsonTopLevel.decodeFromString(ReportJson.serializer(), json)
+        assertEquals(emptyList<SourceStatus>(), decoded.sources)
+    }
 }
