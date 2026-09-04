@@ -30,10 +30,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -112,55 +115,68 @@ fun ReportScreen(
             saveReportToUri(context, uri, success?.rawJson)
         }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Checking `success` itself (not `report`) lets Kotlin smart-cast
-        // it to non-null for the rest of this block -- report.team is
-        // used below, but so is success.rawJson (Share button), and a
-        // `report == null` guard wouldn't prove `success` is non-null to
-        // the compiler even though the two are equivalent here (kotlin:S6619
-        // flagged the resulting `success?.` as a redundant safe-call).
-        if (success == null) {
-            Text("No report loaded.", modifier = Modifier.padding(24.dp))
-            return@Column
-        }
-        val report = success.report
+    // Checking `success` itself (not `report`) lets Kotlin smart-cast it
+    // to non-null for the rest of this function -- report.team is used
+    // below, but so is success.rawJson (Share button), and a
+    // `report == null` guard wouldn't prove `success` is non-null to the
+    // compiler even though the two are equivalent here (kotlin:S6619
+    // flagged the resulting `success?.` as a redundant safe-call).
+    if (success == null) {
+        Text("No report loaded.", modifier = Modifier.padding(24.dp))
+        return
+    }
+    val report = success.report
 
-        val match = remember(report.match) { decodeOrNull(report.match, MatchSummary.serializer()) }
-        val data = rememberReportTabData(report)
+    val match = remember(report.match) { decodeOrNull(report.match, MatchSummary.serializer()) }
+    val data = rememberReportTabData(report)
 
-        ReportHeaderRow(
-            team = report.team,
-            generatedAt = report.generatedAt,
-            onBack = onBack,
-            onHistoryClick = onHistoryClick,
-            onDownloadClick = {
-                val safeTeam = report.team.replace(Regex("[^A-Za-z0-9]+"), "_")
-                saveJsonLauncher.launch("${safeTeam}_report.json")
-            },
-            onShareClick = { shareReportJson(context, report.team, success.rawJson) },
-        )
-
-        // Shared with ReportTabPager below -- the collapse fraction is
-        // derived directly from this same ScrollState's offset, so the
-        // header shrinks in lockstep with the tab content actually
-        // scrolling (not a separate nested-scroll drag simulation).
-        val tabScrollState = rememberScrollState()
-        val collapseFraction by remember {
-            derivedStateOf { (tabScrollState.value / HEADER_COLLAPSE_RANGE_PX).coerceIn(0f, 1f) }
-        }
-
-        if (match != null) {
-            CollapsingMatchHeader(
-                homeTeam = match.homeTeam,
-                awayTeam = match.awayTeam,
-                insightsJson = report.insights,
-                collapseFraction = collapseFraction,
+    // Scaffold + TopAppBar, same standard pattern HistoryScreen's own
+    // header already uses (previously a hand-rolled Row here instead --
+    // two different implementations of the same "screen header with a
+    // back button" role). Safe to adopt here specifically because no
+    // TopAppBarScrollBehavior is wired in below -- this is a plain,
+    // fixed-height top bar; CollapsingMatchHeader's own scroll-linked
+    // collapse/fade (tuned and verified live, per its own doc comment)
+    // is driven entirely by tabScrollState inside the content slot below
+    // and is untouched by this change.
+    Scaffold(
+        topBar = {
+            ReportHeaderRow(
+                team = report.team,
+                generatedAt = report.generatedAt,
+                onBack = onBack,
+                onHistoryClick = onHistoryClick,
+                onDownloadClick = {
+                    val safeTeam = report.team.replace(Regex("[^A-Za-z0-9]+"), "_")
+                    saveJsonLauncher.launch("${safeTeam}_report.json")
+                },
+                onShareClick = { shareReportJson(context, report.team, success.rawJson) },
             )
-        }
+        },
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Shared with ReportTabPager below -- the collapse fraction is
+            // derived directly from this same ScrollState's offset, so the
+            // header shrinks in lockstep with the tab content actually
+            // scrolling (not a separate nested-scroll drag simulation).
+            val tabScrollState = rememberScrollState()
+            val collapseFraction by remember {
+                derivedStateOf { (tabScrollState.value / HEADER_COLLAPSE_RANGE_PX).coerceIn(0f, 1f) }
+            }
 
-        var selectedTab by remember { mutableStateOf(ReportTab.OVERVIEW) }
-        ReportTabBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
-        ReportTabPager(selectedTab = selectedTab, teamName = report.team, match = match, data = data, scrollState = tabScrollState)
+            if (match != null) {
+                CollapsingMatchHeader(
+                    homeTeam = match.homeTeam,
+                    awayTeam = match.awayTeam,
+                    insightsJson = report.insights,
+                    collapseFraction = collapseFraction,
+                )
+            }
+
+            var selectedTab by remember { mutableStateOf(ReportTab.OVERVIEW) }
+            ReportTabBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+            ReportTabPager(selectedTab = selectedTab, teamName = report.team, match = match, data = data, scrollState = tabScrollState)
+        }
     }
 }
 
@@ -271,6 +287,15 @@ private fun shareReportJson(
     context.startActivity(Intent.createChooser(sendIntent, "Share report"))
 }
 
+/** Scaffold's TopAppBar, matching HistoryScreen's own header pattern --
+ * previously a hand-rolled Row here instead, the one other place in the
+ * app duplicating this "back button + title + actions" role with its
+ * own separate implementation. team/generatedAt render as a custom
+ * `title` composable (badge + two-line text column) rather than
+ * TopAppBar's usual single title string, since that's what this screen
+ * actually needs there; navigationIcon/actions map directly onto the
+ * back button and the 3 action icons this always had. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReportHeaderRow(
     team: String,
@@ -280,12 +305,17 @@ private fun ReportHeaderRow(
     onDownloadClick: () -> Unit,
     onShareClick: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+    TopAppBar(
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TeamBadge(team, AppTheme.colors.homeSeries, size = TeamBadge.SizeMedium)
+                Column(modifier = Modifier.padding(start = 10.dp)) {
+                    Text(team, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Generated $generatedAt", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        },
+        navigationIcon = {
             // Previously missing entirely -- there was no way to leave
             // the Report screen except the system back gesture/button,
             // which didn't reliably navigate away either (confirmed live:
@@ -295,13 +325,8 @@ private fun ReportHeaderRow(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-            TeamBadge(team, AppTheme.colors.homeSeries, size = TeamBadge.SizeMedium)
-            Column(modifier = Modifier.padding(start = 10.dp).weight(1f, fill = false)) {
-                Text(team, style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Generated $generatedAt", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        Row {
+        },
+        actions = {
             IconButton(onClick = onHistoryClick) {
                 Icon(Icons.Default.History, contentDescription = "History")
             }
@@ -311,8 +336,8 @@ private fun ReportHeaderRow(
             IconButton(onClick = onDownloadClick) {
                 Icon(Icons.Default.Download, contentDescription = "Download JSON")
             }
-        }
-    }
+        },
+    )
 }
 
 // A scrollable row of pill buttons, not ScrollableTabRow's default
