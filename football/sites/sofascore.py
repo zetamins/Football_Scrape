@@ -643,6 +643,90 @@ def _match_details_note(lineups: dict[str, Any] | None, stats: dict[str, Any] | 
     )
 
 
+@dataclass
+class _SofascoreRawMatchData:
+    """Everything get_sofascore_match_details fetches before building the
+    final MatchDetails -- bundled so _build_sofascore_match_details below
+    can take it as one parameter instead of ~10, keeping that function
+    itself under kotlin:S107's parameter threshold."""
+
+    h2h: dict[str, Any] | None
+    streaks: dict[str, Any] | None
+    lineups: dict[str, Any] | None
+    stats: dict[str, Any] | None
+    incidents: dict[str, Any] | None
+    shotmap: dict[str, Any] | None
+    best_players: dict[str, Any] | None
+    standing_rows: list[dict[str, Any]] | None
+    home_season_stats: dict[str, Any] | None
+    away_season_stats: dict[str, Any] | None
+    home_manager_vs_away_club: ManagerClubRecord | None
+    away_manager_vs_home_club: ManagerClubRecord | None
+
+
+def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _SofascoreRawMatchData) -> MatchDetails:
+    """The local-derivation + final MatchDetails(...) construction half of
+    get_sofascore_match_details, extracted to keep that function's own
+    cognitive complexity down (python:S3776) -- most of the complexity
+    here is the many `or {}`/ternary fallback expressions needed to read
+    Sofascore's own deeply-optional JSON shape, not real branching logic.
+    Behavior unchanged."""
+    venue = e.get("venue") or {}
+    venue_coords = venue.get("venueCoordinates") or {}
+    referee = e.get("referee") or {}
+    h2h_duel = (raw.h2h or {}).get("teamDuel")
+    h2h_manager_duel = (raw.h2h or {}).get("managerDuel")
+    lineups_home = (raw.lineups or {}).get("home")
+    lineups_away = (raw.lineups or {}).get("away")
+
+    return MatchDetails(
+        **{**asdict(match), "venue": venue.get("name")},
+        venue_name=venue.get("name"),
+        venue_city=(venue.get("city") or {}).get("name"),
+        venue_country=(venue.get("country") or {}).get("name"),
+        venue_lat=venue_coords.get("latitude"),
+        venue_lon=venue_coords.get("longitude"),
+        venue_capacity=venue.get("capacity"),
+        referee=referee.get("name"),
+        referee_stats=_extract_referee_stats(e.get("referee")),
+        attendance=e.get("attendance"),
+        weather=None,
+        weather_detail=None,
+        head_to_head_summary=_summary_from_duel(h2h_duel),
+        head_to_head_streaks=_extract_streaks(raw.streaks),
+        recent_meetings=None,  # computed centrally once search.py's orchestrator is ported
+        home_lineup=_extract_lineup(lineups_home),
+        away_lineup=_extract_lineup(lineups_away),
+        home_bench=_extract_bench(lineups_home),
+        away_bench=_extract_bench(lineups_away),
+        home_formation=(lineups_home or {}).get("formation"),
+        away_formation=(lineups_away or {}).get("formation"),
+        home_team_country=(e["homeTeam"].get("country") or {}).get("name"),
+        away_team_country=(e["awayTeam"].get("country") or {}).get("name"),
+        home_manager=_extract_manager(e["homeTeam"].get("manager")),
+        away_manager=_extract_manager(e["awayTeam"].get("manager")),
+        home_manager_vs_away_club=raw.home_manager_vs_away_club,
+        away_manager_vs_home_club=raw.away_manager_vs_home_club,
+        standings_table=_standings_table_from(raw.standing_rows),
+        home_suspended_players=None,
+        away_suspended_players=None,
+        home_missing_players=_extract_missing_players(lineups_home),
+        away_missing_players=_extract_missing_players(lineups_away),
+        manager_duel=_summary_from_duel(h2h_manager_duel),
+        home_team_standing=_extract_standing(raw.standing_rows, e["homeTeam"]["id"]),
+        away_team_standing=_extract_standing(raw.standing_rows, e["awayTeam"]["id"]),
+        home_team_season_stats=_extract_season_stats(raw.home_season_stats),
+        away_team_season_stats=_extract_season_stats(raw.away_season_stats),
+        match_stats=_extract_match_stats(raw.stats),
+        event_timeline=_extract_incidents(raw.incidents),
+        set_piece_goals=_extract_set_piece_goals(raw.shotmap),
+        shotmap_stats=_extract_shotmap_stats(raw.shotmap),
+        lineup_confirmed=(raw.lineups.get("confirmed", False) if raw.lineups else None),
+        player_of_the_match=_extract_player_of_the_match(raw.best_players),
+        note=_match_details_note(raw.lineups, raw.stats, raw.standing_rows),
+    )
+
+
 async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
     """Every endpoint below is same-origin /api/v1/..., in scope since
     Sofascore's robots.txt (unlike Fotmob's) doesn't disallow /api/.
@@ -694,60 +778,26 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
         await _sleep(800)
         away_manager_vs_home_club = await _fetch_manager_club_record(page, e["awayTeam"].get("manager"), e["homeTeam"]["name"])
 
-        venue = e.get("venue") or {}
-        venue_coords = venue.get("venueCoordinates") or {}
-        referee = e.get("referee") or {}
-        h2h_duel = (h2h or {}).get("teamDuel")
-        h2h_manager_duel = (h2h or {}).get("managerDuel")
-        lineups_home = (lineups or {}).get("home")
-        lineups_away = (lineups or {}).get("away")
-
-        return MatchDetails(
-            **{**asdict(match), "venue": venue.get("name")},
-            venue_name=venue.get("name"),
-            venue_city=(venue.get("city") or {}).get("name"),
-            venue_country=(venue.get("country") or {}).get("name"),
-            venue_lat=venue_coords.get("latitude"),
-            venue_lon=venue_coords.get("longitude"),
-            venue_capacity=venue.get("capacity"),
-            referee=referee.get("name"),
-            referee_stats=_extract_referee_stats(e.get("referee")),
-            attendance=e.get("attendance"),
-            weather=None,
-            weather_detail=None,
-            head_to_head_summary=_summary_from_duel(h2h_duel),
-            head_to_head_streaks=_extract_streaks(streaks),
-            recent_meetings=None,  # computed centrally once search.py's orchestrator is ported
-            home_lineup=_extract_lineup(lineups_home),
-            away_lineup=_extract_lineup(lineups_away),
-            home_bench=_extract_bench(lineups_home),
-            away_bench=_extract_bench(lineups_away),
-            home_formation=(lineups_home or {}).get("formation"),
-            away_formation=(lineups_away or {}).get("formation"),
-            home_team_country=(e["homeTeam"].get("country") or {}).get("name"),
-            away_team_country=(e["awayTeam"].get("country") or {}).get("name"),
-            home_manager=_extract_manager(e["homeTeam"].get("manager")),
-            away_manager=_extract_manager(e["awayTeam"].get("manager")),
-            home_manager_vs_away_club=home_manager_vs_away_club,
+        raw = _SofascoreRawMatchData(
+            h2h=h2h, streaks=streaks, lineups=lineups, stats=stats, incidents=incidents, shotmap=shotmap,
+            best_players=best_players, standing_rows=standing_rows, home_season_stats=home_season_stats,
+            away_season_stats=away_season_stats, home_manager_vs_away_club=home_manager_vs_away_club,
             away_manager_vs_home_club=away_manager_vs_home_club,
-            standings_table=_standings_table_from(standing_rows),
-            home_suspended_players=None,
-            away_suspended_players=None,
-            home_missing_players=_extract_missing_players(lineups_home),
-            away_missing_players=_extract_missing_players(lineups_away),
-            manager_duel=_summary_from_duel(h2h_manager_duel),
-            home_team_standing=_extract_standing(standing_rows, e["homeTeam"]["id"]),
-            away_team_standing=_extract_standing(standing_rows, e["awayTeam"]["id"]),
-            home_team_season_stats=_extract_season_stats(home_season_stats),
-            away_team_season_stats=_extract_season_stats(away_season_stats),
-            match_stats=_extract_match_stats(stats),
-            event_timeline=_extract_incidents(incidents),
-            set_piece_goals=_extract_set_piece_goals(shotmap),
-            shotmap_stats=_extract_shotmap_stats(shotmap),
-            lineup_confirmed=(lineups.get("confirmed", False) if lineups else None),
-            player_of_the_match=_extract_player_of_the_match(best_players),
-            note=_match_details_note(lineups, stats, standing_rows),
         )
+        return _build_sofascore_match_details(match, e, raw)
+
+
+def _resolve_primary_season(seasons: dict[str, Any] | None) -> tuple[int | None, int | None]:
+    """The ut_id/season_id resolution from the seasons list's own deeply-
+    optional shape, extracted from _fetch_top_player_stats to keep its
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    primary = ((seasons or {}).get("uniqueTournamentSeasons") or [None])[0]
+    if not primary:
+        return None, None
+    ut_id = primary.get("uniqueTournament", {}).get("id")
+    season_id = (primary.get("seasons") or [None])[0]
+    season_id = season_id.get("id") if season_id else None
+    return ut_id, season_id
 
 
 async def _fetch_top_player_stats(page: Page, team_id: int) -> dict[str, SeasonPlayerStats]:
@@ -763,10 +813,7 @@ async def _fetch_top_player_stats(page: Page, team_id: int) -> dict[str, SeasonP
     exactly (no cross-source name-matching needed)."""
     result: dict[str, SeasonPlayerStats] = {}
     seasons = await _fetch_json_optional(page, f"https://www.sofascore.com/api/v1/team/{team_id}/player-statistics/seasons")
-    primary = ((seasons or {}).get("uniqueTournamentSeasons") or [None])[0]
-    ut_id = (primary or {}).get("uniqueTournament", {}).get("id") if primary else None
-    season_id = ((primary or {}).get("seasons") or [None])[0] if primary else None
-    season_id = season_id.get("id") if season_id else None
+    ut_id, season_id = _resolve_primary_season(seasons)
     if not ut_id or not season_id:
         return result
 
@@ -815,6 +862,75 @@ def _apply_category_stat(entry: SeasonPlayerStats, category: str, statistics: di
     setattr(entry, field, statistics.get(category, default))
 
 
+def _build_sofascore_squad(players_data: dict[str, Any], top_player_stats: dict[str, SeasonPlayerStats]) -> list[SquadMember]:
+    """The squad-building loop, extracted from get_sofascore_team_profile
+    to keep its own cognitive complexity down (python:S3776); behavior
+    unchanged."""
+    squad: list[SquadMember] = []
+    for p in players_data.get("players", []):
+        player = p["player"]
+        injury = player.get("injury")
+        squad.append(
+            SquadMember(
+                name=player["name"],
+                role=player.get("position"),
+                injury=(f"{injury.get('reason', 'Injured')} ({injury.get('status', 'out')})" if injury else None),
+                age=_age_from_timestamp(player.get("dateOfBirthTimestamp")),
+                market_value=(player.get("proposedMarketValueRaw") or {}).get("value"),
+                season_stats=top_player_stats.get(player["name"]),
+                season_stats_source=("sofascore" if player["name"] in top_player_stats else None),
+                defensive_stats=None,
+                recent_usage=None,
+            )
+        )
+    return squad
+
+
+def _sofascore_transfer_date(t: dict[str, Any]) -> str | None:
+    ts = t.get("transferDateTimestamp")
+    if not ts:
+        return None
+    return _to_iso_z(datetime.fromtimestamp(ts, tz=UTC))
+
+
+def _build_sofascore_transfers(transfers_data: dict[str, Any] | None) -> list[TransferRecord]:
+    """The transfers-building loops + sort, extracted from
+    get_sofascore_team_profile -- see _build_sofascore_squad's own doc
+    comment for why. Behavior unchanged, including the most-recent-first
+    sort (see this function's original inline comment on the sort line
+    for why Sofascore's own transfers endpoint needs it)."""
+    transfers: list[TransferRecord] = []
+    for t in (transfers_data or {}).get("transfersIn", []):
+        transfers.append(
+            TransferRecord(
+                player_name=t["player"]["name"],
+                direction="in",
+                from_club=t.get("fromTeamName"),
+                to_club=t.get("toTeamName"),
+                date=_sofascore_transfer_date(t),
+            )
+        )
+    for t in (transfers_data or {}).get("transfersOut", []):
+        transfers.append(
+            TransferRecord(
+                player_name=t["player"]["name"],
+                direction="out",
+                from_club=t.get("fromTeamName"),
+                to_club=t.get("toTeamName"),
+                date=_sofascore_transfer_date(t),
+            )
+        )
+    # Sofascore's transfers endpoint isn't scoped to "recent" at all -- it
+    # returns entries spanning multiple transfer windows (confirmed live:
+    # ~11 months back for Arsenal), unsorted. Without sorting, genuinely
+    # distinct dated events (e.g. a player signed, then loaned back to
+    # their old club, then signed again the following window) interleave
+    # in API order and read as exact duplicates. Sorting most-recent-first
+    # fixes the ordering.
+    transfers.sort(key=lambda t: t.date or "", reverse=True)
+    return transfers
+
+
 async def get_sofascore_team_profile(team_name: str) -> TeamProfile:
     """/api/v1/team/{id}/players (squad, with per-player injury field) and
     /api/v1/team/{id}/transfers -- both same-origin /api/, in scope. No
@@ -838,59 +954,8 @@ async def get_sofascore_team_profile(team_name: str) -> TeamProfile:
         await _sleep(800)
         top_player_stats = await _fetch_top_player_stats(page, team.id)
 
-        squad: list[SquadMember] = []
-        for p in players_data.get("players", []):
-            player = p["player"]
-            injury = player.get("injury")
-            squad.append(
-                SquadMember(
-                    name=player["name"],
-                    role=player.get("position"),
-                    injury=(f"{injury.get('reason', 'Injured')} ({injury.get('status', 'out')})" if injury else None),
-                    age=_age_from_timestamp(player.get("dateOfBirthTimestamp")),
-                    market_value=(player.get("proposedMarketValueRaw") or {}).get("value"),
-                    season_stats=top_player_stats.get(player["name"]),
-                    season_stats_source=("sofascore" if player["name"] in top_player_stats else None),
-                    defensive_stats=None,
-                    recent_usage=None,
-                )
-            )
-
-        def transfer_date(t: dict[str, Any]) -> str | None:
-            ts = t.get("transferDateTimestamp")
-            if not ts:
-                return None
-            return _to_iso_z(datetime.fromtimestamp(ts, tz=UTC))
-
-        transfers: list[TransferRecord] = []
-        for t in (transfers_data or {}).get("transfersIn", []):
-            transfers.append(
-                TransferRecord(
-                    player_name=t["player"]["name"],
-                    direction="in",
-                    from_club=t.get("fromTeamName"),
-                    to_club=t.get("toTeamName"),
-                    date=transfer_date(t),
-                )
-            )
-        for t in (transfers_data or {}).get("transfersOut", []):
-            transfers.append(
-                TransferRecord(
-                    player_name=t["player"]["name"],
-                    direction="out",
-                    from_club=t.get("fromTeamName"),
-                    to_club=t.get("toTeamName"),
-                    date=transfer_date(t),
-                )
-            )
-        # Sofascore's transfers endpoint isn't scoped to "recent" at all --
-        # it returns entries spanning multiple transfer windows (confirmed
-        # live: ~11 months back for Arsenal), unsorted. Without sorting,
-        # genuinely distinct dated events (e.g. a player signed, then
-        # loaned back to their old club, then signed again the following
-        # window) interleave in API order and read as exact duplicates.
-        # Sorting most-recent-first fixes the ordering.
-        transfers.sort(key=lambda t: t.date or "", reverse=True)
+        squad = _build_sofascore_squad(players_data, top_player_stats)
+        transfers = _build_sofascore_transfers(transfers_data)
 
         ages = [s.age for s in squad if s.age is not None]
         injuries = [s for s in squad if s.injury is not None]

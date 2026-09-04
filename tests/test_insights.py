@@ -1609,19 +1609,24 @@ def test_build_estimates_from_a_fully_populated_accumulator():
     _accumulate_passing(acc, [_stat("Passes", "400", "350"), _stat("Accurate passes", "360", "300"), _stat("Accurate long balls", "20", "18")], home=True)
 
     xg = _build_xg_estimate(acc)
-    assert xg.sample_size == 1 and xg.xg_for == 1.5 and xg.actual_goals_for == 2
+    assert xg.sample_size == 1
+    assert xg.xg_for == 1.5
+    assert xg.actual_goals_for == 2
 
     shots = _build_shots_estimate(acc)
-    assert shots.shots_for == 10 and shots.shots_on_target_against == 3
+    assert shots.shots_for == 10
+    assert shots.shots_on_target_against == 3
 
     cards = _build_card_split(acc)
-    assert cards.at_home_sample_size == 1 and cards.at_home_yellow_per_game == 2.0
+    assert cards.at_home_sample_size == 1
+    assert cards.at_home_yellow_per_game == 2.0
 
     passing = _build_passing_style(acc)
     assert passing.pass_accuracy_pct == 90.0  # 360/400 * 100
 
     keeper = _build_goalkeeping_estimate(acc)
-    assert keeper.goals_conceded == 1 and keeper.save_pct == pytest.approx(66.7, abs=0.1)  # 2 saves / 3 SOT faced
+    assert keeper.goals_conceded == 1
+    assert keeper.save_pct == pytest.approx(66.7, abs=0.1)  # 2 saves / 3 SOT faced
 
 
 # --- possession/corners accumulator family (compute_possession_matchup's
@@ -1656,7 +1661,8 @@ def test_accumulate_possession_stat_skips_unparseable_value():
     acc = _PossessionAccumulator()
     details = _all_none(MatchDetails, match_stats=[_stat("Ball possession", "N/A", "N/A")])
     _accumulate_possession_stat(acc, details, _match(home_score=1, away_score=0), home=True)
-    assert acc.high_count == 0 and acc.other_count == 0
+    assert acc.high_count == 0
+    assert acc.other_count == 0
 
 
 def test_accumulate_possession_stat_no_op_without_possession_stat():
@@ -1665,7 +1671,8 @@ def test_accumulate_possession_stat_no_op_without_possession_stat():
     acc = _PossessionAccumulator()
     details = _all_none(MatchDetails, match_stats=[])
     _accumulate_possession_stat(acc, details, _match(home_score=1, away_score=0), home=True)
-    assert acc.high_count == 0 and acc.other_count == 0
+    assert acc.high_count == 0
+    assert acc.other_count == 0
 
 
 def test_accumulate_corners_and_errors():

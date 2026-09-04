@@ -1160,10 +1160,12 @@ async def compute_possession_matchup(team_name: str, goal_matches: list[MatchInf
     corners_for, corners_against, corners_sample_size = acc.corners_for, acc.corners_against, acc.corners_sample_size
     def_errors_for, def_errors_against, def_errors_sample_size = acc.def_errors_for, acc.def_errors_against, acc.def_errors_sample_size
 
+    high_ppg = js_round_to(high_pts / high_count, 2) if high_count else None
+    other_ppg = js_round_to(other_pts / other_count, 2) if other_count else None
     possession = (
         PossessionMatchupInfo(
-            high_opponent_possession_ppg=(js_round_to(high_pts / high_count, 2) if high_count else None), high_opponent_possession_sample_size=high_count,
-            other_ppg=(js_round_to(other_pts / other_count, 2) if other_count else None), other_sample_size=other_count,
+            high_opponent_possession_ppg=high_ppg, high_opponent_possession_sample_size=high_count,
+            other_ppg=other_ppg, other_sample_size=other_count,
         )
         if (high_count or other_count)
         else None

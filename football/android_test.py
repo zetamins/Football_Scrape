@@ -40,7 +40,7 @@ from .sites.worldfootball import (
 from .team_aliases import known_aliases_for
 
 
-async def _diagnose(competition: str, referee_name: str) -> str:
+async def _diagnose(competition: str) -> str:
     """Reports the raw row count/names too, not just the final match --
     get_referee_worldfootball_stats itself catches every exception
     internally (mirrors the TS original's catch-all) and returns None for
@@ -107,7 +107,7 @@ def run_worldfootball_referee_stats(competition: str, referee_name: str) -> str:
     result = asyncio.run(get_referee_worldfootball_stats(competition, referee_name))
     if result is not None:
         return f"penalties={result.penalties}, second_yellow={result.second_yellow}"
-    diagnosis = asyncio.run(_diagnose(competition, referee_name))
+    diagnosis = asyncio.run(_diagnose(competition))
     return f"No match for '{referee_name}'. Diagnosis: {diagnosis}"
 
 
@@ -118,7 +118,7 @@ def run_sofascore_matches(team_name: str) -> str:
     all through the same one WebView page/context."""
     try:
         matches = asyncio.run(get_sofascore_matches(team_name))
-    except Exception as e:  # noqa: BLE001 - report to the screen, don't crash the app
+    except Exception as e:  # noqa: BLE001  # report to the screen, don't crash the app
         return f"FAILED: {type(e).__name__}: {e}"
     if not matches:
         return "0 matches returned (search may have found no team, or the fixture fetch failed)"

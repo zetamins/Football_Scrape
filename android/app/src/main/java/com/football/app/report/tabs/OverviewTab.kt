@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
+import com.football.app.charts.ThreeWaySegment
 import com.football.app.charts.ThreeWaySegmentedBar
 import com.football.app.components.DotPill
 import com.football.app.components.InfoRow
@@ -276,15 +277,9 @@ private fun H2HBar(
     awayTeam: String,
 ) {
     ThreeWaySegmentedBar(
-        homeFraction = summary.homeWins.toFloat(),
-        drawFraction = summary.draws.toFloat(),
-        awayFraction = summary.awayWins.toFloat(),
-        homeColor = AppTheme.colors.homeSeries,
-        drawColor = AppTheme.colors.neutral,
-        awayColor = AppTheme.colors.awaySeries,
-        homeText = "$homeTeam ${summary.homeWins}W",
-        drawText = "${summary.draws}D",
-        awayText = "$awayTeam ${summary.awayWins}W",
+        home = ThreeWaySegment(summary.homeWins.toFloat(), AppTheme.colors.homeSeries, "$homeTeam ${summary.homeWins}W"),
+        draw = ThreeWaySegment(summary.draws.toFloat(), AppTheme.colors.neutral, "${summary.draws}D"),
+        away = ThreeWaySegment(summary.awayWins.toFloat(), AppTheme.colors.awaySeries, "$awayTeam ${summary.awayWins}W"),
         labelStyle = MaterialTheme.typography.bodySmall.merge(StatNumberStyle),
     )
 }

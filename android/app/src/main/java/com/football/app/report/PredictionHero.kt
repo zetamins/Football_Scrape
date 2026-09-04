@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.football.app.charts.ThreeWaySegment
 import com.football.app.charts.ThreeWaySegmentedBar
 import com.football.app.data.AppJson
 import com.football.app.data.model.Prediction
@@ -92,15 +93,9 @@ private fun ProbabilityRow(
         Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
         Spacer(Modifier.height(4.dp))
         ThreeWaySegmentedBar(
-            homeFraction = probs.homeWinPct.toFloat(),
-            drawFraction = probs.drawPct.toFloat(),
-            awayFraction = probs.awayWinPct.toFloat(),
-            homeColor = AppTheme.colors.homeSeries,
-            drawColor = AppTheme.colors.neutral,
-            awayColor = AppTheme.colors.awaySeries,
-            homeText = "$homeTeam ${probs.homeWinPct.format1()}%",
-            drawText = "Draw ${probs.drawPct.format1()}%",
-            awayText = "$awayTeam ${probs.awayWinPct.format1()}%",
+            home = ThreeWaySegment(probs.homeWinPct.toFloat(), AppTheme.colors.homeSeries, "$homeTeam ${probs.homeWinPct.format1()}%"),
+            draw = ThreeWaySegment(probs.drawPct.toFloat(), AppTheme.colors.neutral, "Draw ${probs.drawPct.format1()}%"),
+            away = ThreeWaySegment(probs.awayWinPct.toFloat(), AppTheme.colors.awaySeries, "$awayTeam ${probs.awayWinPct.format1()}%"),
             labelColor = Color.White,
             labelStyle = MaterialTheme.typography.bodySmall.merge(StatNumberStyle),
         )

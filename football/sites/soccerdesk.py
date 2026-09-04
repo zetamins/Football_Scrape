@@ -483,6 +483,23 @@ async def _fetch_standings_and_h2h(meta, match: MatchInfo):
     return head_to_head_summary, recent_meetings, home_team_standing, away_team_standing
 
 
+def _soccerdesk_note(injured_names: list[str], home_suspended_names: list[str], away_suspended_names: list[str]) -> str:
+    """The note field's own filter(None, [...]) computation, extracted
+    from get_soccerdesk_match_details to keep its cognitive complexity
+    down (python:S3776); behavior unchanged."""
+    suspended_names = [*home_suspended_names, *away_suspended_names]
+    return "; ".join(
+        filter(
+            None,
+            [
+                "referee/attendance/weather/match-stats not available on SoccerDesk",
+                (f"Injured (not playing): {', '.join(injured_names)}" if injured_names else None),
+                (f"Suspended: {', '.join(suspended_names)}" if suspended_names else None),
+            ],
+        )
+    )
+
+
 async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
     """SoccerDesk genuinely has no referee/attendance/weather/match stats
     anywhere in its UI (confirmed: the match page only has Info/Lineups/
@@ -509,14 +526,16 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
     injured_names = [p["name"] for p in [*((home or {}).get("injured") or []), *((away or {}).get("injured") or [])]]
     home_suspended_names = [p["name"] for p in (home or {}).get("suspended") or []]
     away_suspended_names = [p["name"] for p in (away or {}).get("suspended") or []]
+    venue_lat = float(venue["lat"]) if venue and venue.get("lat") else None
+    venue_lon = float(venue["long"]) if venue and venue.get("long") else None
 
     return MatchDetails(
         **{**asdict(match), "venue": (venue or {}).get("name")},
         venue_name=(venue or {}).get("name"),
         venue_city=(venue or {}).get("city"),
         venue_country=None,
-        venue_lat=(float(venue["lat"]) if venue and venue.get("lat") else None),
-        venue_lon=(float(venue["long"]) if venue and venue.get("long") else None),
+        venue_lat=venue_lat,
+        venue_lon=venue_lon,
         referee=None,
         referee_stats=None,
         attendance=None,
@@ -538,8 +557,8 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
         home_manager_vs_away_club=None,
         away_manager_vs_home_club=None,
         standings_table=None,
-        home_suspended_players=(home_suspended_names if home_suspended_names else None),
-        away_suspended_players=(away_suspended_names if away_suspended_names else None),
+        home_suspended_players=(home_suspended_names or None),
+        away_suspended_players=(away_suspended_names or None),
         home_team_standing=home_team_standing,
         away_team_standing=away_team_standing,
         home_team_season_stats=None,
@@ -550,20 +569,7 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
         shotmap_stats=None,
         lineup_confirmed=None,
         player_of_the_match=None,
-        note="; ".join(
-            filter(
-                None,
-                [
-                    "referee/attendance/weather/match-stats not available on SoccerDesk",
-                    (f"Injured (not playing): {', '.join(injured_names)}" if injured_names else None),
-                    (
-                        f"Suspended: {', '.join([*home_suspended_names, *away_suspended_names])}"
-                        if home_suspended_names or away_suspended_names
-                        else None
-                    ),
-                ],
-            )
-        ),
+        note=_soccerdesk_note(injured_names, home_suspended_names, away_suspended_names),
     )
 
 

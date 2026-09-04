@@ -40,15 +40,9 @@ class SegmentedBarTest {
     fun `ThreeWaySegmentedBar renders all three label texts`() {
         composeTestRule.setContent {
             ThreeWaySegmentedBar(
-                homeFraction = 45f,
-                drawFraction = 25f,
-                awayFraction = 30f,
-                homeColor = Color.Blue,
-                drawColor = Color.Gray,
-                awayColor = Color.Red,
-                homeText = "Arsenal 45.0%",
-                drawText = "Draw 25.0%",
-                awayText = "Chelsea 30.0%",
+                home = ThreeWaySegment(45f, Color.Blue, "Arsenal 45.0%"),
+                draw = ThreeWaySegment(25f, Color.Gray, "Draw 25.0%"),
+                away = ThreeWaySegment(30f, Color.Red, "Chelsea 30.0%"),
             )
         }
         composeTestRule.onNodeWithText("Arsenal 45.0%").assertExists()

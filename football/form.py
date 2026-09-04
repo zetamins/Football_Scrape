@@ -625,6 +625,154 @@ def _sum_xa(lineup: list[LineupPlayer] | None, bench: list[LineupPlayer] | None)
     return sum((p.xa or 0) for p in [*(lineup or []), *(bench or [])])
 
 
+def _find_raw_match(raw_matches: list[MatchInfo], result: FormResult) -> MatchInfo | None:
+    return next(
+        (
+            m
+            for m in raw_matches
+            if m.kickoff_utc == result.date
+            and (
+                normalize_team_name(m.home_team) == normalize_team_name(result.opponent)
+                or normalize_team_name(m.away_team) == normalize_team_name(result.opponent)
+            )
+        ),
+        None,
+    )
+
+
+def _build_enriched_result(result: FormResult, details: MatchDetails) -> tuple[FormResult, bool | None, float | None, float | None]:
+    """The FormResult itself plus the 3 derived values later steps also
+    need (neutral_venue/xg_for/xg_against), extracted from
+    _process_one_result to keep its own cognitive complexity down
+    (python:S3776); behavior unchanged."""
+    own_country = details.home_team_country if result.venue == "home" else details.away_team_country
+    neutral_venue = (own_country != details.venue_country) if (own_country and details.venue_country) else None
+    if details.home_score_ht is not None and details.away_score_ht is not None:
+        ht_scoreline = (
+            f"{details.home_score_ht}-{details.away_score_ht}"
+            if result.venue == "home"
+            else f"{details.away_score_ht}-{details.home_score_ht}"
+        )
+    else:
+        ht_scoreline = None
+    opp_venue = "away" if result.venue == "home" else "home"
+    xg_for = stat_for_float(details.match_stats, "Expected goals", result.venue)
+    xg_against = stat_for_float(details.match_stats, "Expected goals", opp_venue)
+    enriched_result = FormResult(
+        opponent=result.opponent, competition=result.competition, date=result.date, result=result.result,
+        scoreline=result.scoreline, venue=result.venue, margin=result.margin,
+        neutral_venue=neutral_venue, ht_scoreline=ht_scoreline, xg_for=xg_for, xg_against=xg_against,
+    )
+    return enriched_result, neutral_venue, xg_for, xg_against
+
+
+def _accumulate_stat_totals(
+    stat_totals: dict[str, dict[str, float]],
+    details: MatchDetails,
+    result: FormResult,
+    opp_venue: str,
+) -> None:
+    """Extracted from _process_one_result -- see _build_enriched_result's
+    own doc comment for why."""
+    for key, stat_name in ADVANCED_STAT_NAMES.items():
+        for_val = stat_for(details.match_stats, stat_name, result.venue)
+        against_val = stat_for(details.match_stats, stat_name, opp_venue)
+        if for_val is not None and against_val is not None:
+            stat_totals[key]["for"] += for_val
+            stat_totals[key]["against"] += against_val
+            stat_totals[key]["n"] += 1
+
+
+def _accumulate_venue_bucket(
+    venue_buckets: dict[str, dict[str, float]],
+    details: MatchDetails,
+    result: FormResult,
+    opp_venue: str,
+    xg_for: float | None,
+    xg_against: float | None,
+) -> None:
+    """Extracted from _process_one_result -- see _build_enriched_result's
+    own doc comment for why. Caller already checked neutral_venue is not
+    None before calling this."""
+    bucket = venue_buckets["neutral"] if result.neutral_venue else venue_buckets[result.venue]
+
+    def both_sides(name: str) -> tuple[float, float]:
+        return (
+            stat_for(details.match_stats, name, result.venue) or 0,
+            stat_for(details.match_stats, name, opp_venue) or 0,
+        )
+
+    bucket["sample_size"] += 1
+    bucket["xg_for"] += xg_for or 0
+    bucket["xg_against"] += xg_against or 0
+    shots_f, shots_a = both_sides("Total shots")
+    bucket["shots_for"] += shots_f
+    bucket["shots_against"] += shots_a
+    sot_f, sot_a = both_sides("Shots on target")
+    bucket["shots_on_target_for"] += sot_f
+    bucket["shots_on_target_against"] += sot_a
+    possession = stat_for(details.match_stats, "Ball possession", result.venue)
+    if possession is not None:
+        bucket["possession_sum"] += possession
+        bucket["possession_n"] += 1
+    corners_f, corners_a = both_sides("Corner kicks")
+    bucket["corners_for"] += corners_f
+    bucket["corners_against"] += corners_a
+    fouls_f, fouls_a = both_sides("Fouls")
+    bucket["fouls_for"] += fouls_f
+    bucket["fouls_against"] += fouls_a
+    yellow_f, yellow_a = both_sides("Yellow cards")
+    bucket["yellow_cards_for"] += yellow_f
+    bucket["yellow_cards_against"] += yellow_a
+    red_f, red_a = both_sides("Red cards")
+    bucket["red_cards_for"] += red_f
+    bucket["red_cards_against"] += red_a
+    big_f, big_a = both_sides("Big chances")
+    bucket["big_chances_created_for"] += big_f
+    bucket["big_chances_created_against"] += big_a
+
+
+def _accumulate_usage_and_xa(
+    usage_by_player: dict[str, _UsageAccumulator],
+    acc: _SetPieceAccumulator,
+    details: MatchDetails,
+    result: FormResult,
+) -> None:
+    """Extracted from _process_one_result -- see _build_enriched_result's
+    own doc comment for why."""
+    own_lineup = details.home_lineup if result.venue == "home" else details.away_lineup
+    own_bench = details.home_bench if result.venue == "home" else details.away_bench
+    opp_lineup = details.away_lineup if result.venue == "home" else details.home_lineup
+    opp_bench = details.away_bench if result.venue == "home" else details.home_bench
+    _tally_usage(usage_by_player, own_lineup, own_bench)
+    acc.xa_for += _sum_xa(own_lineup, own_bench)
+    acc.xa_against += _sum_xa(opp_lineup, opp_bench)
+
+
+def _accumulate_set_piece_and_shotmap(acc: _SetPieceAccumulator, details: MatchDetails, result: FormResult) -> None:
+    """Extracted from _process_one_result -- see _build_enriched_result's
+    own doc comment for why."""
+    if details.set_piece_goals:
+        own = details.set_piece_goals.home if result.venue == "home" else details.set_piece_goals.away
+        opp = details.set_piece_goals.away if result.venue == "home" else details.set_piece_goals.home
+        acc.corner_goals_for += own.corner
+        acc.corner_goals_against += opp.corner
+        acc.penalty_goals_for += own.penalty
+        acc.penalty_goals_against += opp.penalty
+        acc.free_kick_goals_for += own.free_kick
+        acc.free_kick_goals_against += opp.free_kick
+
+    if details.shotmap_stats:
+        own = details.shotmap_stats.home if result.venue == "home" else details.shotmap_stats.away
+        opp = details.shotmap_stats.away if result.venue == "home" else details.shotmap_stats.home
+        acc.non_penalty_xg_for += own.non_penalty_xg
+        acc.non_penalty_xg_against += opp.non_penalty_xg
+        acc.set_piece_xg_for += own.set_piece_xg
+        acc.set_piece_xg_against += opp.set_piece_xg
+        acc.penalties_awarded_for += own.penalties_awarded
+        acc.penalties_awarded_against += opp.penalties_awarded
+
+
 async def _process_one_result(
     result: FormResult,
     raw_matches: list[MatchInfo],
@@ -637,124 +785,30 @@ async def _process_one_result(
     """One iteration of enrich_form_with_venue_classification's per-result
     loop -- mutates stat_totals/venue_buckets/usage_by_player/acc in place
     (all mutable containers/objects, so updates are visible to the
-    caller) and returns the FormResult to append. Extracted purely to
-    keep the caller's own cognitive complexity down (python:S3776);
+    caller) and returns the FormResult to append. Its own body is now
+    just a sequence of calls to the accumulator helpers above (each
+    extracted for the same cognitive-complexity reason, python:S3776);
     behavior unchanged, including falling back to the original `result`
     unenriched on any exception (mirrors TS's catch { enriched.push(result) })."""
     from .orchestrate import (
         SCRAPERS,  # local import: orchestrate imports form, avoid a cycle
     )
 
-    raw = next(
-        (
-            m
-            for m in raw_matches
-            if m.kickoff_utc == result.date
-            and (
-                normalize_team_name(m.home_team) == normalize_team_name(result.opponent)
-                or normalize_team_name(m.away_team) == normalize_team_name(result.opponent)
-            )
-        ),
-        None,
-    )
+    raw = _find_raw_match(raw_matches, result)
     if raw is None:
         return result
     try:
         details: MatchDetails = await SCRAPERS[source].details(raw)
-        own_country = details.home_team_country if result.venue == "home" else details.away_team_country
-        neutral_venue = (own_country != details.venue_country) if (own_country and details.venue_country) else None
-        if details.home_score_ht is not None and details.away_score_ht is not None:
-            ht_scoreline = (
-                f"{details.home_score_ht}-{details.away_score_ht}"
-                if result.venue == "home"
-                else f"{details.away_score_ht}-{details.home_score_ht}"
-            )
-        else:
-            ht_scoreline = None
+        enriched_result, neutral_venue, xg_for, xg_against = _build_enriched_result(result, details)
         opp_venue = "away" if result.venue == "home" else "home"
-        xg_for = stat_for_float(details.match_stats, "Expected goals", result.venue)
-        xg_against = stat_for_float(details.match_stats, "Expected goals", opp_venue)
-        enriched_result = FormResult(
-            opponent=result.opponent, competition=result.competition, date=result.date, result=result.result,
-            scoreline=result.scoreline, venue=result.venue, margin=result.margin,
-            neutral_venue=neutral_venue, ht_scoreline=ht_scoreline, xg_for=xg_for, xg_against=xg_against,
-        )
 
-        for key, stat_name in ADVANCED_STAT_NAMES.items():
-            for_val = stat_for(details.match_stats, stat_name, result.venue)
-            against_val = stat_for(details.match_stats, stat_name, opp_venue)
-            if for_val is not None and against_val is not None:
-                stat_totals[key]["for"] += for_val
-                stat_totals[key]["against"] += against_val
-                stat_totals[key]["n"] += 1
-
+        _accumulate_stat_totals(stat_totals, details, result, opp_venue)
         if neutral_venue is not None:
-            bucket = venue_buckets["neutral"] if neutral_venue else venue_buckets[result.venue]
-
-            def both_sides(name: str) -> tuple[float, float]:
-                return (
-                    stat_for(details.match_stats, name, result.venue) or 0,
-                    stat_for(details.match_stats, name, opp_venue) or 0,
-                )
-
-            bucket["sample_size"] += 1
-            bucket["xg_for"] += xg_for or 0
-            bucket["xg_against"] += xg_against or 0
-            shots_f, shots_a = both_sides("Total shots")
-            bucket["shots_for"] += shots_f
-            bucket["shots_against"] += shots_a
-            sot_f, sot_a = both_sides("Shots on target")
-            bucket["shots_on_target_for"] += sot_f
-            bucket["shots_on_target_against"] += sot_a
-            possession = stat_for(details.match_stats, "Ball possession", result.venue)
-            if possession is not None:
-                bucket["possession_sum"] += possession
-                bucket["possession_n"] += 1
-            corners_f, corners_a = both_sides("Corner kicks")
-            bucket["corners_for"] += corners_f
-            bucket["corners_against"] += corners_a
-            fouls_f, fouls_a = both_sides("Fouls")
-            bucket["fouls_for"] += fouls_f
-            bucket["fouls_against"] += fouls_a
-            yellow_f, yellow_a = both_sides("Yellow cards")
-            bucket["yellow_cards_for"] += yellow_f
-            bucket["yellow_cards_against"] += yellow_a
-            red_f, red_a = both_sides("Red cards")
-            bucket["red_cards_for"] += red_f
-            bucket["red_cards_against"] += red_a
-            big_f, big_a = both_sides("Big chances")
-            bucket["big_chances_created_for"] += big_f
-            bucket["big_chances_created_against"] += big_a
-
-        own_lineup = details.home_lineup if result.venue == "home" else details.away_lineup
-        own_bench = details.home_bench if result.venue == "home" else details.away_bench
-        opp_lineup = details.away_lineup if result.venue == "home" else details.home_lineup
-        opp_bench = details.away_bench if result.venue == "home" else details.home_bench
-        _tally_usage(usage_by_player, own_lineup, own_bench)
-        acc.xa_for += _sum_xa(own_lineup, own_bench)
-        acc.xa_against += _sum_xa(opp_lineup, opp_bench)
-
-        if details.set_piece_goals:
-            own = details.set_piece_goals.home if result.venue == "home" else details.set_piece_goals.away
-            opp = details.set_piece_goals.away if result.venue == "home" else details.set_piece_goals.home
-            acc.corner_goals_for += own.corner
-            acc.corner_goals_against += opp.corner
-            acc.penalty_goals_for += own.penalty
-            acc.penalty_goals_against += opp.penalty
-            acc.free_kick_goals_for += own.free_kick
-            acc.free_kick_goals_against += opp.free_kick
-
-        if details.shotmap_stats:
-            own = details.shotmap_stats.home if result.venue == "home" else details.shotmap_stats.away
-            opp = details.shotmap_stats.away if result.venue == "home" else details.shotmap_stats.home
-            acc.non_penalty_xg_for += own.non_penalty_xg
-            acc.non_penalty_xg_against += opp.non_penalty_xg
-            acc.set_piece_xg_for += own.set_piece_xg
-            acc.set_piece_xg_against += opp.set_piece_xg
-            acc.penalties_awarded_for += own.penalties_awarded
-            acc.penalties_awarded_against += opp.penalties_awarded
+            _accumulate_venue_bucket(venue_buckets, details, enriched_result, opp_venue, xg_for, xg_against)
+        _accumulate_usage_and_xa(usage_by_player, acc, details, result)
+        _accumulate_set_piece_and_shotmap(acc, details, result)
         return enriched_result
-    except Exception:  # noqa: BLE001 - mirrors TS's catch { enriched.push(result) }
+    except Exception:  # noqa: BLE001  # mirrors TS's catch { enriched.push(result) }
         return result
 
 

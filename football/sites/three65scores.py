@@ -162,6 +162,17 @@ class _MatchMeta:
 _match_meta_cache: dict[int, _MatchMeta] = {}
 
 
+def _match_status(finished: bool, status_text: str | None) -> str | None:
+    """Extracted from _to_match_info to replace a nested ternary
+    (python:S3358); behavior unchanged. Same pattern as goal.py's own
+    _match_status, adapted for 365scores' "Scheduled" status string."""
+    if finished:
+        return "finished"
+    if status_text == "Scheduled":
+        return "scheduled"
+    return status_text.lower() if status_text else None
+
+
 def _to_match_info(g: dict[str, Any]) -> MatchInfo:
     home = g["homeCompetitor"]
     away = g["awayCompetitor"]
@@ -180,7 +191,7 @@ def _to_match_info(g: dict[str, Any]) -> MatchInfo:
         away_team=away["name"],
         kickoff_utc=g.get("startTime"),
         venue=(g.get("venue") or {}).get("name"),
-        status=("finished" if finished else "scheduled" if status_text == "Scheduled" else (status_text.lower() if status_text else None)),
+        status=_match_status(finished, status_text),
         home_score=(js_round(home["score"]) if finished else None),
         away_score=(js_round(away["score"]) if finished else None),
         home_score_ht=None,
@@ -263,7 +274,7 @@ def _extract_lineup_side(
         stats = _stat_lookup(m)
 
         def stat(name: str) -> float | None:
-            return _parse_365_stat_value(stats.get(name))  # noqa: B023 - fully used within this same loop iteration, not stored for later
+            return _parse_365_stat_value(stats.get(name))  # noqa: B023  # fully used within this same loop iteration, not stored for later
 
         def int_stat(name: str) -> int | None:
             value = stat(name)

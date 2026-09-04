@@ -173,8 +173,9 @@ def _append_form_recent_results(f: FormSummary, lines: list[str]) -> None:
 
 
 def _append_form_rates(f: FormSummary, lines: list[str]) -> None:
-    """Second third of form_summary_markdown -- see
-    _append_form_recent_results' docstring for why this split is safe."""
+    """Second third of form_summary_markdown, itself split in two --
+    see _append_form_recent_results' docstring for why this split is
+    safe, and _append_form_rates_streaks_and_splits below for the rest."""
     if f.home_win_rate_pct is not None or f.away_win_rate_pct is not None:
         lines.append(f"- Win rate: Home {f.home_win_rate_pct if f.home_win_rate_pct is not None else 'n/a'}% / Away {f.away_win_rate_pct if f.away_win_rate_pct is not None else 'n/a'}%")
     if f.momentum:
@@ -185,6 +186,11 @@ def _append_form_rates(f: FormSummary, lines: list[str]) -> None:
         lines.append(f"- Scoring draws: {f.scoring_draw_share_pct}% of last 10 draws weren't 0-0")
     if f.btts_share_pct is not None:
         lines.append(f"- BTTS: {f.btts_share_pct}% of last 10 played matches had both teams scoring")
+    _append_form_rates_streaks_and_splits(f, lines)
+
+
+def _append_form_rates_streaks_and_splits(f: FormSummary, lines: list[str]) -> None:
+    """Second half of _append_form_rates -- see its own docstring."""
     if f.clean_sheet_streak is not None and f.clean_sheet_streak >= 2:
         lines.append(f"- Clean sheets: {f.clean_sheet_streak}-game clean sheet streak")
     if f.scoreless_streak is not None and f.scoreless_streak >= 2:
@@ -272,6 +278,22 @@ def role_form_entry_str(r: RoleFormEntry) -> str:
     return f"{r.name} ({r.total_minutes}min in {r.matches_in_squad} ({r.starts} starts), {r.goals}g/{r.assists}a, {js_number_to_string(r.xg)}xG/{js_number_to_string(r.xa)}xA{key_passes}{rating})"
 
 
+def _weather_detail_extra(w) -> str:
+    """The 4 optional trailing weather-detail clauses, extracted from
+    _append_match_header to remove their nested-if contribution to its
+    cognitive complexity (python:S3776); behavior unchanged."""
+    extra = ""
+    if w.chance_of_rain_pct is not None:
+        extra += f", {w.chance_of_rain_pct:g}% chance of rain"
+    if w.wind_gust_kmph is not None:
+        extra += f", gusts {w.wind_gust_kmph:g} km/h"
+    if w.cloud_cover_pct is not None:
+        extra += f", {w.cloud_cover_pct:g}% cloud cover"
+    if w.feels_like_c is not None:
+        extra += f", feels like {w.feels_like_c:g}°C"
+    return extra
+
+
 def _append_match_header(d, lines: list[str]) -> None:
     """First part of merged_match_markdown -- extracted purely to keep
     that function's own cognitive complexity down (python:S3776); each
@@ -294,21 +316,14 @@ def _append_match_header(d, lines: list[str]) -> None:
         lines.append(f"- Weather: {d.weather}")
     if d.weather_detail:
         w = d.weather_detail
-        extra = ""
-        if w.chance_of_rain_pct is not None:
-            extra += f", {w.chance_of_rain_pct:g}% chance of rain"
-        if w.wind_gust_kmph is not None:
-            extra += f", gusts {w.wind_gust_kmph:g} km/h"
-        if w.cloud_cover_pct is not None:
-            extra += f", {w.cloud_cover_pct:g}% cloud cover"
-        if w.feels_like_c is not None:
-            extra += f", feels like {w.feels_like_c:g}°C"
+        extra = _weather_detail_extra(w)
         lines.append(f"- Weather detail: humidity {w.humidity_pct if w.humidity_pct is not None else 'n/a'}%, wind {w.wind_speed_kmph if w.wind_speed_kmph is not None else 'n/a'} km/h, precip {w.precip_mm if w.precip_mm is not None else 'n/a'} mm{extra}")
 
 
 def _append_match_odds_and_standings(d, lines: list[str]) -> None:
-    """Second part of merged_match_markdown -- see _append_match_header's
-    docstring for why this split is safe."""
+    """Second part of merged_match_markdown, itself split in two -- see
+    _append_match_header's docstring for why this split is safe, and
+    _append_match_season_stats below for the rest."""
     if d.betting_odds:
         o = d.betting_odds
         pct = f" ({o.home_win_implied_pct}%/{o.draw_implied_pct}%/{o.away_win_implied_pct}% implied)" if o.home_win_implied_pct is not None else ""
@@ -327,6 +342,12 @@ def _append_match_odds_and_standings(d, lines: list[str]) -> None:
     if d.away_team_standing:
         s = d.away_team_standing
         lines.append(f"- {d.away_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L, {s.goal_diff})")
+    _append_match_season_stats(d, lines)
+
+
+def _append_match_season_stats(d, lines: list[str]) -> None:
+    """Second half of _append_match_odds_and_standings -- see its own
+    docstring."""
     if d.home_team_season_stats:
         s = d.home_team_season_stats
         poss = f", {s.average_ball_possession}% avg possession" if s.average_ball_possession else ""
@@ -346,8 +367,9 @@ def _lineup_label(lineup_confirmed: bool | None) -> str:
 
 
 def _append_match_lineups_and_notes(d, lines: list[str]) -> None:
-    """Final part of merged_match_markdown -- see _append_match_header's
-    docstring for why this split is safe."""
+    """Final part of merged_match_markdown, itself split in two -- see
+    _append_match_header's docstring for why this split is safe, and
+    _append_match_managers_and_notes below for the rest."""
     if d.match_stats:
         lines.append(f"- Match stats: {', '.join(f'{s.name} {s.home}-{s.away}' for s in d.match_stats)}")
     if d.event_timeline:
@@ -365,6 +387,12 @@ def _append_match_lineups_and_notes(d, lines: list[str]) -> None:
         lines.append(f"- {d.away_team} formation: {d.away_formation}")
     if d.away_lineup:
         lines.append(f"- {d.away_team} {lineup_label}: {', '.join(p.name for p in d.away_lineup)}")
+    _append_match_managers_and_notes(d, lines)
+
+
+def _append_match_managers_and_notes(d, lines: list[str]) -> None:
+    """Second half of _append_match_lineups_and_notes -- see its own
+    docstring."""
     if d.home_manager or d.away_manager:
         lines.append(f"- Managers: {d.home_team}: {manager_str(d.home_manager)} | {d.away_team}: {manager_str(d.away_manager)}")
     if d.home_manager_vs_away_club and d.home_manager_vs_away_club.sample_size:
@@ -789,6 +817,27 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
     return out
 
 
+def _more_rested_suffix(more_rested: str | None) -> str:
+    """Extracted from _append_insights_summary to remove its nested-if
+    contribution to that function's cognitive complexity (python:S3776);
+    behavior unchanged."""
+    if not more_rested:
+        return ""
+    if more_rested == "even":
+        return " -- even"
+    return f" -- {more_rested} team more rested"
+
+
+def _more_experienced_suffix(more_experienced: str | None) -> str:
+    """Extracted from _append_insights_summary -- see
+    _more_rested_suffix's own doc comment for why."""
+    if not more_experienced:
+        return ""
+    if more_experienced == "even":
+        return " -- even"
+    return f" -- {more_experienced} squad older"
+
+
 def _append_insights_summary(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
     """First fifth of insights_markdown -- extracted purely to keep that
     function's own cognitive complexity down (python:S3776); each block
@@ -801,31 +850,28 @@ def _append_insights_summary(insights: MatchInsights, home_team: str, away_team:
         lines.append(f"- Match type: {insights.match_type}")
     if insights.rest_comparison:
         r = insights.rest_comparison
-        if r.more_rested:
-            if r.more_rested == "even":
-                rested = " -- even"
-            else:
-                rested = f" -- {r.more_rested} team more rested"
-        else:
-            rested = ""
+        rested = _more_rested_suffix(r.more_rested)
         lines.append(f"- Rest: own {r.own_rest_days if r.own_rest_days is not None else 'n/a'}d{rest_label(r.own_rest_days)} / opponent {r.opponent_rest_days if r.opponent_rest_days is not None else 'n/a'}d{rest_label(r.opponent_rest_days)}{rested}")
     if insights.experience_comparison:
         e = insights.experience_comparison
-        if e.more_experienced:
-            if e.more_experienced == "even":
-                exp = " -- even"
-            else:
-                exp = f" -- {e.more_experienced} squad older"
-        else:
-            exp = ""
+        exp = _more_experienced_suffix(e.more_experienced)
         own_age = js_number_to_string(e.own_average_age) if e.own_average_age is not None else "n/a"
         opp_age = js_number_to_string(e.opponent_average_age) if e.opponent_average_age is not None else "n/a"
         lines.append(f"- Experience: own avg age {own_age} / opponent {opp_age}{exp}")
 
 
 def _append_insights_ratings_and_estimates(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
-    """Second fifth of insights_markdown -- see _append_insights_summary's
-    docstring for why this split is safe."""
+    """Second fifth of insights_markdown, itself split into 3 roughly-even
+    parts (each independently under kotlin:S3776's threshold) -- see
+    _append_insights_summary's docstring for why this split is safe."""
+    _append_insights_ratings_part1(insights, home_team, away_team, lines)
+    _append_insights_ratings_part2(insights, home_team, away_team, lines)
+    _append_insights_ratings_part3(insights, home_team, away_team, lines)
+
+
+def _append_insights_ratings_part1(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """First third of _append_insights_ratings_and_estimates -- see its
+    own docstring."""
     if insights.home_elo_rating:
         lines.append(f"- {elo_str(insights.home_elo_rating, home_team)}")
     if insights.away_elo_rating:
@@ -846,6 +892,11 @@ def _append_insights_ratings_and_estimates(insights: MatchInsights, home_team: s
         lines.append(f"- {card_discipline_venue_split_str(insights.home_card_discipline_venue_split, home_team)}")
     if insights.away_card_discipline_venue_split:
         lines.append(f"- {card_discipline_venue_split_str(insights.away_card_discipline_venue_split, away_team)}")
+
+
+def _append_insights_ratings_part2(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Second third of _append_insights_ratings_and_estimates -- see its
+    own docstring."""
     if insights.home_xg_estimate:
         lines.append(f"- {xg_estimate_str(insights.home_xg_estimate, home_team)}")
     if insights.away_xg_estimate:
@@ -866,6 +917,11 @@ def _append_insights_ratings_and_estimates(insights: MatchInsights, home_team: s
         lines.append(f"- {big_chances_estimate_str(insights.home_big_chances_estimate, home_team)}")
     if insights.away_big_chances_estimate:
         lines.append(f"- {big_chances_estimate_str(insights.away_big_chances_estimate, away_team)}")
+
+
+def _append_insights_ratings_part3(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Third third of _append_insights_ratings_and_estimates -- see its
+    own docstring."""
     if insights.home_passing_style:
         lines.append(f"- {passing_style_str(insights.home_passing_style, home_team)}")
     if insights.away_passing_style:
@@ -889,8 +945,9 @@ def _append_insights_ratings_and_estimates(insights: MatchInsights, home_team: s
 
 
 def _append_insights_context(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
-    """Third fifth of insights_markdown -- see _append_insights_summary's
-    docstring for why this split is safe."""
+    """Third fifth of insights_markdown, itself split in two -- see
+    _append_insights_summary's docstring for why this split is safe,
+    and _append_insights_context_squad below for the rest."""
     if insights.travel_info:
         lines.append(f"- {travel_str(insights.travel_info, home_team, away_team)}")
     if insights.home_opponent_rank_record:
@@ -905,6 +962,12 @@ def _append_insights_context(insights: MatchInsights, home_team: str, away_team:
         lines.append(f"- {presence_str(insights.home_presence, home_team)}")
     if insights.away_presence:
         lines.append(f"- {presence_str(insights.away_presence, away_team)}")
+    _append_insights_context_squad(insights, home_team, away_team, lines)
+
+
+def _append_insights_context_squad(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Second half of _append_insights_context -- see its own
+    docstring."""
     if insights.home_bench_info:
         lines.append(f"- {bench_info_str(insights.home_bench_info, home_team)}")
     if insights.away_bench_info:

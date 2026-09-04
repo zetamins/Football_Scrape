@@ -88,6 +88,15 @@ internal fun DrawScope.drawSegmentedBar(
     }
 }
 
+/** One side (home/draw/away) of a ThreeWaySegmentedBar: its bar fraction,
+ * segment color, and label text -- bundled so ThreeWaySegmentedBar stays
+ * under kotlin:S107's 7-parameter threshold. */
+data class ThreeWaySegment(
+    val fraction: Float,
+    val color: Color,
+    val text: String,
+)
+
 /**
  * SegmentedBar's most common shape in this app: a 3-way (home/neutral/
  * away) bar with a left/center/right-aligned label row directly below,
@@ -98,15 +107,9 @@ internal fun DrawScope.drawSegmentedBar(
  */
 @Composable
 fun ThreeWaySegmentedBar(
-    homeFraction: Float,
-    drawFraction: Float,
-    awayFraction: Float,
-    homeColor: Color,
-    drawColor: Color,
-    awayColor: Color,
-    homeText: String,
-    drawText: String,
-    awayText: String,
+    home: ThreeWaySegment,
+    draw: ThreeWaySegment,
+    away: ThreeWaySegment,
     modifier: Modifier = Modifier,
     labelColor: Color = Color.Unspecified,
     labelStyle: TextStyle = MaterialTheme.typography.bodySmall,
@@ -115,16 +118,16 @@ fun ThreeWaySegmentedBar(
         SegmentedBar(
             segments =
                 listOf(
-                    Segment(homeFraction, homeColor),
-                    Segment(drawFraction, drawColor),
-                    Segment(awayFraction, awayColor),
+                    Segment(home.fraction, home.color),
+                    Segment(draw.fraction, draw.color),
+                    Segment(away.fraction, away.color),
                 ),
         )
         Spacer(Modifier.height(4.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
-            Text(homeText, modifier = Modifier.weight(1f), style = labelStyle, color = labelColor)
-            Text(drawText, modifier = Modifier.weight(1f), style = labelStyle, textAlign = TextAlign.Center, color = labelColor)
-            Text(awayText, modifier = Modifier.weight(1f), style = labelStyle, textAlign = TextAlign.End, color = labelColor)
+            Text(home.text, modifier = Modifier.weight(1f), style = labelStyle, color = labelColor)
+            Text(draw.text, modifier = Modifier.weight(1f), style = labelStyle, textAlign = TextAlign.Center, color = labelColor)
+            Text(away.text, modifier = Modifier.weight(1f), style = labelStyle, textAlign = TextAlign.End, color = labelColor)
         }
     }
 }

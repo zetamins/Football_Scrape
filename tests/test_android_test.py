@@ -42,7 +42,7 @@ def test_run_worldfootball_referee_stats_falls_back_to_diagnosis_when_no_match(m
     async def fake_get_stats(_competition, _referee_name):
         return None
 
-    async def fake_diagnose(_competition, _referee_name):
+    async def fake_diagnose(_competition):
         return "some diagnosis"
 
     monkeypatch.setattr(android_test, "get_referee_worldfootball_stats", fake_get_stats)
@@ -300,7 +300,7 @@ class _FakeBrowserCM:
 
 
 def test_diagnose_reports_unknown_competition():
-    result = asyncio.run(android_test._diagnose("Not A Real League", "C Pawson"))
+    result = asyncio.run(android_test._diagnose("Not A Real League"))
     assert result == "Unknown competition: Not A Real League"
 
 
@@ -314,7 +314,7 @@ def test_diagnose_reports_scraped_row_count(monkeypatch):
 
     monkeypatch.setattr(android_test, "launch_browser", lambda: _FakeBrowserCM())
     monkeypatch.setattr(android_test, "_fetch_referee_table", fake_fetch_referee_table)
-    result = asyncio.run(android_test._diagnose("Premier League", "C Pawson"))
+    result = asyncio.run(android_test._diagnose("Premier League"))
     assert result == "1 rows scraped. First few: C Pawson"
 
 
