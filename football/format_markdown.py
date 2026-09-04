@@ -22,6 +22,7 @@ from .merge import (
     is_defender_role,
     is_midfield_role,
 )
+from .team_name_match import slugify_for_match as slugify
 from .types import (
     CardDisciplineInfo,
     CardDisciplineVenueSplit,
@@ -269,12 +270,6 @@ def role_form_entry_str(r: RoleFormEntry) -> str:
     key_passes = f", {r.key_passes} key passes" if r.key_passes > 0 else ""
     rating = f", {js_number_to_string(r.avg_rating)} avg rating" if r.avg_rating is not None else ""
     return f"{r.name} ({r.total_minutes}min in {r.matches_in_squad} ({r.starts} starts), {r.goals}g/{r.assists}a, {js_number_to_string(r.xg)}xG/{js_number_to_string(r.xa)}xA{key_passes}{rating})"
-
-
-def slugify(s: str) -> str:
-    import re
-
-    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
 
 
 def _append_match_header(d, lines: list[str]) -> None:

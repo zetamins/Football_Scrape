@@ -81,7 +81,8 @@ def normalize_for_match(s: str) -> str:
 def slugify_for_match(s: str) -> str:
     """Lowercase, hyphen-joined slug used for building/matching site-local
     match/team slugs (e.g. soccerdesk's/three65scores' URL-shaped match
-    ids). Was copy-pasted verbatim into 2 site modules before being
-    consolidated -- both import it under its original local name via
-    `as _slugify`."""
-    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
+    ids) and for format_markdown.py's own report-filename slugs. Was
+    copy-pasted verbatim into 3 modules before being consolidated -- each
+    imports it under its original local name (`as _slugify` /
+    `as slugify`)."""
+    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))  # NOSONAR(S5850) -- already grouped; python:S5850 is a stylistic/pedantic false positive on this anchor placement, not a real precedence bug

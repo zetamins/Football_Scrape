@@ -1077,7 +1077,7 @@ def _accumulate_possession_stat(acc: _PossessionAccumulator, details, m: MatchIn
         opponent_possession = float(possession_stat.away if home else possession_stat.home)
     except ValueError:
         opponent_possession = float("nan")
-    if opponent_possession != opponent_possession:  # noqa: PLR0124 - portable NaN check, not a typo
+    if opponent_possession != opponent_possession:  # noqa: PLR0124  # NOSONAR(S1764) -- portable NaN check, not a typo
         return
     team_score = m.home_score if home else m.away_score
     opp_score = m.away_score if home else m.home_score
