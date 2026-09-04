@@ -1,4 +1,11 @@
-from football.report import _prune_unplayed_match_fields
+from dataclasses import fields as _dc_fields
+
+from football.report import (
+    _prune_unplayed_match_fields,
+    _strip_source_labels,
+    build_report_json,
+    build_report_markdown,
+)
 
 
 def _base_match(status: str) -> dict:
@@ -124,3 +131,155 @@ def test_never_deletes_a_real_early_confirmed_formation():
     result = _prune_unplayed_match_fields(match)
     assert result["home_formation"] == "4-3-3"
     assert "away_formation" not in result
+
+
+# --- _strip_source_labels -------------------------------------------------------
+
+
+def test_strip_source_labels_removes_provenance_keys_at_any_depth():
+    obj = {
+        "source": "sofascore",
+        "team": "Arsenal",
+        "nested": {"base_source": "fotmob", "value": 1},
+        "list": [{"field_sources": {"x": "goal"}, "keep": "yes"}],
+    }
+    result = _strip_source_labels(obj)
+    assert "source" not in result
+    assert result["team"] == "Arsenal"
+    assert "base_source" not in result["nested"]
+    assert result["nested"]["value"] == 1
+    assert "field_sources" not in result["list"][0]
+    assert result["list"][0]["keep"] == "yes"
+
+
+def test_strip_source_labels_leaves_non_dict_non_list_values_alone():
+    assert _strip_source_labels("plain string") == "plain string"
+    assert _strip_source_labels(42) == 42
+    assert _strip_source_labels(None) is None
+
+
+# --- build_report_json / build_report_markdown (integration) --------------------
+
+
+def _all_none(cls, **overrides):
+    base = {f.name: None for f in _dc_fields(cls)}
+    base.update(overrides)
+    return cls(**base)
+
+
+def _run_search_result(**overrides):
+    from football.orchestrate import RunSearchResult
+
+    base = {
+        "team": "Arsenal", "generated_at": "2026-01-01T00:00:00.000Z", "statuses": [],
+        "merged": None, "opponent_name": None, "form": None, "form_source": None,
+        "opponent_form": None, "opponent_form_source": None, "merged_profile": None,
+        "opponent_profile": None, "insights": None, "venue_details": None,
+    }
+    base.update(overrides)
+    return RunSearchResult(**base)
+
+
+def test_build_report_json_with_no_match_found():
+    result = _run_search_result()
+    report = build_report_json(result)
+    assert report["team"] == "Arsenal"
+    assert report["match"] is None
+    assert report["sources"] == []
+
+
+def test_build_report_json_strips_source_labels_from_match():
+    from football.merge import MergedMatch
+
+    merged = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        source="sofascore", base_source="sofascore", field_sources={}, additional_notes=[],
+    )
+    result = _run_search_result(merged=merged)
+    report = build_report_json(result)
+    assert report["match"]["home_team"] == "Home FC"
+    assert "source" not in report["match"]
+    assert "base_source" not in report["match"]
+
+
+def test_build_report_json_includes_source_statuses():
+    from football.orchestrate import SourceStatus
+
+    statuses = [SourceStatus(source="sofascore", fixtures_scraped=5), SourceStatus(source="fotmob", matches_error="blocked")]
+    result = _run_search_result(statuses=statuses)
+    report = build_report_json(result)
+    assert len(report["sources"]) == 2
+    assert report["sources"][0]["fixtures_scraped"] == 5
+    assert report["sources"][1]["matches_error"] == "blocked"
+
+
+def test_build_report_markdown_with_no_match_found():
+    result = _run_search_result()
+    md = build_report_markdown(result)
+    assert "No upcoming match found from any source." in md
+    assert "Arsenal" in md
+
+
+def test_build_report_markdown_lists_source_fetch_status():
+    from football.orchestrate import SourceStatus
+
+    statuses = [SourceStatus(source="sofascore", fixtures_scraped=5), SourceStatus(source="fotmob", matches_error="blocked")]
+    result = _run_search_result(statuses=statuses)
+    md = build_report_markdown(result)
+    assert "sofascore: 5 fixtures" in md
+    assert "fotmob: 0 fixtures -- blocked" in md
+
+
+def test_build_report_markdown_includes_data_completeness_line():
+    from football.merge import MergedMatch
+
+    merged = _all_none(MergedMatch, home_team="Home FC", away_team="Away FC", status="notstarted", additional_notes=[], field_sources={})
+    result = _run_search_result(merged=merged)
+    md = build_report_markdown(result)
+    assert "Data completeness:" in md
+    assert "fields populated this run" in md
+
+
+def _form_summary(**overrides):
+    from football.types import FormSummary
+
+    base = {
+        "last5_overall": [], "last10_overall": [], "last20_overall": [], "last5_home": [], "last5_away": [],
+        "next5_with_gaps": [], "gaps_between_last_three": [], "half_split": None, "recent_competitions": [],
+        "current_streak": None, "home_win_rate_pct": None, "away_win_rate_pct": None, "momentum": None,
+        "narrow_win_share_pct": None, "scoring_draw_share_pct": None, "btts_share_pct": None,
+        "clean_sheet_streak": None, "scoreless_streak": None, "over15_share_pct": None, "over25_share_pct": None,
+        "over35_share_pct": None, "clean_sheet_share_pct": None, "failed_to_score_share_pct": None,
+        "form_by_competition": [], "matches_last7_days": 0, "matches_last14_days": 0, "venue_split_form": None,
+        "detailed_venue_split": None, "win_rate_pct": None, "draw_rate_pct": None, "loss_rate_pct": None,
+        "points_per_game": None, "goals_for_per_game": None, "goals_against_per_game": None,
+    }
+    base.update(overrides)
+    return FormSummary(**base)
+
+
+def test_build_report_markdown_includes_every_optional_match_section():
+    from football.merge import MergedMatch, MergedProfile
+    from football.types import MatchInsights, VenueDetails
+
+    merged = _all_none(MergedMatch, home_team="Home FC", away_team="Away FC", status="finished", additional_notes=[], field_sources={})
+    venue = _all_none(VenueDetails, stadium_name="Some Stadium", clubs=[], source_url="https://example.com")
+    form = _form_summary()
+    opponent_form = _form_summary()
+    profile = _all_none(MergedProfile, source="sofascore", team_name="Home FC", squad=None, field_sources={})
+    opponent_profile = _all_none(MergedProfile, source="sofascore", team_name="Opponent FC", squad=None, field_sources={})
+    insights = _all_none(MatchInsights, match_type="competitive")
+
+    result = _run_search_result(
+        merged=merged, venue_details=venue, form=form, form_source="sofascore",
+        opponent_form=opponent_form, opponent_name="Opponent FC",
+        merged_profile=profile, opponent_profile=opponent_profile, insights=insights,
+    )
+    md = build_report_markdown(result)
+    assert "## Next match" in md
+    assert "## Form" in md
+    assert "## Opponent FC form" in md
+    assert "Some Stadium" in md
+    assert "Home FC" in md
+    assert "Opponent FC" in md
+    assert "competitive" in md

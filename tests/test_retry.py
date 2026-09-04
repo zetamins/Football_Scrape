@@ -48,8 +48,13 @@ def test_raises_the_last_error_after_exhausting_all_attempts():
         calls.append(1)
         raise ValueError(f"attempt {len(calls)}")
 
+    # Coroutine construction happens outside the pytest.raises block --
+    # asyncio.run() is the one call actually expected to raise here, not
+    # retry_with_backoff()'s own invocation (which just builds a
+    # coroutine object; nothing inside runs until asyncio.run drives it).
+    coro = retry_with_backoff(fn, attempts=3)
     with pytest.raises(ValueError, match="attempt 3"):
-        asyncio.run(retry_with_backoff(fn, attempts=3))
+        asyncio.run(coro)
     assert len(calls) == 3
 
 
@@ -60,6 +65,7 @@ def test_respects_a_custom_attempts_count():
         calls.append(1)
         raise RuntimeError("always fails")
 
+    coro = retry_with_backoff(fn, attempts=1)
     with pytest.raises(RuntimeError):
-        asyncio.run(retry_with_backoff(fn, attempts=1))
+        asyncio.run(coro)
     assert len(calls) == 1

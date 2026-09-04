@@ -17,7 +17,7 @@ wttr.in.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -64,8 +64,8 @@ async def _fetch_kickoff_weather(
     matched to the real kickoff hour)."""
     if not kickoff_utc:
         return None, False
-    kickoff_dt = datetime.fromisoformat(kickoff_utc.replace("Z", "+00:00"))
-    days_out = (kickoff_dt - datetime.now(tz=timezone.utc)).days
+    kickoff_dt = datetime.fromisoformat(kickoff_utc)
+    days_out = (kickoff_dt - datetime.now(tz=UTC)).days
     if days_out < 0 or days_out > 2:
         return None, False
 

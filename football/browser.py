@@ -34,8 +34,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, AsyncIterator, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser
@@ -75,12 +76,19 @@ class _WebViewPage:
     def __init__(self, renderer: Any) -> None:
         self._renderer = renderer
 
-    async def goto(self, url: str, wait_until: str = "domcontentloaded", timeout: int = _DEFAULT_TIMEOUT_MS) -> None:
+    async def goto(self, url: str, wait_until: str = "domcontentloaded", timeout: int = _DEFAULT_TIMEOUT_MS) -> None:  # NOSONAR(S7483)
         # wait_until is accepted for call-site parity with the Playwright
         # API but not distinguished here -- WebView's onPageFinished is a
         # single approximation of "the page is ready" (see
         # WebViewRenderer.kt's goto() docstring), not a menu of Playwright's
         # finer-grained load-state options.
+        #
+        # SonarQube's S7483 wants an asyncio.timeout() context manager
+        # instead of a plain `timeout` parameter -- not applicable here:
+        # this timeout is a plain value forwarded to WebViewRenderer.kt's
+        # own Kotlin-side wait/timeout handling (via asyncio.to_thread
+        # below), not something this coroutine cancels itself. The actual
+        # enforcement happens in Kotlin, outside asyncio's reach.
         #
         # timeout is floored, not passed straight through: worldfootball.py
         # hard-codes timeout=30000 in its one page.goto() call, written
@@ -111,7 +119,10 @@ class _WebViewContext:
     def __init__(self, renderer: Any) -> None:
         self._renderer = renderer
 
-    async def new_page(self) -> _WebViewPage:
+    # Must stay async -- callers do `await context.new_page()` for parity
+    # with Playwright's real (genuinely async) BrowserContext.new_page(),
+    # even though this particular implementation has nothing to await.
+    async def new_page(self) -> _WebViewPage:  # NOSONAR(S7503)
         return _WebViewPage(self._renderer)
 
 
@@ -121,7 +132,7 @@ class _WebViewBrowser:
     def __init__(self, renderer: Any) -> None:
         self._renderer = renderer
 
-    async def new_context(self, user_agent: Optional[str] = None) -> _WebViewContext:
+    async def new_context(self, user_agent: str | None = None) -> _WebViewContext:
         # Deliberately NOT passing user_agent through, even though every
         # call site sets one -- they all use http.py's USER_AGENT, a
         # desktop Windows Chrome string, chosen when this project only
@@ -149,8 +160,8 @@ async def _launch_webview_browser() -> AsyncIterator[_WebViewBrowser]:
 
     from .android_bridge import get_application_context
 
-    WebViewRenderer = jclass("com.football.app.WebViewRenderer")
-    renderer = WebViewRenderer(get_application_context())
+    web_view_renderer_class = jclass("com.football.app.WebViewRenderer")
+    renderer = web_view_renderer_class(get_application_context())
     browser = _WebViewBrowser(renderer)
     try:
         yield browser
@@ -159,7 +170,7 @@ async def _launch_webview_browser() -> AsyncIterator[_WebViewBrowser]:
 
 
 @asynccontextmanager
-async def _launch_playwright_browser() -> AsyncIterator["Browser"]:
+async def _launch_playwright_browser() -> AsyncIterator[Browser]:
     try:
         from playwright.async_api import async_playwright
     except ImportError as err:

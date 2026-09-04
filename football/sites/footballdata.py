@@ -11,7 +11,7 @@ site's own two-letter+digit codes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -34,7 +34,7 @@ def _season_code(offset: int) -> str:
     """The football calendar year starts around July/August -- before
     that, "this season" is (lastYear, thisYear); after, it's (thisYear,
     nextYear)."""
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     start_year = (now.year if now.month >= 7 else now.year - 1) - offset
 
     def yy(y: int) -> str:
@@ -75,6 +75,10 @@ def _parse_rows(csv: str) -> list[_MatchRow]:
     if any(i == -1 for i in idx.values()):
         return []
 
+    def cell_int(cells: list[str], key: str) -> int:
+        i = idx[key]
+        return int(js_number_or(cells[i])) if i < len(cells) else 0
+
     rows: list[_MatchRow] = []
     for line in lines[1:]:
         if not line.strip():
@@ -86,10 +90,10 @@ def _parse_rows(csv: str) -> list[_MatchRow]:
         rows.append(
             _MatchRow(
                 referee=referee,
-                home_yellow=int(js_number_or(cells[idx["hy"]]) if idx["hy"] < len(cells) else 0),
-                away_yellow=int(js_number_or(cells[idx["ay"]]) if idx["ay"] < len(cells) else 0),
-                home_red=int(js_number_or(cells[idx["hr"]]) if idx["hr"] < len(cells) else 0),
-                away_red=int(js_number_or(cells[idx["ar"]]) if idx["ar"] < len(cells) else 0),
+                home_yellow=cell_int(cells, "hy"),
+                away_yellow=cell_int(cells, "ay"),
+                home_red=cell_int(cells, "hr"),
+                away_red=cell_int(cells, "ar"),
             )
         )
     return rows
@@ -154,6 +158,39 @@ def _names_match(a: str, b: str) -> bool:
     return a == b or a in b or b in a
 
 
+def _find_matching_row(lines: list[str], idx: dict[str, int], home_team: str, away_team: str) -> list[str] | None:
+    """First fixtures-file row whose home/away team names both match, if
+    any. Extracted from get_upcoming_match_odds to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        cells = line.split(",")
+        if len(cells) <= max(idx["home"], idx["away"]):
+            continue
+        if _names_match(cells[idx["home"]], home_team) and _names_match(cells[idx["away"]], away_team):
+            return cells
+    return None
+
+
+def _implied_percentages(
+    home_odds: float | None, draw_odds: float | None, away_odds: float | None
+) -> tuple[float | None, float | None, float | None]:
+    """Standard de-vig calculation (each outcome's 1/odds share
+    renormalized to sum to 100%) -- None for all three unless every odd
+    is present. Extracted from get_upcoming_match_odds to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    if not (home_odds and draw_odds and away_odds):
+        return None, None, None
+    inv_h, inv_d, inv_a = 1 / home_odds, 1 / draw_odds, 1 / away_odds
+    total = inv_h + inv_d + inv_a
+    return (
+        js_round_to(100 * inv_h / total, 1),
+        js_round_to(100 * inv_d / total, 1),
+        js_round_to(100 * inv_a / total, 1),
+    )
+
+
 async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds | None:
     """One shared fetch (a single live all-leagues upcoming-fixtures file,
     distinct from the per-season results CSV get_referee_home_away_bias
@@ -186,16 +223,7 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     if idx["home"] == -1 or idx["away"] == -1:
         return None
 
-    row: list[str] | None = None
-    for line in lines[1:]:
-        if not line.strip():
-            continue
-        cells = line.split(",")
-        if len(cells) <= max(idx["home"], idx["away"]):
-            continue
-        if _names_match(cells[idx["home"]], home_team) and _names_match(cells[idx["away"]], away_team):
-            row = cells
-            break
+    row = _find_matching_row(lines, idx, home_team, away_team)
     if row is None:
         return None
 
@@ -215,13 +243,7 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     draw_odds = cell_float("avg_d")
     away_odds = cell_float("avg_a")
 
-    home_pct = draw_pct = away_pct = None
-    if home_odds and draw_odds and away_odds:
-        inv_h, inv_d, inv_a = 1 / home_odds, 1 / draw_odds, 1 / away_odds
-        total = inv_h + inv_d + inv_a
-        home_pct = js_round_to(100 * inv_h / total, 1)
-        draw_pct = js_round_to(100 * inv_d / total, 1)
-        away_pct = js_round_to(100 * inv_a / total, 1)
+    home_pct, draw_pct, away_pct = _implied_percentages(home_odds, draw_odds, away_odds)
 
     return BettingOdds(
         home_win_odds=home_odds,

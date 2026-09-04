@@ -12,9 +12,9 @@ consumer.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-_application_context: Optional[Any] = None
+_application_context: Any | None = None
 
 
 def set_application_context(context: Any) -> None:

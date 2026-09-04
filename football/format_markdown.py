@@ -9,9 +9,7 @@ builder; the CLI (cli.py) prints these same lines directly.
 
 from __future__ import annotations
 
-from typing import Optional
-
-from ._jsmath import js_number_to_string, js_round_to
+from ._jsmath import js_number_to_string
 from .form import format_when
 from .merge import (
     RecentFormLeader,
@@ -73,8 +71,6 @@ from .types import (
     VenueSplitForm,
     VenueSplitStats,
 )
-
-
 
 
 def transfer_str(t: TransferRecord) -> str:
@@ -141,7 +137,12 @@ def detailed_venue_split_str(d: DetailedVenueSplitForm) -> str:
     return f"home: {venue_bucket_str(d.home)} | away: {venue_bucket_str(d.away)} | neutral: {venue_bucket_str(d.neutral)}"
 
 
-def form_summary_markdown(f: FormSummary, lines: list[str]) -> None:
+def _append_form_recent_results(f: FormSummary, lines: list[str]) -> None:
+    """First third of form_summary_markdown -- extracted purely to keep
+    that function's own cognitive complexity down (python:S3776); each
+    block is independent (its own `if`, appending to the same shared
+    `lines`), so splitting doesn't change what's appended or in what
+    order. Behavior unchanged."""
     if f.last5_overall:
         lines.append(f"- Last 5 (all): {', '.join(form_result_str(r) for r in f.last5_overall)}")
     with_ht = [r for r in f.last20_overall if r.ht_scoreline]
@@ -161,8 +162,18 @@ def form_summary_markdown(f: FormSummary, lines: list[str]) -> None:
     if len(f.recent_competitions) > 1:
         lines.append(f"- Competitions played recently: {' | '.join(f.recent_competitions)} ({len(f.recent_competitions)})")
     if f.current_streak:
-        word = "winning" if f.current_streak.result == "W" else "losing" if f.current_streak.result == "L" else "drawing"
+        if f.current_streak.result == "W":
+            word = "winning"
+        elif f.current_streak.result == "L":
+            word = "losing"
+        else:
+            word = "drawing"
         lines.append(f"- Streak: {f.current_streak.count}-game {word} streak")
+
+
+def _append_form_rates(f: FormSummary, lines: list[str]) -> None:
+    """Second third of form_summary_markdown -- see
+    _append_form_recent_results' docstring for why this split is safe."""
     if f.home_win_rate_pct is not None or f.away_win_rate_pct is not None:
         lines.append(f"- Win rate: Home {f.home_win_rate_pct if f.home_win_rate_pct is not None else 'n/a'}% / Away {f.away_win_rate_pct if f.away_win_rate_pct is not None else 'n/a'}%")
     if f.momentum:
@@ -183,6 +194,11 @@ def form_summary_markdown(f: FormSummary, lines: list[str]) -> None:
         lines.append(f"- Clean sheet / failed-to-score rate (last 10): {f.clean_sheet_share_pct}% / {f.failed_to_score_share_pct}%")
     if len(f.form_by_competition) > 1:
         lines.append(f"- Form by competition: {' | '.join(competition_form_str(c) for c in f.form_by_competition)}")
+
+
+def _append_form_venue_splits(f: FormSummary, lines: list[str]) -> None:
+    """Final third of form_summary_markdown -- see
+    _append_form_recent_results' docstring for why this split is safe."""
     lines.append(f"- Fixture congestion: {f.matches_last7_days} matches in last 7 days, {f.matches_last14_days} in last 14 days")
     if f.win_rate_pct is not None:
         lines.append(f"- Rates (last 10): W{f.win_rate_pct}%/D{f.draw_rate_pct}%/L{f.loss_rate_pct}%, {f.points_per_game} ppg, {f.goals_for_per_game}-{f.goals_against_per_game} goals/game")
@@ -190,6 +206,12 @@ def form_summary_markdown(f: FormSummary, lines: list[str]) -> None:
         lines.append(f"- Venue split (true venue not fixture label): {venue_split_form_str(f.venue_split_form)}")
     if f.detailed_venue_split:
         lines.append(f"- Detailed venue split: {detailed_venue_split_str(f.detailed_venue_split)}")
+
+
+def form_summary_markdown(f: FormSummary, lines: list[str]) -> None:
+    _append_form_recent_results(f, lines)
+    _append_form_rates(f, lines)
+    _append_form_venue_splits(f, lines)
 
 
 def referee_stats_str(rs: RefereeStats) -> str:
@@ -203,7 +225,7 @@ def referee_stats_str(rs: RefereeStats) -> str:
     return f"{rs.games} games, {rs.yellow_cards} yellow / {rs.red_cards} red, {rs.yellow_cards_per_game} yellow/game{penalties}{second_yellow}{bias}{fouls}{pens}{cards_foul}{avg_cards}"
 
 
-def manager_str(m: Optional[ManagerInfo]) -> str:
+def manager_str(m: ManagerInfo | None) -> str:
     if not m:
         return "unknown"
     tenure = f", appointed {m.appointed_date[:10]}" if m.appointed_date else ""
@@ -213,7 +235,12 @@ def manager_str(m: Optional[ManagerInfo]) -> str:
 
 
 def performer_str(t) -> str:
-    stat = f"{t.goals}g/{t.assists}a" if (t.goals and t.assists) else f"{t.goals}g" if t.goals else f"{t.assists}a"
+    if t.goals and t.assists:
+        stat = f"{t.goals}g/{t.assists}a"
+    elif t.goals:
+        stat = f"{t.goals}g"
+    else:
+        stat = f"{t.assists}a"
     # appearances is None for sources that don't publish it (confirmed:
     # Fotmob's squad page has real per-player stats but no appearances
     # count anywhere on it) -- omit the "in N apps" clause entirely rather
@@ -247,10 +274,15 @@ def role_form_entry_str(r: RoleFormEntry) -> str:
 def slugify(s: str) -> str:
     import re
 
-    return re.sub(r"(^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
+    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
 
 
-def merged_match_markdown(d, lines: list[str]) -> None:
+def _append_match_header(d, lines: list[str]) -> None:
+    """First part of merged_match_markdown -- extracted purely to keep
+    that function's own cognitive complexity down (python:S3776); each
+    block is independent (its own `if`, appending to the same shared
+    `lines`), so splitting doesn't change what's appended or in what
+    order. Behavior unchanged."""
     lines.append(f"**{d.home_team} vs {d.away_team}**")
     lines.append("")
     lines.append(f"- Kickoff: {format_when(d.kickoff_utc)}")
@@ -277,6 +309,11 @@ def merged_match_markdown(d, lines: list[str]) -> None:
         if w.feels_like_c is not None:
             extra += f", feels like {w.feels_like_c:g}°C"
         lines.append(f"- Weather detail: humidity {w.humidity_pct if w.humidity_pct is not None else 'n/a'}%, wind {w.wind_speed_kmph if w.wind_speed_kmph is not None else 'n/a'} km/h, precip {w.precip_mm if w.precip_mm is not None else 'n/a'} mm{extra}")
+
+
+def _append_match_odds_and_standings(d, lines: list[str]) -> None:
+    """Second part of merged_match_markdown -- see _append_match_header's
+    docstring for why this split is safe."""
     if d.betting_odds:
         o = d.betting_odds
         pct = f" ({o.home_win_implied_pct}%/{o.draw_implied_pct}%/{o.away_win_implied_pct}% implied)" if o.home_win_implied_pct is not None else ""
@@ -303,6 +340,19 @@ def merged_match_markdown(d, lines: list[str]) -> None:
         s = d.away_team_season_stats
         poss = f", {s.average_ball_possession}% avg possession" if s.average_ball_possession else ""
         lines.append(f"- {d.away_team} season: {s.goals_scored} scored, {s.goals_conceded} conceded, {s.clean_sheets} clean sheets, {s.yellow_cards} yellow / {s.red_cards} red{poss}")
+
+
+def _lineup_label(lineup_confirmed: bool | None) -> str:
+    if lineup_confirmed is True:
+        return "lineup (confirmed)"
+    if lineup_confirmed is False:
+        return "expected lineup (predicted, not confirmed)"
+    return "lineup"
+
+
+def _append_match_lineups_and_notes(d, lines: list[str]) -> None:
+    """Final part of merged_match_markdown -- see _append_match_header's
+    docstring for why this split is safe."""
     if d.match_stats:
         lines.append(f"- Match stats: {', '.join(f'{s.name} {s.home}-{s.away}' for s in d.match_stats)}")
     if d.event_timeline:
@@ -311,7 +361,7 @@ def merged_match_markdown(d, lines: list[str]) -> None:
     if d.player_of_the_match:
         rating = f" ({d.player_of_the_match.rating})" if d.player_of_the_match.rating else ""
         lines.append(f"- Player of the match: {d.player_of_the_match.name}{rating}")
-    lineup_label = "lineup (confirmed)" if d.lineup_confirmed is True else "expected lineup (predicted, not confirmed)" if d.lineup_confirmed is False else "lineup"
+    lineup_label = _lineup_label(d.lineup_confirmed)
     if d.home_formation:
         lines.append(f"- {d.home_team} formation: {d.home_formation}")
     if d.home_lineup:
@@ -334,6 +384,12 @@ def merged_match_markdown(d, lines: list[str]) -> None:
         lines.append(f"- Note: {n.note}")
 
 
+def merged_match_markdown(d, lines: list[str]) -> None:
+    _append_match_header(d, lines)
+    _append_match_odds_and_standings(d, lines)
+    _append_match_lineups_and_notes(d, lines)
+
+
 def venue_details_markdown(v: VenueDetails, lines: list[str]) -> None:
     capacity = f", capacity {v.capacity:,}" if v.capacity else ""
     opened = f", opened {v.opened}" if v.opened else ""
@@ -348,10 +404,12 @@ def venue_details_markdown(v: VenueDetails, lines: list[str]) -> None:
         lines.append(f"  - Record attendance: {v.record_attendance}")
 
 
-def merged_profile_markdown(p, lines: list[str]) -> None:
-    lines.append("")
-    lines.append(f"**Team profile ({p.team_name})**")
-    lines.append("")
+def _append_profile_squad_and_injuries(p, lines: list[str]) -> None:
+    """First half of merged_profile_markdown -- extracted purely to keep
+    that function's own cognitive complexity down (python:S3776); each
+    block is independent (its own `if`, appending to the same shared
+    `lines`), so splitting doesn't change what's appended or in what
+    order. Behavior unchanged."""
     if p.squad:
         avg_age = f", avg age {js_number_to_string(p.average_age)}" if p.average_age else ""
         lines.append(f"- Squad ({len(p.squad)}{avg_age}): {', '.join(m.name for m in p.squad)}")
@@ -369,6 +427,12 @@ def merged_profile_markdown(p, lines: list[str]) -> None:
         lines.append(f"- Missing goalkeepers: {', '.join(p.missing_goalkeepers)}")
     if p.recent_transfers:
         lines.append(f"- Recent transfers: {'; '.join(transfer_str(t) for t in p.recent_transfers)}")
+
+
+def _append_profile_performers(p, lines: list[str]) -> None:
+    """Second half of merged_profile_markdown -- see
+    _append_profile_squad_and_injuries' docstring for why this split is
+    safe."""
     top_scorers = compute_top_performers(p.squad, "goals")
     top_assists = compute_top_performers(p.squad, "assists")
     if top_scorers:
@@ -392,6 +456,14 @@ def merged_profile_markdown(p, lines: list[str]) -> None:
         lines.append(f"- Defenders (last 20, by minutes): {', '.join(role_form_entry_str(r) for r in defenders_form)}")
 
 
+def merged_profile_markdown(p, lines: list[str]) -> None:
+    lines.append("")
+    lines.append(f"**Team profile ({p.team_name})**")
+    lines.append("")
+    _append_profile_squad_and_injuries(p, lines)
+    _append_profile_performers(p, lines)
+
+
 def elo_str(e: EloRating, label: str) -> str:
     rank = f", world rank #{e.rank}" if e.rank is not None else ""
     return f"{label} Elo: {e.elo}{rank} (computed from recent form, as of {e.as_of})"
@@ -399,7 +471,11 @@ def elo_str(e: EloRating, label: str) -> str:
 
 def club_strength_str(s: ClubStrengthRating, label: str) -> str:
     rank = f", global rank #{s.rank}" if s.rank is not None else ""
-    change = f", {'+' if s.strength_change >= 0 else ''}{js_number_to_string(s.strength_change)} vs last check" if s.strength_change is not None else ""
+    if s.strength_change is not None:
+        sign = "+" if s.strength_change >= 0 else ""
+        change = f", {sign}{js_number_to_string(s.strength_change)} vs last check"
+    else:
+        change = ""
     return (
         f"{label} strength: {js_number_to_string(s.overall)} overall (attack {js_number_to_string(s.attack)}, "
         f"defense {js_number_to_string(s.defense)}{rank}{change})"
@@ -407,7 +483,11 @@ def club_strength_str(s: ClubStrengthRating, label: str) -> str:
 
 
 def zone_str(z: StandingsZoneInfo, label: str) -> str:
-    stakes = f", {z.points_from_boundary}pts from nearest zone boundary" + (" -- in the mix" if z.in_the_mix else "") if z.points_from_boundary is not None else ""
+    if z.points_from_boundary is not None:
+        in_mix = " -- in the mix" if z.in_the_mix else ""
+        stakes = f", {z.points_from_boundary}pts from nearest zone boundary{in_mix}"
+    else:
+        stakes = ""
     return f"{label}: #{z.position}/{z.total_teams} ({z.zone}{stakes})"
 
 
@@ -422,7 +502,7 @@ def card_discipline_venue_split_str(s: CardDisciplineVenueSplit, label: str) -> 
 
 
 def travel_str(t: TravelInfo, home_team: str, away_team: str) -> str:
-    def side(traveling: Optional[bool], team: str, country: Optional[str], km: Optional[float], tz_diff: Optional[float], hours: Optional[float]) -> str:
+    def side(traveling: bool | None, team: str, country: str | None, km: float | None, tz_diff: float | None, hours: float | None) -> str:
         if traveling is None:
             return f"{team}: unknown"
         if not traveling:
@@ -449,7 +529,7 @@ def presence_str(p: list[PresenceEntry], label: str) -> str:
     return f"{label} availability: {len(present)} present ({starting} starting{bench_part}), {len(absent)} absent{absent_list}"
 
 
-def _eur(v: Optional[float]) -> str:
+def _eur(v: float | None) -> str:
     return f"€{v / 1_000_000:.0f}m" if v is not None else "n/a"
 
 
@@ -511,15 +591,29 @@ def home_advantage_str(h: HomeAdvantageInfo, label: str) -> str:
 
 def streak_stability_str(s: StreakStabilityInfo, label: str) -> str:
     if s.streak_result != "W" or s.streak_count < 2:
-        word = "winning" if s.streak_result == "W" else "losing" if s.streak_result == "L" else "drawing"
+        if s.streak_result == "W":
+            word = "winning"
+        elif s.streak_result == "L":
+            word = "losing"
+        else:
+            word = "drawing"
         return f"{label} streak: {s.streak_count}-game {word} run"
-    stability = "unknown (no rotation data)" if s.stable is None else "stable XI" if s.stable else "rotated XI"
+    if s.stable is None:
+        stability = "unknown (no rotation data)"
+    elif s.stable:
+        stability = "stable XI"
+    else:
+        stability = "rotated XI"
     changes = f" ({s.changed_players} changes since previous match)" if s.changed_players is not None else ""
     return f"{label} streak: {s.streak_count}-game winning run, {stability}{changes}"
 
 
 def losing_streak_context_str(losing: LosingStreakContextInfo, team_name: str) -> str:
-    xg = (f"{'+' if losing.xg_delta >= 0 else ''}{js_number_to_string(losing.xg_delta)} actual-vs-xG") if losing.xg_delta is not None else "xG data unavailable"
+    if losing.xg_delta is not None:
+        sign = "+" if losing.xg_delta >= 0 else ""
+        xg = f"{sign}{js_number_to_string(losing.xg_delta)} actual-vs-xG"
+    else:
+        xg = "xG data unavailable"
     turnaround = " -- underperforming their chances, potential turnaround" if losing.potential_turnaround else ""
     return f"{team_name} losing streak context: {losing.streak_count} games, {xg}{turnaround}"
 
@@ -637,7 +731,14 @@ def standings_impact_str(s: StandingsImpactInfo, label: str) -> str:
     parts = []
     for sc in s.scenarios:
         delta = sc.new_position - s.current_position if sc.new_position is not None else None
-        arrow = "" if delta is None else f" (up {-delta})" if delta < 0 else f" (down {delta})" if delta > 0 else " (no change)"
+        if delta is None:
+            arrow = ""
+        elif delta < 0:
+            arrow = f" (up {-delta})"
+        elif delta > 0:
+            arrow = f" (down {delta})"
+        else:
+            arrow = " (no change)"
         parts.append(f"{sc.outcome}: #{sc.new_position if sc.new_position is not None else '?'}{arrow}")
     return f"{label} new standing if: {', '.join(parts)} (currently #{s.current_position}, {s.current_points}pts)"
 
@@ -656,7 +757,7 @@ def defensive_errors_estimate_str(x: SeasonDefensiveErrorsEstimate, label: str) 
     return f"{label} defensive errors (last {x.sample_size} published): {x.defensive_errors_for} for / {x.defensive_errors_against} against"
 
 
-def rest_label(days: Optional[int]) -> str:
+def rest_label(days: int | None) -> str:
     """Same <=3 day threshold used for RestPerformanceInfo's "short rest"
     bucket and FatigueFlag's "tight schedule"."""
     return " (short rest)" if days is not None and days <= 3 else ""
@@ -693,24 +794,43 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
     return out
 
 
-def insights_markdown(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
-    lines.append("")
-    lines.append("**Insights** _(rule-based, see README for thresholds)_")
-    lines.append("")
+def _append_insights_summary(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """First fifth of insights_markdown -- extracted purely to keep that
+    function's own cognitive complexity down (python:S3776); each block
+    is independent (its own `if`, appending to the same shared `lines`),
+    so splitting doesn't change what's appended or in what order.
+    Behavior unchanged."""
     if insights.prediction:
         lines.extend(prediction_str(insights.prediction, home_team, away_team))
     if insights.match_type:
         lines.append(f"- Match type: {insights.match_type}")
     if insights.rest_comparison:
         r = insights.rest_comparison
-        rested = f" -- {'even' if r.more_rested == 'even' else f'{r.more_rested} team more rested'}" if r.more_rested else ""
+        if r.more_rested:
+            if r.more_rested == "even":
+                rested = " -- even"
+            else:
+                rested = f" -- {r.more_rested} team more rested"
+        else:
+            rested = ""
         lines.append(f"- Rest: own {r.own_rest_days if r.own_rest_days is not None else 'n/a'}d{rest_label(r.own_rest_days)} / opponent {r.opponent_rest_days if r.opponent_rest_days is not None else 'n/a'}d{rest_label(r.opponent_rest_days)}{rested}")
     if insights.experience_comparison:
         e = insights.experience_comparison
-        exp = f" -- {'even' if e.more_experienced == 'even' else f'{e.more_experienced} squad older'}" if e.more_experienced else ""
+        if e.more_experienced:
+            if e.more_experienced == "even":
+                exp = " -- even"
+            else:
+                exp = f" -- {e.more_experienced} squad older"
+        else:
+            exp = ""
         own_age = js_number_to_string(e.own_average_age) if e.own_average_age is not None else "n/a"
         opp_age = js_number_to_string(e.opponent_average_age) if e.opponent_average_age is not None else "n/a"
         lines.append(f"- Experience: own avg age {own_age} / opponent {opp_age}{exp}")
+
+
+def _append_insights_ratings_and_estimates(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Second fifth of insights_markdown -- see _append_insights_summary's
+    docstring for why this split is safe."""
     if insights.home_elo_rating:
         lines.append(f"- {elo_str(insights.home_elo_rating, home_team)}")
     if insights.away_elo_rating:
@@ -771,6 +891,11 @@ def insights_markdown(insights: MatchInsights, home_team: str, away_team: str, l
         lines.append(f"- {direct_play_exposure_str(insights.home_direct_play_exposure, home_team)}")
     if insights.away_direct_play_exposure:
         lines.append(f"- {direct_play_exposure_str(insights.away_direct_play_exposure, away_team)}")
+
+
+def _append_insights_context(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Third fifth of insights_markdown -- see _append_insights_summary's
+    docstring for why this split is safe."""
     if insights.travel_info:
         lines.append(f"- {travel_str(insights.travel_info, home_team, away_team)}")
     if insights.home_opponent_rank_record:
@@ -801,6 +926,11 @@ def insights_markdown(insights: MatchInsights, home_team: str, away_team: str, l
         lines.append(f"- {rest_performance_str(insights.home_rest_performance, home_team)}")
     if insights.away_rest_performance:
         lines.append(f"- {rest_performance_str(insights.away_rest_performance, away_team)}")
+
+
+def _append_insights_risk_flags(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Fourth fifth of insights_markdown -- see _append_insights_summary's
+    docstring for why this split is safe."""
     if insights.experience_h2h:
         lines.append(f"- {experience_h2h_str(insights.experience_h2h)}")
     if insights.home_fatigue_flag:
@@ -819,6 +949,11 @@ def insights_markdown(insights: MatchInsights, home_team: str, away_team: str, l
         lines.append(f"- {losing_streak_context_str(insights.home_losing_streak_context, home_team)}")
     if insights.away_losing_streak_context:
         lines.append(f"- {losing_streak_context_str(insights.away_losing_streak_context, away_team)}")
+
+
+def _append_insights_impact(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Final fifth of insights_markdown -- see _append_insights_summary's
+    docstring for why this split is safe."""
     if insights.home_card_risks:
         lines.append(f"- {card_risks_str(insights.home_card_risks, home_team)}")
     if insights.away_card_risks:
@@ -851,3 +986,14 @@ def insights_markdown(insights: MatchInsights, home_team: str, away_team: str, l
         lines.append(f"- {standings_impact_str(insights.away_standings_impact, away_team)}")
     if insights.opponent_context_error:
         lines.append(f"- (opponent lookup issue: {insights.opponent_context_error})")
+
+
+def insights_markdown(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    lines.append("")
+    lines.append("**Insights** _(rule-based, see README for thresholds)_")
+    lines.append("")
+    _append_insights_summary(insights, home_team, away_team, lines)
+    _append_insights_ratings_and_estimates(insights, home_team, away_team, lines)
+    _append_insights_context(insights, home_team, away_team, lines)
+    _append_insights_risk_flags(insights, home_team, away_team, lines)
+    _append_insights_impact(insights, home_team, away_team, lines)

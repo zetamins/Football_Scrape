@@ -14,8 +14,7 @@ than guessing further.
 from __future__ import annotations
 
 import re
-from typing import Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 from ..http import USER_AGENT, new_client
@@ -68,7 +67,7 @@ def parse_wiki_date(s: str) -> str | None:
         month = _MONTHS.index(m.group(2).lower())
     except ValueError:
         return None
-    dt = datetime(int(m.group(3)), month + 1, int(m.group(1)), tzinfo=timezone.utc)
+    dt = datetime(int(m.group(3)), month + 1, int(m.group(1)), tzinfo=UTC)
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
@@ -134,7 +133,7 @@ def _select_current_row(team_rows: list[list[str]]) -> list[str]:
 
 def _parse_tenure_fields(
     row: list[str],
-) -> tuple[Optional[str], Optional[int], Optional[int], Optional[int], Optional[int], Optional[float]]:
+) -> tuple[str | None, int | None, int | None, int | None, int | None, float | None]:
     def to_int(s: str) -> int | None:
         return int(s) if s.isdigit() else None
 
@@ -219,7 +218,7 @@ async def get_manager_appointment_date(manager_name: str) -> str | None:
     return parse_wiki_date(row.from_date) if row and row.from_date else None
 
 
-async def get_manager_tenure_record(manager_name: str) -> "ManagerTenureRecord | None":
+async def get_manager_tenure_record(manager_name: str) -> ManagerTenureRecord | None:  # noqa: F821 - imported locally below; ruff can't resolve the forward ref
     """Overall P/W/D/L/Win% at the manager's current club, from the same
     table row already parsed for get_manager_appointment_date. Callers
     wanting both should prefer get_current_tenure_row directly to avoid
@@ -233,12 +232,17 @@ async def get_manager_tenure_record(manager_name: str) -> "ManagerTenureRecord |
 
 
 _TH_OR_TD_RE = re.compile(r"<t[hd][^>]*>([\s\S]*?)</t[hd]>", re.IGNORECASE)
-# Non-greedy leading [^>]*? avoids the super-linear backtracking risk of
-# two adjacent unbounded [^>]* segments around a literal -- flagged by
-# static analysis; behavior confirmed identical on real input (several
-# real Wikipedia <a> tag shapes), this only changes how a non-match fails,
-# not what a match returns.
-_LINK_TITLE_RE = re.compile(r'<a[^>]*?title="([^"]+)"[^>]*>', re.IGNORECASE)
+# Bounded {0,300} rather than unbounded [^>]* / [^>]*? -- the non-greedy
+# leading segment (previous fix) already made ordinary backtracking on
+# real input fast, but static analysis still flags the pattern shape
+# itself (two [^>]-class quantifiers either side of a literal) as
+# catastrophic-backtracking-capable in the worst case. A bounded
+# repetition can't backtrack unboundedly by construction, which settles
+# it outright rather than relying on non-greediness alone -- 300 is a
+# generous cap for real <a> tag attribute text (well beyond anything
+# seen on actual Wikipedia squad-list pages), so this doesn't change
+# behavior on any real input, confirmed by this file's own tests.
+_LINK_TITLE_RE = re.compile(r'<a[^>]{0,300}?title="([^"]{0,300})"[^>]{0,300}>', re.IGNORECASE)
 
 
 def _row_cells(row_html: str) -> list[str]:
@@ -253,6 +257,46 @@ def _row_cells(row_html: str) -> list[str]:
         link_m = _LINK_TITLE_RE.search(m.group(1))
         cells.append(link_m.group(1) if link_m else _strip_tags(m.group(1)))
     return cells
+
+
+def _find_manager_table(html: str) -> tuple[int, int, list[list[str]]] | None:
+    """Scans every <table> on the page for the one whose header row
+    actually has "Manager" and "To" columns -- not necessarily the first
+    table (confirmed live: Liverpool's article has an earlier plain
+    formatting/legend table before the real data table). Extracted from
+    get_previous_manager to keep its own cognitive complexity down
+    (python:S3776); behavior unchanged."""
+    search_from = 0
+    while True:
+        table_start = html.find("<table", search_from)
+        if table_start == -1:
+            return None
+        table_end = html.find("</table>", table_start)
+        if table_end == -1:
+            return None
+        raw_rows = _TR_SPLIT_RE.split(html[table_start:table_end])[1:]
+        search_from = table_end + 8
+        if not raw_rows:
+            continue
+
+        header_cells = [c.lower() for c in _row_cells(raw_rows[0])]
+        try:
+            name_col = header_cells.index("manager")
+        except ValueError:
+            name_col = -1
+        try:
+            to_col = header_cells.index("to")
+        except ValueError:
+            to_col = -1
+        if name_col == -1 or to_col == -1:
+            continue
+
+        rows = [
+            cells
+            for row in raw_rows[1:]
+            if len(cells := _row_cells(row)) > max(name_col, to_col) and cells[name_col]
+        ]
+        return name_col, to_col, rows
 
 
 async def get_previous_manager(club_name: str) -> str | None:
@@ -272,48 +316,11 @@ async def get_previous_manager(club_name: str) -> str | None:
     if not html:
         return None
 
-    # Not necessarily the first <table> on the page -- some clubs'
-    # articles (confirmed live: Liverpool's) have an earlier plain
-    # formatting/legend table before the real data table. Scanning every
-    # table for one whose own header row actually has "Manager" and "To"
-    # columns finds the right one regardless of position.
-    name_col = -1
-    to_col = -1
-    rows: list[list[str]] = []
-    search_from = 0
-    while True:
-        table_start = html.find("<table", search_from)
-        if table_start == -1:
-            break
-        table_end = html.find("</table>", table_start)
-        if table_end == -1:
-            break
-        raw_rows = _TR_SPLIT_RE.split(html[table_start:table_end])[1:]
-        search_from = table_end + 8
-        if not raw_rows:
-            continue
-
-        header_cells = [c.lower() for c in _row_cells(raw_rows[0])]
-        try:
-            candidate_name = header_cells.index("manager")
-        except ValueError:
-            candidate_name = -1
-        try:
-            candidate_to = header_cells.index("to")
-        except ValueError:
-            candidate_to = -1
-        if candidate_name == -1 or candidate_to == -1:
-            continue
-
-        name_col = candidate_name
-        to_col = candidate_to
-        rows = [
-            cells
-            for row in raw_rows[1:]
-            if len(cells := _row_cells(row)) > max(candidate_name, candidate_to) and cells[candidate_name]
-        ]
-        break
-    if name_col == -1 or len(rows) < 2:
+    found = _find_manager_table(html)
+    if found is None:
+        return None
+    name_col, to_col, rows = found
+    if len(rows) < 2:
         return None
 
     present_idx = next((i for i, cells in enumerate(rows) if re.search(r"present", cells[to_col], re.IGNORECASE)), -1)

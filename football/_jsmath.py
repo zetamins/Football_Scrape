@@ -54,7 +54,7 @@ def js_number_to_string(n: float) -> str:
     whole-number float prints without a trailing ".0" ("-1", not "-1.0").
     Caught while porting three65scores.py's standings parsing
     (`String(stat("ratio"))` on a whole-number goal difference)."""
-    if n == n and n not in (float("inf"), float("-inf")) and n == int(n):
+    if n == n and n not in (float("inf"), float("-inf")) and n == int(n):  # noqa: PLR0124 - NOSONAR(python:S1764) -- portable NaN check, not a typo
         return str(int(n))
     return str(n)
 
@@ -64,6 +64,6 @@ def js_number_or(s: str | None, default: float = 0) -> float:
     substitutes `default` for any of those, not just outright parse
     failure (mirrors sites that write `Number(cell) || 0`)."""
     n = js_number(s)
-    if n != n or n == 0:  # `n != n` is a portable NaN check
+    if n != n or n == 0:  # noqa: PLR0124 - NOSONAR(python:S1764) -- portable NaN check, not a typo
         return default
     return n

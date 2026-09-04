@@ -74,7 +74,7 @@ async def _main() -> None:
     for team_name in team_names:
         try:
             await _run_one(team_name, announce=multiple)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one team failing shouldn't abort the rest of the batch
             print(f'Failed for "{team_name}": {e}', file=sys.stderr)
             failures.append(team_name)
 

@@ -1,10 +1,14 @@
+import asyncio
+
 from football.merge import (
     apply_deep_recent_meetings,
     compute_bench_regulars,
     compute_missing_by_role,
+    compute_recent_form_leaders,
     compute_role_form_breakdown,
     compute_top_defenders,
     compute_top_performers,
+    enrich_squad_with_defensive_stats,
     enrich_squad_with_season_stats,
     is_attacker_role,
     is_defender_role,
@@ -25,80 +29,80 @@ from football.types import (
 
 
 def _match_details(source, **overrides) -> MatchDetails:
-    base = dict(
-        source=source,
-        source_url=f"https://example.com/{source}",
-        competition="Premier League",
-        home_team="Liverpool",
-        away_team="Arsenal",
-        kickoff_utc="2026-09-01T15:00:00.000Z",
-        venue=None,
-        venue_lat=None,
-        venue_lon=None,
-        status="scheduled",
-        home_score=None,
-        away_score=None,
-        home_score_ht=None,
-        away_score_ht=None,
-        season=None,
-        round=None,
-        match_id="1",
-        venue_name=None,
-        venue_city=None,
-        venue_country=None,
-        referee=None,
-        referee_stats=None,
-        attendance=None,
-        weather=None,
-        weather_detail=None,
-        head_to_head_summary=None,
-        head_to_head_streaks=None,
-        recent_meetings=None,
-        home_lineup=None,
-        away_lineup=None,
-        home_bench=None,
-        away_bench=None,
-        home_team_standing=None,
-        away_team_standing=None,
-        home_team_season_stats=None,
-        away_team_season_stats=None,
-        match_stats=None,
-        event_timeline=None,
-        set_piece_goals=None,
-        shotmap_stats=None,
-        player_of_the_match=None,
-        home_formation=None,
-        away_formation=None,
-        lineup_confirmed=None,
-        home_team_country=None,
-        away_team_country=None,
-        home_manager=None,
-        away_manager=None,
-        home_manager_vs_away_club=None,
-        away_manager_vs_home_club=None,
-        standings_table=None,
-        home_suspended_players=None,
-        away_suspended_players=None,
-        note=None,
-    )
+    base = {
+        "source": source,
+        "source_url": f"https://example.com/{source}",
+        "competition": "Premier League",
+        "home_team": "Liverpool",
+        "away_team": "Arsenal",
+        "kickoff_utc": "2026-09-01T15:00:00.000Z",
+        "venue": None,
+        "venue_lat": None,
+        "venue_lon": None,
+        "status": "scheduled",
+        "home_score": None,
+        "away_score": None,
+        "home_score_ht": None,
+        "away_score_ht": None,
+        "season": None,
+        "round": None,
+        "match_id": "1",
+        "venue_name": None,
+        "venue_city": None,
+        "venue_country": None,
+        "referee": None,
+        "referee_stats": None,
+        "attendance": None,
+        "weather": None,
+        "weather_detail": None,
+        "head_to_head_summary": None,
+        "head_to_head_streaks": None,
+        "recent_meetings": None,
+        "home_lineup": None,
+        "away_lineup": None,
+        "home_bench": None,
+        "away_bench": None,
+        "home_team_standing": None,
+        "away_team_standing": None,
+        "home_team_season_stats": None,
+        "away_team_season_stats": None,
+        "match_stats": None,
+        "event_timeline": None,
+        "set_piece_goals": None,
+        "shotmap_stats": None,
+        "player_of_the_match": None,
+        "home_formation": None,
+        "away_formation": None,
+        "lineup_confirmed": None,
+        "home_team_country": None,
+        "away_team_country": None,
+        "home_manager": None,
+        "away_manager": None,
+        "home_manager_vs_away_club": None,
+        "away_manager_vs_home_club": None,
+        "standings_table": None,
+        "home_suspended_players": None,
+        "away_suspended_players": None,
+        "note": None,
+    }
     base.update(overrides)
     return MatchDetails(**base)
 
 
 def _team_profile(source, **overrides) -> TeamProfile:
-    base = dict(
-        source=source,
-        team_name="Liverpool",
-        squad=None,
-        average_age=None,
-        injuries=None,
-        key_injuries=None,
-        recent_transfers=None,
-        missing_midfielders=None,
-        missing_attackers=None,
-        missing_defenders=None,
-        missing_goalkeepers=None,
-    )
+    base = {
+        "source": source,
+        "team_name": "Liverpool",
+        "squad": None,
+        "average_age": None,
+        "injuries": None,
+        "key_injuries": None,
+        "recent_transfers": None,
+        "missing_midfielders": None,
+        "missing_attackers": None,
+        "missing_defenders": None,
+        "missing_goalkeepers": None,
+    }
     base.update(overrides)
     return TeamProfile(**base)
 
@@ -169,6 +173,23 @@ def test_enrich_squad_with_season_stats_prefers_higher_priority_source():
     assert result[0].season_stats_source == "fotmob"
 
 
+def test_enrich_squad_with_season_stats_unchanged_when_no_source_has_stats():
+    member = SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+    by_source = {"sofascore": _team_profile("sofascore", squad=[member])}
+    result = enrich_squad_with_season_stats([member], by_source)
+    assert result == [member]
+
+
+def test_enrich_squad_with_season_stats_leaves_existing_stats_untouched():
+    existing_stats = SeasonPlayerStats(appearances=20, goals=10, assists=2, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
+    other_stats = SeasonPlayerStats(appearances=1, goals=99, assists=99, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
+    member_with_stats = SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=existing_stats, season_stats_source="sofascore", defensive_stats=None, recent_usage=None)
+    member_from_other_source = SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=other_stats, season_stats_source="fotmob", defensive_stats=None, recent_usage=None)
+    by_source = {"fotmob": _team_profile("fotmob", squad=[member_from_other_source])}
+    result = enrich_squad_with_season_stats([member_with_stats], by_source)
+    assert result[0].season_stats is existing_stats
+
+
 def test_role_matchers_handle_format_variations():
     assert is_midfield_role("M")
     assert is_midfield_role("Midfielder")
@@ -178,13 +199,16 @@ def test_role_matchers_handle_format_variations():
     assert is_defender_role("D")
     assert is_defender_role("Right-back")
     assert is_defender_role("DEFENDER")
+    assert not is_defender_role(None)
     assert is_attacker_role("F")
     assert is_attacker_role("A")
     assert is_attacker_role("Striker")
     assert is_attacker_role("Forward")
+    assert not is_attacker_role(None)
     assert is_goalkeeper_role("G")
     assert is_goalkeeper_role("GK")
     assert is_goalkeeper_role("Goalkeeper")
+    assert not is_goalkeeper_role(None)
 
 
 def test_compute_missing_by_role_none_injuries_is_none_not_empty():
@@ -226,10 +250,10 @@ def test_compute_bench_regulars_requires_non_start_majority():
 
 
 def _meeting(**overrides) -> HeadToHeadMeeting:
-    base = dict(
-        date="2026-01-01T00:00:00.000Z", competition="Premier League", scoreline="1-0", venue="home",
-        home_formation=None, away_formation=None, home_xg=None, away_xg=None, home_lineup=None, away_lineup=None,
-    )
+    base = {
+        "date": "2026-01-01T00:00:00.000Z", "competition": "Premier League", "scoreline": "1-0", "venue": "home",
+        "home_formation": None, "away_formation": None, "home_xg": None, "away_xg": None, "home_lineup": None, "away_lineup": None,
+    }
     base.update(overrides)
     return HeadToHeadMeeting(**base)
 
@@ -265,3 +289,134 @@ def test_apply_deep_recent_meetings_leaves_fallback_when_deep_computation_empty(
     apply_deep_recent_meetings(merged, [], "sofascore")
     assert merged.recent_meetings == original
     assert merged.field_sources.get("recent_meetings") == "soccerdesk"
+
+
+# --- empty/None-squad guards across the compute_* leaderboard functions --------------------
+
+
+def test_compute_top_performers_empty_without_squad():
+    assert compute_top_performers(None, "goals") == []
+    assert compute_top_performers([], "goals") == []
+
+
+def test_compute_top_defenders_empty_without_squad():
+    assert compute_top_defenders(None) == []
+    assert compute_top_defenders([]) == []
+
+
+def test_compute_bench_regulars_empty_without_squad():
+    assert compute_bench_regulars(None) == []
+    assert compute_bench_regulars([]) == []
+
+
+def test_compute_role_form_breakdown_empty_without_squad():
+    assert compute_role_form_breakdown(None, is_midfield_role) == []
+    assert compute_role_form_breakdown([], is_midfield_role) == []
+
+
+def _usage(**overrides) -> PlayerUsagePattern:
+    base = {
+        "matches_in_squad": 5, "starts": 4, "sub_appearances": 1, "unused_bench": 0, "total_minutes": 360,
+        "total_goals": 2, "total_assists": 1, "total_xg": 1.5, "total_xa": 0.8, "total_shots": 10,
+        "total_shots_on_target": 5, "total_tackles": 3, "total_interceptions": 2, "total_fouls": 1,
+        "total_key_passes": 4, "appearances_with_stats": 5, "avg_rating": 7.1, "goals_per_90": 0.5,
+        "assists_per_90": 0.25, "xg_per_90": 0.4, "xa_per_90": 0.2, "key_passes_per_90": 1.0,
+    }
+    base.update(overrides)
+    return PlayerUsagePattern(**base)
+
+
+def _squad_member_with_usage(name, role, **usage_overrides) -> SquadMember:
+    return SquadMember(
+        name=name, role=role, injury=None, age=None, market_value=None, season_stats=None,
+        season_stats_source=None, defensive_stats=None, recent_usage=_usage(**usage_overrides),
+    )
+
+
+def test_compute_role_form_breakdown_filters_by_role_and_ranks_by_minutes():
+    midfielder = _squad_member_with_usage("Rodri", "M", total_minutes=500)
+    other_midfielder = _squad_member_with_usage("Bellingham", "Midfielder", total_minutes=300)
+    defender = _squad_member_with_usage("VVD", "D", total_minutes=900)
+    result = compute_role_form_breakdown([midfielder, other_midfielder, defender], is_midfield_role)
+    assert [r.name for r in result] == ["Rodri", "Bellingham"]
+
+
+def test_compute_role_form_breakdown_excludes_unused_players():
+    unused = _squad_member_with_usage("Benched", "M", matches_in_squad=0)
+    result = compute_role_form_breakdown([unused], is_midfield_role)
+    assert result == []
+
+
+def test_compute_recent_form_leaders_empty_without_squad():
+    assert compute_recent_form_leaders(None) == []
+    assert compute_recent_form_leaders([]) == []
+
+
+def test_compute_recent_form_leaders_ranks_by_goals_plus_assists():
+    top = _squad_member_with_usage("Salah", "F", total_goals=5, total_assists=3)
+    quiet = _squad_member_with_usage("Backup", "F", total_goals=0, total_assists=0)
+    result = compute_recent_form_leaders([top, quiet])
+    assert [r.name for r in result] == ["Salah"]
+
+
+# --- merge_team_profile squad enrichment branch ---------------------------------------------
+
+
+def test_merge_team_profile_enriches_squad_with_season_stats_when_present():
+    stats = SeasonPlayerStats(appearances=10, goals=5, assists=1, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
+    member_with_stats = SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=stats, season_stats_source="fotmob", defensive_stats=None, recent_usage=None)
+    member_without_stats = SquadMember(name="Some Other Player", role="M", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+
+    by_source = {
+        "sofascore": _team_profile("sofascore", squad=[member_without_stats]),
+        "fotmob": _team_profile("fotmob", squad=[member_with_stats]),
+    }
+    merged = merge_team_profile(by_source)
+    assert merged.squad is not None
+    names = {m.name: m for m in merged.squad}
+    assert "Some Other Player" in names
+
+
+# --- enrich_squad_with_defensive_stats (async) -----------------------------------------------
+
+
+def test_enrich_squad_with_defensive_stats_attaches_matching_stats(monkeypatch):
+    stats = DefensiveStats(tackles_made=3, interceptions=1, ball_recoveries=None, clearances=None, ground_duel_success_pct=None, chances_created=None)
+
+    async def fake_get_stats(_team_name, _competition_candidates):
+        return {"mohamed salah": stats}
+
+    monkeypatch.setattr("football.sites.squawka.get_squawka_defensive_stats", fake_get_stats)
+    squad = [SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    result = asyncio.run(enrich_squad_with_defensive_stats(squad, "Liverpool", ["Premier League"]))
+    assert result[0].defensive_stats == stats
+
+
+def test_enrich_squad_with_defensive_stats_unchanged_without_a_match(monkeypatch):
+    async def fake_get_stats(_team_name, _competition_candidates):
+        return {"someone else": DefensiveStats(tackles_made=1, interceptions=0, ball_recoveries=None, clearances=None, ground_duel_success_pct=None, chances_created=None)}
+
+    monkeypatch.setattr("football.sites.squawka.get_squawka_defensive_stats", fake_get_stats)
+    squad = [SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    result = asyncio.run(enrich_squad_with_defensive_stats(squad, "Liverpool", ["Premier League"]))
+    assert result[0].defensive_stats is None
+
+
+def test_enrich_squad_with_defensive_stats_returns_squad_unchanged_when_fetch_raises(monkeypatch):
+    async def failing_get_stats(_team_name, _competition_candidates):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("football.sites.squawka.get_squawka_defensive_stats", failing_get_stats)
+    squad = [SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    result = asyncio.run(enrich_squad_with_defensive_stats(squad, "Liverpool", ["Premier League"]))
+    assert result[0].defensive_stats is None
+
+
+def test_enrich_squad_with_defensive_stats_empty_result_returns_squad_unchanged(monkeypatch):
+    async def fake_get_stats(_team_name, _competition_candidates):
+        return {}
+
+    monkeypatch.setattr("football.sites.squawka.get_squawka_defensive_stats", fake_get_stats)
+    squad = [SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    result = asyncio.run(enrich_squad_with_defensive_stats(squad, "Liverpool", ["Premier League"]))
+    assert result == squad

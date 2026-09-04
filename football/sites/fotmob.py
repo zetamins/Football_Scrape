@@ -194,6 +194,50 @@ async def _fetch_team_fixtures(entry: _TeamIndexEntry) -> list[dict[str, Any]]:
     return fallback[key]["fixtures"]["allFixtures"]["fixtures"]
 
 
+def _fixture_status(status: dict[str, Any], finished: bool) -> str:
+    """Extracted from get_fotmob_matches to replace a nested ternary
+    (python:S3358) and keep the caller's own cognitive complexity down
+    (python:S3776); behavior unchanged."""
+    if status.get("cancelled"):
+        return "cancelled"
+    if finished:
+        return "finished"
+    if status.get("started"):
+        return "live"
+    return "scheduled"
+
+
+def _to_match_info(f: dict[str, Any]) -> MatchInfo:
+    """Extracted from get_fotmob_matches to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    status = f["status"]
+    finished = status.get("finished", False)
+    return MatchInfo(
+        source="fotmob",
+        source_url=f"https://www.fotmob.com{f['pageUrl']}",
+        competition=(f.get("tournament") or {}).get("name"),
+        home_team=f["home"]["name"],
+        away_team=f["away"]["name"],
+        kickoff_utc=status.get("utcTime"),
+        venue=None,
+        status=_fixture_status(status, finished),
+        # Fotmob's raw fixture data sets score to 0 (not null/absent)
+        # for matches that haven't been played yet -- only trust it
+        # once finished.
+        home_score=(f["home"].get("score") if finished else None),
+        away_score=(f["away"].get("score") if finished else None),
+        # Fotmob's fixtures-list entries don't include a half-time
+        # split (only full-time score); Sofascore's do.
+        home_score_ht=None,
+        away_score_ht=None,
+        # Fotmob doesn't publish a distinct season label or round
+        # number on this fixture-list payload -- Sofascore-only field.
+        season=None,
+        round=None,
+        match_id=str(f["id"]),
+    )
+
+
 async def get_fotmob_matches(team_name: str) -> list[MatchInfo]:
     index = await _load_teams_index()
     team = _find_best_team_match(index, team_name)
@@ -201,42 +245,7 @@ async def get_fotmob_matches(team_name: str) -> list[MatchInfo]:
         raise ValueError(f'No Fotmob team found matching "{team_name}"')
 
     fixtures = await _fetch_team_fixtures(team)
-
-    matches = []
-    for f in fixtures:
-        status = f["status"]
-        finished = status.get("finished", False)
-        matches.append(
-            MatchInfo(
-                source="fotmob",
-                source_url=f"https://www.fotmob.com{f['pageUrl']}",
-                competition=(f.get("tournament") or {}).get("name"),
-                home_team=f["home"]["name"],
-                away_team=f["away"]["name"],
-                kickoff_utc=status.get("utcTime"),
-                venue=None,
-                status=(
-                    "cancelled"
-                    if status.get("cancelled")
-                    else "finished" if finished else "live" if status.get("started") else "scheduled"
-                ),
-                # Fotmob's raw fixture data sets score to 0 (not null/absent)
-                # for matches that haven't been played yet -- only trust it
-                # once finished.
-                home_score=(f["home"].get("score") if finished else None),
-                away_score=(f["away"].get("score") if finished else None),
-                # Fotmob's fixtures-list entries don't include a half-time
-                # split (only full-time score); Sofascore's do.
-                home_score_ht=None,
-                away_score_ht=None,
-                # Fotmob doesn't publish a distinct season label or round
-                # number on this fixture-list payload -- Sofascore-only field.
-                season=None,
-                round=None,
-                match_id=str(f["id"]),
-            )
-        )
-    return matches
+    return [_to_match_info(f) for f in fixtures]
 
 
 def _minutes_from_sub_events(sub_events: list[dict[str, Any]], is_bench: bool) -> int | None:
@@ -339,33 +348,37 @@ def _extract_recent_meetings(h2h_matches: list[dict[str, Any]] | None, own_team_
         return None
     target = _normalize(own_team_name)
     finished = [m for m in h2h_matches if (m.get("status") or {}).get("finished")]
-    out: list[HeadToHeadMeeting] = []
-    for m in finished[:3]:
-        status = m.get("status") or {}
-        score_str = status.get("scoreStr")
-        if not score_str or " - " not in score_str:
-            continue  # no recorded score -- skip rather than guess
-        home_score, away_score = score_str.split(" - ", 1)
-        home = m.get("home") or {}
-        away = m.get("away") or {}
-        if not home.get("name") or not away.get("name"):
-            continue
-        own_is_home = _normalize(home["name"]) == target
-        out.append(
-            HeadToHeadMeeting(
-                date=(m.get("time") or {}).get("utcTime"),
-                competition=(m.get("league") or {}).get("name"),
-                scoreline=f"{home_score}-{away_score}",
-                venue=("home" if own_is_home else "away"),
-                home_formation=None,
-                away_formation=None,
-                home_xg=None,
-                away_xg=None,
-                home_lineup=None,
-                away_lineup=None,
-            )
-        )
+    out = [meeting for m in finished[:3] if (meeting := _h2h_meeting_from(m, target)) is not None]
     return out if out else None
+
+
+def _h2h_meeting_from(m: dict[str, Any], target: str) -> HeadToHeadMeeting | None:
+    """Extracted from _extract_recent_meetings to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged. Returns None for
+    an entry with no recorded score or missing team names, same as the
+    original loop's `continue` cases."""
+    status = m.get("status") or {}
+    score_str = status.get("scoreStr")
+    if not score_str or " - " not in score_str:
+        return None  # no recorded score -- skip rather than guess
+    home_score, away_score = score_str.split(" - ", 1)
+    home = m.get("home") or {}
+    away = m.get("away") or {}
+    if not home.get("name") or not away.get("name"):
+        return None
+    own_is_home = _normalize(home["name"]) == target
+    return HeadToHeadMeeting(
+        date=(m.get("time") or {}).get("utcTime"),
+        competition=(m.get("league") or {}).get("name"),
+        scoreline=f"{home_score}-{away_score}",
+        venue=("home" if own_is_home else "away"),
+        home_formation=None,
+        away_formation=None,
+        home_xg=None,
+        away_xg=None,
+        home_lineup=None,
+        away_lineup=None,
+    )
 
 
 def _extract_timeline(match_facts: dict[str, Any] | None) -> list[TimelineEvent] | None:
@@ -378,7 +391,7 @@ def _extract_timeline(match_facts: dict[str, Any] | None) -> list[TimelineEvent]
     result = []
     for e in events:
         is_home = e.get("isHome")
-        team = "home" if is_home is True else "away" if is_home is False else None
+        team = {True: "home", False: "away"}.get(is_home)
         result.append(
             TimelineEvent(
                 minute=e.get("time", 0),
@@ -391,22 +404,20 @@ def _extract_timeline(match_facts: dict[str, Any] | None) -> list[TimelineEvent]
     return result
 
 
+def _stat_value(values: list[Any], idx: int) -> str:
+    return str(values[idx] if len(values) > idx and values[idx] is not None else "")
+
+
+def _extract_match_stat_item(it: dict[str, Any]) -> MatchStatItem:
+    values = it.get("stats") or []
+    return MatchStatItem(name=it["title"], home=_stat_value(values, 0), away=_stat_value(values, 1))
+
+
 def _extract_match_stats(stats: dict[str, Any] | None) -> list[MatchStatItem] | None:
     groups = ((stats or {}).get("Periods") or {}).get("All", {}).get("stats")
     if not groups:
         return None
-    out = []
-    for g in groups:
-        for it in g.get("stats") or []:
-            values = it.get("stats") or []
-            out.append(
-                MatchStatItem(
-                    name=it["title"],
-                    home=str(values[0] if len(values) > 0 and values[0] is not None else ""),
-                    away=str(values[1] if len(values) > 1 and values[1] is not None else ""),
-                )
-            )
-    return out
+    return [_extract_match_stat_item(it) for g in groups for it in g.get("stats") or []]
 
 
 def _extract_player_of_the_match(potm: dict[str, Any] | None) -> PlayerOfTheMatch | None:

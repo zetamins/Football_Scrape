@@ -76,7 +76,7 @@ def test_goto_floors_a_short_caller_timeout():
     renderer.goto_result = True
     page = _WebViewPage(renderer)
     asyncio.run(page.goto("https://example.com", timeout=30000))
-    url, effective_timeout = renderer.goto_calls[0]
+    _url, effective_timeout = renderer.goto_calls[0]
     assert effective_timeout >= 90000
 
 
@@ -93,8 +93,9 @@ def test_goto_raises_when_renderer_reports_not_loaded():
     renderer = _FakeRenderer()
     renderer.goto_result = False
     page = _WebViewPage(renderer)
+    coro = page.goto("https://example.com", timeout=5000)
     with pytest.raises(RuntimeError, match="did not finish"):
-        asyncio.run(page.goto("https://example.com", timeout=5000))
+        asyncio.run(coro)
 
 
 def test_evaluate_with_no_arg_passes_none_as_arg_json():
@@ -103,7 +104,7 @@ def test_evaluate_with_no_arg_passes_none_as_arg_json():
     page = _WebViewPage(renderer)
     result = asyncio.run(page.evaluate("() => document.title"))
     assert result == "hello"
-    script, arg_json, _timeout = renderer.evaluate_calls[0]
+    _script, arg_json, _timeout = renderer.evaluate_calls[0]
     assert arg_json is None
 
 
@@ -121,5 +122,6 @@ def test_evaluate_raises_with_the_js_side_error_message():
     renderer = _FakeRenderer()
     renderer.evaluate_result = json.dumps({"ok": False, "error": "boom"})
     page = _WebViewPage(renderer)
+    coro = page.evaluate("() => { throw new Error('boom') }")
     with pytest.raises(RuntimeError, match="boom"):
-        asyncio.run(page.evaluate("() => { throw new Error('boom') }"))
+        asyncio.run(coro)

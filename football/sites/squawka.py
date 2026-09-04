@@ -100,12 +100,12 @@ def _resolve_competition_id(competitions: list[dict], competition_name: str) -> 
 
     normalized = _normalize(competition_name)
     target = _COMPETITION_ALIASES.get(normalized, normalized)
-    now = _dt.datetime.now()
+    now = _dt.datetime.now()  # noqa: DTZ005 - compared only against equally-naive start_date strings below (see docstring)
     matches = [
         c
         for c in competitions
         if _normalize(c["competition"]) == target
-        and _dt.datetime.strptime(c["start_date"], "%Y-%m-%d %H:%M:%S") <= now
+        and _dt.datetime.strptime(c["start_date"], "%Y-%m-%d %H:%M:%S") <= now  # noqa: DTZ007 - source data has no tz marker (see docstring)
     ]
     if not matches:
         return None
@@ -230,7 +230,7 @@ async def get_squawka_defensive_stats(team_name: str, competition_candidates: li
             player_norm, team_norm = key.split("::", 1)
             if team_norm not in target_team_variants:
                 continue
-            stat_kwargs = {name: None for name in defensive_field_names}
+            stat_kwargs = dict.fromkeys(defensive_field_names)
             for attr_name, label in _STAT_NAMES:
                 stat_kwargs[attr_name] = by_stat[label].get(key)
             result[player_norm] = DefensiveStats(**stat_kwargs)

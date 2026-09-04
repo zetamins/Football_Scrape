@@ -7,8 +7,9 @@ operate on a merged squad. Ported from src/search.ts.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Literal
 
 from ._jsmath import js_round_to
 from .team_name_match import strip_diacritics
@@ -92,18 +93,21 @@ class MergedMatch(MatchDetails):
     one, and Python dataclass inheritance requires every field after the
     first defaulted one to have a default too."""
 
-    base_source: Optional[Source] = None
+    base_source: Source | None = None
     field_sources: dict[str, FieldSource] = field(default_factory=dict)
     additional_notes: list[AdditionalNote] = field(default_factory=list)
 
 
-def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
-    base_source = next((s for s in SOURCE_ORDER if s in by_source), next(iter(by_source)))
-    base = by_source[base_source]
-    merged = {f.name: getattr(base, f.name) for f in fields(base)}
-    field_sources: dict[str, FieldSource] = {}
-
-    for field_name in _MATCH_MERGE_FIELDS:
+def _fill_missing_fields(merged: dict, by_source: dict, base_source: Source, field_names: list[str]) -> dict[str, Source]:
+    """Mutates `merged` in place, filling any of `field_names` still empty
+    after the base source with the first other source (in SOURCE_ORDER)
+    that has a non-empty value for it. Shared by merge_match_details and
+    merge_team_profile -- both had this identical loop, just over a
+    different field list; extracted to keep both functions' own cognitive
+    complexity down (python:S3776) rather than duplicating it twice.
+    Behavior unchanged for either call site."""
+    field_sources: dict[str, Source] = {}
+    for field_name in field_names:
         if not is_empty(merged.get(field_name)):
             continue
         for src in SOURCE_ORDER:
@@ -116,6 +120,14 @@ def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
                     merged[field_name] = candidate_val
                     field_sources[field_name] = src
                     break
+    return field_sources
+
+
+def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
+    base_source = next((s for s in SOURCE_ORDER if s in by_source), next(iter(by_source)))
+    base = by_source[base_source]
+    merged = {f.name: getattr(base, f.name) for f in fields(base)}
+    field_sources = _fill_missing_fields(merged, by_source, base_source, _MATCH_MERGE_FIELDS)
 
     additional_notes = [
         AdditionalNote(source=src, note=d.note)
@@ -135,7 +147,7 @@ def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
 class MergedProfile(TeamProfile):
     """Flat subclass of TeamProfile, same reasoning as MergedMatch above."""
 
-    base_source: Optional[Source] = None
+    base_source: Source | None = None
     field_sources: dict[str, Source] = field(default_factory=dict)
     # All five computed purely from this profile's own (already fully
     # enriched) squad -- zero extra requests. Previously computed only
@@ -156,7 +168,7 @@ class MergedProfile(TeamProfile):
 # Matches Fotmob/365scores' full word ("Midfielder"), Goal's uppercase enum
 # ("MIDFIELDER"), and Sofascore's single-letter code ("M"). SoccerDesk never
 # sets role at all, so its injuries (never populated anyway) are unaffected.
-def is_midfield_role(role: Optional[str]) -> bool:
+def is_midfield_role(role: str | None) -> bool:
     if not role:
         return False
     return role.upper() == "M" or "mid" in role.lower()
@@ -165,14 +177,14 @@ def is_midfield_role(role: Optional[str]) -> bool:
 # Same tolerance-for-format-differences approach as is_midfield_role --
 # Sofascore's single-letter code ("D"), Goal's uppercase enum
 # ("DEFENDER"), and full words all match.
-def is_defender_role(role: Optional[str]) -> bool:
+def is_defender_role(role: str | None) -> bool:
     if not role:
         return False
     lowered = role.lower()
     return role.upper() == "D" or "defen" in lowered or "back" in lowered
 
 
-def is_attacker_role(role: Optional[str]) -> bool:
+def is_attacker_role(role: str | None) -> bool:
     if not role:
         return False
     r = role.upper()
@@ -180,7 +192,7 @@ def is_attacker_role(role: Optional[str]) -> bool:
     return r in ("F", "A") or "forward" in lowered or "attack" in lowered or "striker" in lowered
 
 
-def is_goalkeeper_role(role: Optional[str]) -> bool:
+def is_goalkeeper_role(role: str | None) -> bool:
     if not role:
         return False
     r = role.upper()
@@ -188,15 +200,15 @@ def is_goalkeeper_role(role: Optional[str]) -> bool:
     return r in ("G", "GK") or "goalkeeper" in lowered or "keeper" in lowered
 
 
-def compute_missing_midfielders(injuries: Optional[list[SquadMember]]) -> Optional[list[str]]:
+def compute_missing_midfielders(injuries: list[SquadMember] | None) -> list[str] | None:
     if injuries is None:
         return None
     return [p.name for p in injuries if is_midfield_role(p.role)]
 
 
 def compute_missing_by_role(
-    injuries: Optional[list[SquadMember]], matches: Callable[[Optional[str]], bool]
-) -> Optional[list[str]]:
+    injuries: list[SquadMember] | None, matches: Callable[[str | None], bool]
+) -> list[str] | None:
     if injuries is None:
         return None
     return [p.name for p in injuries if matches(p.role)]
@@ -213,6 +225,22 @@ def surname(name: str) -> str:
     return parts[-1] if parts else ""
 
 
+def _season_stats_by_surname(by_source: dict[Source, TeamProfile]) -> dict[str, tuple[Any, Source]]:
+    """First (highest-priority, per SOURCE_ORDER) source with season_stats
+    for a given surname wins. Extracted from enrich_squad_with_season_stats
+    to keep its own cognitive complexity down (python:S3776); behavior
+    unchanged."""
+    stats_by_surname: dict[str, tuple[Any, Source]] = {}
+    for src in SOURCE_ORDER:
+        profile = by_source.get(src)
+        for member in (profile.squad if profile and profile.squad else []):
+            if member.season_stats:
+                key = surname(member.name)
+                if key not in stats_by_surname:
+                    stats_by_surname[key] = (member.season_stats, src)
+    return stats_by_surname
+
+
 def enrich_squad_with_season_stats(squad: list[SquadMember], by_source: dict[Source, TeamProfile]) -> list[SquadMember]:
     """Inherited bug, found and fixed here (confirmed it also exists in
     the original TS -- Map.set() there has the identical unconditional-
@@ -223,14 +251,7 @@ def enrich_squad_with_season_stats(squad: list[SquadMember], by_source: dict[Sou
     convention every other merge function in this file follows (see
     merge_match_details/merge_team_profile's own "first match wins,
     then break" loops). Fixed by only setting a surname's entry once."""
-    stats_by_surname: dict[str, tuple[Any, Source]] = {}
-    for src in SOURCE_ORDER:
-        profile = by_source.get(src)
-        for member in (profile.squad if profile and profile.squad else []):
-            if member.season_stats:
-                key = surname(member.name)
-                if key not in stats_by_surname:
-                    stats_by_surname[key] = (member.season_stats, src)
+    stats_by_surname = _season_stats_by_surname(by_source)
     if not stats_by_surname:
         return squad
 
@@ -281,12 +302,12 @@ class TopPerformer:
     name: str
     goals: int
     assists: int
-    appearances: Optional[int]
-    rating: Optional[float]
-    source: Optional[Source]
+    appearances: int | None
+    rating: float | None
+    source: Source | None
 
 
-def compute_top_performers(squad: Optional[list[SquadMember]], by: Literal["goals", "assists"], count: int = 3) -> list[TopPerformer]:
+def compute_top_performers(squad: list[SquadMember] | None, by: Literal["goals", "assists"], count: int = 3) -> list[TopPerformer]:
     if not squad:
         return []
     candidates = [m for m in squad if m.season_stats and getattr(m.season_stats, by) > 0]
@@ -311,7 +332,7 @@ class TopDefender:
     interceptions: int
 
 
-def compute_top_defenders(squad: Optional[list[SquadMember]], count: int = 3) -> list[TopDefender]:
+def compute_top_defenders(squad: list[SquadMember] | None, count: int = 3) -> list[TopDefender]:
     """Ranked by tackles+interceptions combined -- both are real
     defensive-activity counts (see DefensiveStats), not the literal
     pressing/defensive-line metrics the original checklist asked for."""
@@ -346,7 +367,7 @@ class BenchRegular:
     unused_bench: int
 
 
-def compute_bench_regulars(squad: Optional[list[SquadMember]], count: int = 5) -> list[BenchRegular]:
+def compute_bench_regulars(squad: list[SquadMember] | None, count: int = 5) -> list[BenchRegular]:
     """Players named in the matchday squad (last20Overall sample) more
     often than they actually started -- i.e. genuinely bench-regular, not
     just "happened to miss one game." Requires at least 2 non-start
@@ -381,9 +402,9 @@ class RecentFormLeader:
     assists: int
     xg: float
     xa: float
-    avg_rating: Optional[float]
-    goals_per90: Optional[float]
-    assists_per90: Optional[float]
+    avg_rating: float | None
+    goals_per90: float | None
+    assists_per90: float | None
     key_passes: int
     sample_size: int
 
@@ -399,11 +420,11 @@ class RoleFormEntry:
     xg: float
     xa: float
     key_passes: int
-    avg_rating: Optional[float]
+    avg_rating: float | None
 
 
 def compute_role_form_breakdown(
-    squad: Optional[list[SquadMember]], role_check: Callable[[Optional[str]], bool], count: int = 5
+    squad: list[SquadMember] | None, role_check: Callable[[str | None], bool], count: int = 5
 ) -> list[RoleFormEntry]:
     """compute_recent_form_leaders ranks by goals+assists, which
     structurally excludes most midfielders/defenders -- they rarely lead a
@@ -432,7 +453,7 @@ def compute_role_form_breakdown(
     ]
 
 
-def compute_recent_form_leaders(squad: Optional[list[SquadMember]], count: int = 3) -> list[RecentFormLeader]:
+def compute_recent_form_leaders(squad: list[SquadMember] | None, count: int = 3) -> list[RecentFormLeader]:
     """Same "last 10 played, real per-match data" scope as everything else
     the venue-classification enrichment produces -- distinct from the
     season-wide totals top_performers already show, this is specifically
@@ -462,21 +483,7 @@ def merge_team_profile(by_source: dict[Source, TeamProfile]) -> MergedProfile:
     base_source = next((s for s in SOURCE_ORDER if s in by_source), next(iter(by_source)))
     base = by_source[base_source]
     merged = {f.name: getattr(base, f.name) for f in fields(base)}
-    field_sources: dict[str, Source] = {}
-
-    for field_name in _PROFILE_MERGE_FIELDS:
-        if not is_empty(merged.get(field_name)):
-            continue
-        for src in SOURCE_ORDER:
-            if src == base_source:
-                continue
-            candidate = by_source.get(src)
-            if candidate is not None:
-                candidate_val = getattr(candidate, field_name)
-                if not is_empty(candidate_val):
-                    merged[field_name] = candidate_val
-                    field_sources[field_name] = src
-                    break
+    field_sources = _fill_missing_fields(merged, by_source, base_source, _PROFILE_MERGE_FIELDS)
 
     merged["missing_midfielders"] = compute_missing_midfielders(merged.get("injuries"))
     merged["missing_attackers"] = compute_missing_by_role(merged.get("injuries"), is_attacker_role)

@@ -1,4 +1,8 @@
-from football.geo import country_distance_km, country_timezone_diff_hours, travel_time_hours
+from football.geo import (
+    country_distance_km,
+    country_timezone_diff_hours,
+    travel_time_hours,
+)
 
 
 def test_distance_unknown_country_is_none():

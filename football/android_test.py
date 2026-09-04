@@ -20,15 +20,23 @@ from .http import USER_AGENT
 from .insights import compute_data_completeness
 from .orchestrate import run_search
 from .report import build_report_json
-from .sites.sofascore import get_sofascore_match_details, get_sofascore_matches, get_sofascore_team_profile
+from .sites.sofascore import (
+    get_sofascore_match_details,
+    get_sofascore_matches,
+    get_sofascore_team_profile,
+)
 from .sites.squawka import (
+    _STAT_NAMES,
     _fetch_stat_values,
     _load_page_context,
     _resolve_competition_id,
-    _STAT_NAMES,
     get_squawka_defensive_stats,
 )
-from .sites.worldfootball import _COMPETITION_PATHS, _fetch_referee_table, get_referee_worldfootball_stats
+from .sites.worldfootball import (
+    _COMPETITION_PATHS,
+    _fetch_referee_table,
+    get_referee_worldfootball_stats,
+)
 from .team_aliases import known_aliases_for
 
 

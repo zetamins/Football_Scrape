@@ -78,3 +78,10 @@ def test_falls_back_to_unfiltered_results_when_everything_is_a_friendly():
     rating = compute_elo_rating(all_friendly)
     assert rating is not None
     assert rating.elo > 1500.0
+
+
+def test_none_competition_is_not_treated_as_a_friendly():
+    results = [_result("W", competition=None) for _ in range(3)]
+    rating = compute_elo_rating(results)
+    assert rating is not None
+    assert rating.elo > 1500.0

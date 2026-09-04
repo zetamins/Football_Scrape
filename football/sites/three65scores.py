@@ -44,38 +44,83 @@ class _Competitor:
     type: int
 
 
-async def _find_team(team_name: str) -> _Competitor | None:
-    """See team_name_match.py -- retries with diacritics/generic-suffix-
-    stripped variants when the exact query returns nothing, same as
-    soccerdesk.py."""
-    # After the existing diacritics/suffix variants, also try any known
-    # alias (team_aliases.py) -- e.g. 365Scores' search returns nothing for
-    # "Brighton and Hove Albion" or "Royale Union Saint-Gilloise", confirmed
-    # live. Deduped so this doesn't repeat a request.
-    #
-    # Every variant is queried and pooled BEFORE picking a winner -- e.g.
-    # querying "Queens Park Rangers" alone returns ['QPR', 'Queens Park
-    # Rangers (W)'], and stopping there picks the women's team (W) since
-    # it's the only one that forward-substring-matches the full query --
-    # "QPR" itself never gets compared against its own "qpr" alias because
-    # the loop already broke. Same for "Paris Saint Germain" resolving to
-    # "Paris Saint-Germain B" (the reserve team) instead of "PSG". Both
-    # confirmed live.
+def _dedupe_variants(team_name: str) -> list[str]:
+    """Diacritics/generic-suffix-stripped variants (team_name_match.py)
+    plus any known alias (team_aliases.py), case-insensitively deduped so
+    the search below doesn't repeat a request for the same query text."""
     seen = set()
-    tried_variants = []
+    variants = []
     for variant in [*name_query_variants(team_name), *known_aliases_for(team_name)]:
         key = variant.lower()
         if key in seen:
             continue
         seen.add(key)
-        tried_variants.append(variant)
+        variants.append(variant)
+    return variants
 
+
+async def _pool_competitors(variants: list[str]) -> list[dict[str, Any]]:
+    """Every variant is queried and pooled BEFORE picking a winner -- e.g.
+    querying "Queens Park Rangers" alone returns ['QPR', 'Queens Park
+    Rangers (W)'], and stopping there picks the women's team (W) since
+    it's the only one that forward-substring-matches the full query --
+    "QPR" itself never gets compared against its own "qpr" alias because
+    the loop already broke. Same for "Paris Saint Germain" resolving to
+    "Paris Saint-Germain B" (the reserve team) instead of "PSG". Both
+    confirmed live."""
     pool: dict[int, dict[str, Any]] = {}
-    for variant in tried_variants:
+    for variant in variants:
         data = await fetch_json(f"{_BASE}/search/?{_COMMON}&query={quote(variant)}&filter=all")
         for c in data.get("competitors") or []:
             pool.setdefault(c["id"], c)
-    competitors = list(pool.values())
+    return list(pool.values())
+
+
+def _as_competitor(c: dict[str, Any]) -> _Competitor:
+    return _Competitor(id=c["id"], name=c["name"], name_for_url=c["nameForURL"], type=c["type"])
+
+
+def _shortest(candidates: dict[int, dict[str, Any]]) -> _Competitor:
+    return _as_competitor(min(candidates.values(), key=lambda c: len(c["name"])))
+
+
+def _reverse_match(targets: list[str], competitors: list[dict[str, Any]]) -> _Competitor | None:
+    """The real senior club's name is sometimes shorter than the query
+    itself. A 4-char floor (same convention as stadiumdb.py) guards
+    against a too-short name false-matching an unrelated longer query."""
+    reverse_pool: dict[int, dict[str, Any]] = {}
+    for target in targets:
+        for c in competitors:
+            if len(strip_diacritics(c["name"])) >= 4 and strip_diacritics(c["name"]).lower() in target:
+                reverse_pool.setdefault(c["id"], c)
+    return _shortest(reverse_pool) if reverse_pool else None
+
+
+def _forward_match(targets: list[str], competitors: list[dict[str, Any]]) -> _Competitor | None:
+    """Same 4-char floor, applied to the TARGET this time: a short alias
+    like "nec" (kept for other sites' exact-match use, e.g. StadiumDB's
+    literal "NEC" row) is too easy to false-positive as a forward
+    substring probe here -- confirmed live, it matched "Necaxa" (a wholly
+    unrelated Mexican club) and, being short, won the shortest-name
+    tiebreak over the real, longer "N.E.C. Nijmegen"."""
+    forward_pool: dict[int, dict[str, Any]] = {}
+    for target in targets:
+        if len(target) < 4:
+            continue
+        for c in competitors:
+            if target in strip_diacritics(c["name"]).lower():
+                forward_pool.setdefault(c["id"], c)
+    return _shortest(forward_pool) if forward_pool else None
+
+
+async def _find_team(team_name: str) -> _Competitor | None:
+    """See team_name_match.py -- retries with diacritics/generic-suffix-
+    stripped variants when the exact query returns nothing, same as
+    soccerdesk.py. Split into several small helpers above purely to keep
+    this function's own cognitive complexity readable (each helper is
+    itself a documented, previously-live-confirmed fix -- see their own
+    doc comments); the matching behavior is unchanged."""
+    competitors = await _pool_competitors(_dedupe_variants(team_name))
     if not competitors:
         return None
 
@@ -85,7 +130,7 @@ async def _find_team(team_name: str) -> _Competitor | None:
     target_set = {strip_diacritics(v).lower().strip() for v in [team_name, *known_aliases_for(team_name)]}
     exact = next((c for c in competitors if strip_diacritics(c["name"]).lower() in target_set), None)
     if exact:
-        return _Competitor(id=exact["id"], name=exact["name"], name_for_url=exact["nameForURL"], type=exact["type"])
+        return _as_competitor(exact)
 
     # Reverse and forward candidate matching are tried across EVERY known
     # alias, not just the original team_name, and candidates are POOLED
@@ -101,42 +146,11 @@ async def _find_team(team_name: str) -> _Competitor | None:
     # exactly the bug this pooling avoids.
     targets = [strip_diacritics(v).lower().strip() for v in [team_name, *known_aliases_for(team_name)]]
 
-    # Reverse direction: the real senior club's name is sometimes shorter
-    # than the query itself. A 4-char floor (same convention as
-    # stadiumdb.py) guards against a too-short name false-matching an
-    # unrelated longer query.
-    reverse_pool: dict[int, dict[str, Any]] = {}
-    for target in targets:
-        for c in competitors:
-            if len(strip_diacritics(c["name"])) >= 4 and strip_diacritics(c["name"]).lower() in target:
-                reverse_pool.setdefault(c["id"], c)
-    if reverse_pool:
-        pick = min(reverse_pool.values(), key=lambda c: len(c["name"]))
-        return _Competitor(id=pick["id"], name=pick["name"], name_for_url=pick["nameForURL"], type=pick["type"])
-
-    # Same 4-char floor, applied to the TARGET this time: a short alias
-    # like "nec" (kept for other sites' exact-match use, e.g. StadiumDB's
-    # literal "NEC" row) is too easy to false-positive as a forward
-    # substring probe here -- confirmed live, it matched "Necaxa" (a
-    # wholly unrelated Mexican club) and, being short, won the
-    # shortest-name tiebreak over the real, longer "N.E.C. Nijmegen".
-    forward_pool: dict[int, dict[str, Any]] = {}
-    for target in targets:
-        if len(target) < 4:
-            continue
-        for c in competitors:
-            if target in strip_diacritics(c["name"]).lower():
-                forward_pool.setdefault(c["id"], c)
-    if forward_pool:
-        pick = min(forward_pool.values(), key=lambda c: len(c["name"]))
-        return _Competitor(id=pick["id"], name=pick["name"], name_for_url=pick["nameForURL"], type=pick["type"])
-
-    pick = min(competitors, key=lambda c: len(c["name"]))
-    return _Competitor(id=pick["id"], name=pick["name"], name_for_url=pick["nameForURL"], type=pick["type"])
+    return _reverse_match(targets, competitors) or _forward_match(targets, competitors) or _shortest({c["id"]: c for c in competitors})
 
 
 def _slugify(s: str) -> str:
-    return re.sub(r"(^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
+    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
 
 
 @dataclass
@@ -254,25 +268,29 @@ def _extract_lineup_side(
         stats = _stat_lookup(m)
 
         def stat(name: str) -> float | None:
-            return _parse_365_stat_value(stats.get(name))
+            return _parse_365_stat_value(stats.get(name))  # noqa: B023 - fully used within this same loop iteration, not stored for later
+
+        def int_stat(name: str) -> int | None:
+            value = stat(name)
+            return int(value) if value is not None else None
 
         result.append(
             LineupPlayer(
                 name=name_by_id.get(m["id"], "Unknown"),
                 position=(m.get("position") or {}).get("name"),
                 substitute=is_bench,
-                minutes_played=(int(v) if (v := stat("Minutes")) is not None else None),
-                goals=(int(v) if (v := stat("Goals")) is not None else None),
-                assists=(int(v) if (v := stat("Assists")) is not None else None),
+                minutes_played=int_stat("Minutes"),
+                goals=int_stat("Goals"),
+                assists=int_stat("Assists"),
                 xg=stat("Expected Goals"),
                 xa=stat("Expected Assists"),
-                shots=(int(v) if (v := stat("Total Shots")) is not None else None),
-                shots_on_target=(int(v) if (v := stat("Shots On Target")) is not None else None),
-                tackles=(int(v) if (v := stat("Tackles Won")) is not None else None),
-                interceptions=(int(v) if (v := stat("Interceptions")) is not None else None),
-                fouls=(int(v) if (v := stat("Fouls Made")) is not None else None),
+                shots=int_stat("Total Shots"),
+                shots_on_target=int_stat("Shots On Target"),
+                tackles=int_stat("Tackles Won"),
+                interceptions=int_stat("Interceptions"),
+                fouls=int_stat("Fouls Made"),
                 rating=_real_rating(m.get("ranking")),
-                key_passes=(int(v) if (v := stat("Key Passes")) is not None else None),
+                key_passes=int_stat("Key Passes"),
                 shirt_number=None,
                 age=None,
             )

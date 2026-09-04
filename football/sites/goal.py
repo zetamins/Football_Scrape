@@ -11,6 +11,8 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
+import httpx
+
 from ..data_dir import data_dir
 from ..http import fetch_text
 from ..team_aliases import known_aliases_for
@@ -126,6 +128,16 @@ def _find_best_team_match(entries: list[_TeamIndexEntry], team_name: str) -> _Te
     return reverse_candidates[0]
 
 
+def _match_status(finished: bool, status_raw: str | None) -> str | None:
+    """Extracted from _to_match_info to replace a nested ternary
+    (python:S3358); behavior unchanged."""
+    if finished:
+        return "finished"
+    if status_raw == "FIXTURE":
+        return "scheduled"
+    return status_raw.lower() if status_raw else None
+
+
 def _to_match_info(m: dict[str, Any]) -> MatchInfo:
     finished = m.get("status") == "RESULT"
     status_raw = m.get("status")
@@ -138,7 +150,7 @@ def _to_match_info(m: dict[str, Any]) -> MatchInfo:
         away_team=m["teamB"]["name"],
         kickoff_utc=m.get("startDate"),
         venue=(m.get("venue") or {}).get("name"),
-        status=("finished" if finished else "scheduled" if status_raw == "FIXTURE" else (status_raw.lower() if status_raw else None)),
+        status=_match_status(finished, status_raw),
         home_score=(score.get("teamA") if finished else None),
         away_score=(score.get("teamB") if finished else None),
         home_score_ht=None,
@@ -181,21 +193,33 @@ def _build_player_event_stats(events: list[dict[str, Any]]) -> dict[str, dict[st
     for e in events:
         typename = e.get("__typename")
         if typename == "MatchGoalEvent":
-            scorer_id = (e.get("scorer") or {}).get("id")
-            if scorer_id:
-                entry(scorer_id)["goals"] += 1
-            assist_id = (e.get("assist") or {}).get("id")
-            if assist_id:
-                entry(assist_id)["assists"] += 1
+            _apply_goal_event(e, entry)
         elif typename == "MatchSubstitutionEvent":
-            minute = (e.get("period") or {}).get("minute")
-            out_id = (e.get("out") or {}).get("id")
-            in_id = (e.get("in") or {}).get("id")
-            if out_id:
-                entry(out_id)["sub_off_minute"] = minute
-            if in_id:
-                entry(in_id)["sub_on_minute"] = minute
+            _apply_substitution_event(e, entry)
     return stats
+
+
+def _apply_goal_event(e: dict[str, Any], entry: Any) -> None:
+    """Extracted from _build_player_event_stats to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    scorer_id = (e.get("scorer") or {}).get("id")
+    if scorer_id:
+        entry(scorer_id)["goals"] += 1
+    assist_id = (e.get("assist") or {}).get("id")
+    if assist_id:
+        entry(assist_id)["assists"] += 1
+
+
+def _apply_substitution_event(e: dict[str, Any], entry: Any) -> None:
+    """Extracted from _build_player_event_stats to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    minute = (e.get("period") or {}).get("minute")
+    out_id = (e.get("out") or {}).get("id")
+    in_id = (e.get("in") or {}).get("id")
+    if out_id:
+        entry(out_id)["sub_off_minute"] = minute
+    if in_id:
+        entry(in_id)["sub_on_minute"] = minute
 
 
 def _extract_lineup_side(
@@ -282,41 +306,58 @@ def _extract_timeline(match_events: list[dict[str, Any]] | None) -> list[Timelin
     for e in match_events:
         typename = e.get("__typename")
         minute = (e.get("period") or {}).get("minute", 0)
-        team = "home" if e.get("side") == "TEAM_A" else "away" if e.get("side") == "TEAM_B" else None
-        if typename == "MatchGoalEvent":
-            result.append(
-                TimelineEvent(
-                    minute=minute,
-                    type="Goal",
-                    detail=(f"Assist: {e['assist']['name']}" if e.get("assist") else None),
-                    player=(e.get("scorer") or {}).get("name"),
-                    team=team,
-                )
-            )
-        elif typename == "MatchCardEvent":
-            card_type = e.get("type") or ""
-            result.append(
-                TimelineEvent(
-                    minute=minute,
-                    type=("Red Card" if "RED" in card_type else "Yellow Card"),
-                    detail=None,
-                    player=(e.get("player") or {}).get("name"),
-                    team=team,
-                )
-            )
-        elif typename == "MatchSubstitutionEvent":
-            in_name = (e.get("in") or {}).get("name")
-            out_name = (e.get("out") or {}).get("name")
-            result.append(
-                TimelineEvent(
-                    minute=minute,
-                    type="Substitution",
-                    detail=(f"{in_name} on for {out_name}" if in_name and out_name else None),
-                    player=out_name,
-                    team=team,
-                )
-            )
+        team = {"TEAM_A": "home", "TEAM_B": "away"}.get(e.get("side"))
+        item = _timeline_event_for(typename, e, minute, team)
+        if item:
+            result.append(item)
     return sorted(result, key=lambda e: e.minute) if result else None
+
+
+def _goal_timeline_event(e: dict[str, Any], minute: int, team: str | None) -> TimelineEvent:
+    return TimelineEvent(
+        minute=minute,
+        type="Goal",
+        detail=(f"Assist: {e['assist']['name']}" if e.get("assist") else None),
+        player=(e.get("scorer") or {}).get("name"),
+        team=team,
+    )
+
+
+def _card_timeline_event(e: dict[str, Any], minute: int, team: str | None) -> TimelineEvent:
+    card_type = e.get("type") or ""
+    return TimelineEvent(
+        minute=minute,
+        type=("Red Card" if "RED" in card_type else "Yellow Card"),
+        detail=None,
+        player=(e.get("player") or {}).get("name"),
+        team=team,
+    )
+
+
+def _substitution_timeline_event(e: dict[str, Any], minute: int, team: str | None) -> TimelineEvent:
+    in_name = (e.get("in") or {}).get("name")
+    out_name = (e.get("out") or {}).get("name")
+    return TimelineEvent(
+        minute=minute,
+        type="Substitution",
+        detail=(f"{in_name} on for {out_name}" if in_name and out_name else None),
+        player=out_name,
+        team=team,
+    )
+
+
+_TIMELINE_EVENT_BUILDERS = {
+    "MatchGoalEvent": _goal_timeline_event,
+    "MatchCardEvent": _card_timeline_event,
+    "MatchSubstitutionEvent": _substitution_timeline_event,
+}
+
+
+def _timeline_event_for(typename: str | None, e: dict[str, Any], minute: int, team: str | None) -> TimelineEvent | None:
+    """Extracted from _extract_timeline to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    builder = _TIMELINE_EVENT_BUILDERS.get(typename)
+    return builder(e, minute, team) if builder else None
 
 
 def _extract_standing(rankings: list[dict[str, Any]] | None, team_id: str | None) -> TeamStanding | None:
@@ -335,13 +376,18 @@ def _extract_standing(rankings: list[dict[str, Any]] | None, team_id: str | None
     )
 
 
-async def get_goal_match_details(match: MatchInfo) -> MatchDetails:
+async def get_goal_match_details(match: MatchInfo, client: httpx.AsyncClient | None = None) -> MatchDetails:
     """Goal.com has no venue/referee gap like SoccerDesk -- venue is
     present, but `referee` was an empty array on every match checked
     during research (friendlies and competitive Champions League/Premier
     League fixtures alike), so it's treated as genuinely unpopulated by
-    this source rather than retried or guessed at."""
-    html = await fetch_text(match.source_url)
+    this source rather than retried or guessed at.
+
+    `client` is optional -- see http.fetch_text's docstring. Threaded
+    through here specifically so compute_possession_matchup's loop
+    (up to 20 sequential calls to this function, all to goal.com) can
+    reuse one connection instead of paying a fresh handshake per call."""
+    html = await fetch_text(match.source_url, client)
     data = _extract_next_data(html)
     content = data["props"]["pageProps"]["content"]
     m = content["match"]

@@ -18,17 +18,26 @@ this module only provides the mechanism.
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
-_T = TypeVar("_T")
+T = TypeVar("T")
 
 
-async def retry_with_backoff(fn: Callable[[], Awaitable[_T]], attempts: int = 3) -> _T:
-    last_err: BaseException | None = None
+async def retry_with_backoff(fn: Callable[[], Awaitable[T]], attempts: int = 3) -> T:
+    # Exception, not BaseException -- catching BaseException would also
+    # swallow KeyboardInterrupt/SystemExit/GeneratorExit and retry a
+    # deliberate interruption instead of honoring it, which is a real bug,
+    # not just an overly-broad catch. Still deliberately generic beyond
+    # that: `fn` can be any of this project's own scrape functions, whose
+    # failure modes this module has no visibility into by design -- see
+    # the module docstring for why retrying broadly (rather than picking
+    # specific exception types up front) is the intended behavior here.
+    last_err: Exception | None = None
     for i in range(attempts):
         try:
             return await fn()
-        except BaseException as err:  # noqa: BLE001 - re-raised below, mirrors TS catch-all
+        except Exception as err:  # noqa: BLE001
             last_err = err
             if i < attempts - 1:
                 delay_s = 3 * 2**i  # 3s, 6s, 12s

@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -33,7 +33,8 @@ if TYPE_CHECKING:
 from .._jsmath import js_round_to, js_to_fixed
 from ..browser import launch_browser
 from ..retry import retry_with_backoff
-from ..team_aliases import canonical_for, normalize as _normalize_alias
+from ..team_aliases import canonical_for
+from ..team_aliases import normalize as _normalize_alias
 from ..team_name_match import strip_diacritics
 from ..types import (
     HeadToHeadSummary,
@@ -102,7 +103,7 @@ def _to_iso_z(dt: datetime) -> str:
     trailing "Z") -- Python's isoformat() omits the fractional part
     entirely when microsecond == 0, which every other source's date
     strings (and any downstream string-prefix comparison) don't expect."""
-    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return dt.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _normalize(s: str) -> str:
@@ -229,7 +230,7 @@ def _to_match_info(e: dict[str, Any]) -> MatchInfo:
     status = e.get("status") or {}
     season = e.get("season") or {}
     round_info = e.get("roundInfo") or {}
-    kickoff = datetime.fromtimestamp(e["startTimestamp"], tz=timezone.utc)
+    kickoff = datetime.fromtimestamp(e["startTimestamp"], tz=UTC)
     return MatchInfo(
         source="sofascore",
         source_url=f"https://www.sofascore.com/event/{e['slug']}/{e['id']}",
@@ -278,7 +279,7 @@ async def get_sofascore_matches(team_name: str) -> list[MatchInfo]:
 def _age_from_timestamp(ts: int | None) -> int | None:
     if not ts:
         return None
-    return int((datetime.now(tz=timezone.utc).timestamp() - ts) / (365.25 * 24 * 3600))
+    return int((datetime.now(tz=UTC).timestamp() - ts) / (365.25 * 24 * 3600))
 
 
 def _extract_lineup_player(p: dict[str, Any], substitute: bool) -> LineupPlayer:
@@ -421,7 +422,7 @@ def _extract_incidents(incidents: dict[str, Any] | None) -> list[TimelineEvent] 
     result = []
     for i in items:
         is_home = i.get("isHome")
-        team = "home" if is_home is True else "away" if is_home is False else None
+        team = {True: "home", False: "away"}.get(is_home)
         player = (i.get("player") or {}).get("name") or (i.get("playerIn") or {}).get("name")
         result.append(
             TimelineEvent(
@@ -507,6 +508,32 @@ def _extract_manager(raw_manager: dict[str, Any] | None) -> ManagerInfo | None:
     )
 
 
+def _manager_event_outcome(ev: dict[str, Any], target: str) -> str | None:
+    """Extracted from _fetch_manager_club_record to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged.
+    Returns "win"/"draw"/"loss" for the manager's team in this event, or
+    None if the event should be skipped (unfinished, ambiguous opponent
+    match, or missing score) -- same cases the original loop's
+    `continue` handled."""
+    if (ev.get("status") or {}).get("type") != "finished":
+        return None
+    home_is_opponent = _normalize((ev.get("homeTeam") or {}).get("name", "")) == target
+    away_is_opponent = _normalize((ev.get("awayTeam") or {}).get("name", "")) == target
+    if home_is_opponent == away_is_opponent:
+        return None  # neither, or ambiguous
+    home_goals = (ev.get("homeScore") or {}).get("current")
+    away_goals = (ev.get("awayScore") or {}).get("current")
+    if home_goals is None or away_goals is None:
+        return None
+    manager_goals = away_goals if home_is_opponent else home_goals
+    opponent_goals = home_goals if home_is_opponent else away_goals
+    if manager_goals > opponent_goals:
+        return "win"
+    if manager_goals < opponent_goals:
+        return "loss"
+    return "draw"
+
+
 async def _fetch_manager_club_record(
     page: Page, raw_manager: dict[str, Any] | None, opponent_club: str
 ) -> ManagerClubRecord | None:
@@ -522,28 +549,11 @@ async def _fetch_manager_club_record(
     )
     events = (data or {}).get("events", [])
     target = _normalize(opponent_club)
-    sample_size = 0
-    wins = draws = losses = 0
-    for ev in events:
-        if (ev.get("status") or {}).get("type") != "finished":
-            continue
-        home_is_opponent = _normalize((ev.get("homeTeam") or {}).get("name", "")) == target
-        away_is_opponent = _normalize((ev.get("awayTeam") or {}).get("name", "")) == target
-        if home_is_opponent == away_is_opponent:
-            continue  # neither, or ambiguous
-        home_goals = (ev.get("homeScore") or {}).get("current")
-        away_goals = (ev.get("awayScore") or {}).get("current")
-        if home_goals is None or away_goals is None:
-            continue
-        manager_goals = away_goals if home_is_opponent else home_goals
-        opponent_goals = home_goals if home_is_opponent else away_goals
-        sample_size += 1
-        if manager_goals > opponent_goals:
-            wins += 1
-        elif manager_goals < opponent_goals:
-            losses += 1
-        else:
-            draws += 1
+    outcomes = [o for ev in events if (o := _manager_event_outcome(ev, target)) is not None]
+    sample_size = len(outcomes)
+    wins = outcomes.count("win")
+    draws = outcomes.count("draw")
+    losses = outcomes.count("loss")
     return ManagerClubRecord(
         manager_name=raw_manager["name"],
         opponent_club=opponent_club,
@@ -551,6 +561,79 @@ async def _fetch_manager_club_record(
         wins=wins,
         draws=draws,
         losses=losses,
+    )
+
+
+async def _fetch_standings_and_season_stats(
+    page: Page, e: dict[str, Any], ut_id: int | None, season_id: int | None
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    """Returns (standings, home_season_stats, away_season_stats). Extracted
+    from get_sofascore_match_details to keep its own cognitive complexity
+    down (python:S3776); behavior unchanged -- only fetched when the
+    event resolves to a tournament+season (not every competition has a
+    league table, e.g. friendlies/one-off cups)."""
+    if not (ut_id and season_id):
+        return None, None, None
+    await _sleep(800)
+    standings = await _fetch_json_optional(
+        page, f"https://www.sofascore.com/api/v1/unique-tournament/{ut_id}/season/{season_id}/standings/total"
+    )
+
+    # Team-level season stats (goals, cards, possession) -- found by
+    # observing the team page's own "Statistics" tab network calls,
+    # same same-origin /api/ pattern as everything else here.
+    await _sleep(800)
+    home_season_stats = await _fetch_json_optional(
+        page,
+        f"https://www.sofascore.com/api/v1/team/{e['homeTeam']['id']}/unique-tournament/{ut_id}/season/{season_id}/statistics/overall",
+    )
+    await _sleep(800)
+    away_season_stats = await _fetch_json_optional(
+        page,
+        f"https://www.sofascore.com/api/v1/team/{e['awayTeam']['id']}/unique-tournament/{ut_id}/season/{season_id}/statistics/overall",
+    )
+    return standings, home_season_stats, away_season_stats
+
+
+def _summary_from_duel(duel: dict[str, Any] | None) -> HeadToHeadSummary | None:
+    """Extracted from get_sofascore_match_details -- shared by both
+    head_to_head_summary (teamDuel) and manager_duel (managerDuel), which
+    have the same shape; behavior unchanged."""
+    if not duel:
+        return None
+    return HeadToHeadSummary(home_wins=duel.get("homeWins", 0), away_wins=duel.get("awayWins", 0), draws=duel.get("draws", 0))
+
+
+def _standings_table_from(standing_rows: list[dict[str, Any]] | None) -> list[StandingsTableRow] | None:
+    """Extracted from get_sofascore_match_details to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    if not standing_rows:
+        return None
+    return [StandingsTableRow(team_name=r["team"]["name"], position=r["position"], points=r["points"]) for r in standing_rows]
+
+
+def _lineup_note(lineups: dict[str, Any] | None) -> str:
+    """Extracted from get_sofascore_match_details to replace a nested
+    ternary (python:S3358); behavior unchanged."""
+    if not lineups:
+        return "lineup not published yet"
+    if lineups.get("confirmed"):
+        return "lineup confirmed"
+    return "lineup predicted, not yet confirmed"
+
+
+def _match_details_note(lineups: dict[str, Any] | None, stats: dict[str, Any] | None, standing_rows: list[dict[str, Any]] | None) -> str:
+    """Extracted from get_sofascore_match_details to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    return "; ".join(
+        filter(
+            None,
+            [
+                _lineup_note(lineups),
+                (None if stats else "match statistics not available yet (match hasn't started)"),
+                (None if standing_rows else "no league standings for this competition"),
+            ],
+        )
     )
 
 
@@ -594,30 +677,9 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
         await _sleep(800)
         best_players = await _fetch_json_optional(page, f"https://www.sofascore.com/api/v1/event/{event_id}/best-players")
 
-        standings: dict[str, Any] | None = None
-        home_season_stats: dict[str, Any] | None = None
-        away_season_stats: dict[str, Any] | None = None
         ut_id = (e.get("tournament") or {}).get("uniqueTournament", {}).get("id")
         season_id = (e.get("season") or {}).get("id")
-        if ut_id and season_id:
-            await _sleep(800)
-            standings = await _fetch_json_optional(
-                page, f"https://www.sofascore.com/api/v1/unique-tournament/{ut_id}/season/{season_id}/standings/total"
-            )
-
-            # Team-level season stats (goals, cards, possession) -- found by
-            # observing the team page's own "Statistics" tab network calls,
-            # same same-origin /api/ pattern as everything else here.
-            await _sleep(800)
-            home_season_stats = await _fetch_json_optional(
-                page,
-                f"https://www.sofascore.com/api/v1/team/{e['homeTeam']['id']}/unique-tournament/{ut_id}/season/{season_id}/statistics/overall",
-            )
-            await _sleep(800)
-            away_season_stats = await _fetch_json_optional(
-                page,
-                f"https://www.sofascore.com/api/v1/team/{e['awayTeam']['id']}/unique-tournament/{ut_id}/season/{season_id}/statistics/overall",
-            )
+        standings, home_season_stats, away_season_stats = await _fetch_standings_and_season_stats(page, e, ut_id, season_id)
         standing_rows = ((standings or {}).get("standings") or [None])[0]
         standing_rows = standing_rows.get("rows") if standing_rows else None
 
@@ -647,15 +709,7 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
             attendance=e.get("attendance"),
             weather=None,
             weather_detail=None,
-            head_to_head_summary=(
-                HeadToHeadSummary(
-                    home_wins=h2h_duel.get("homeWins", 0),
-                    away_wins=h2h_duel.get("awayWins", 0),
-                    draws=h2h_duel.get("draws", 0),
-                )
-                if h2h_duel
-                else None
-            ),
+            head_to_head_summary=_summary_from_duel(h2h_duel),
             head_to_head_streaks=_extract_streaks(streaks),
             recent_meetings=None,  # computed centrally once search.py's orchestrator is ported
             home_lineup=_extract_lineup(lineups_home),
@@ -670,24 +724,12 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
             away_manager=_extract_manager(e["awayTeam"].get("manager")),
             home_manager_vs_away_club=home_manager_vs_away_club,
             away_manager_vs_home_club=away_manager_vs_home_club,
-            standings_table=(
-                [StandingsTableRow(team_name=r["team"]["name"], position=r["position"], points=r["points"]) for r in standing_rows]
-                if standing_rows
-                else None
-            ),
+            standings_table=_standings_table_from(standing_rows),
             home_suspended_players=None,
             away_suspended_players=None,
             home_missing_players=_extract_missing_players(lineups_home),
             away_missing_players=_extract_missing_players(lineups_away),
-            manager_duel=(
-                HeadToHeadSummary(
-                    home_wins=h2h_manager_duel.get("homeWins", 0),
-                    away_wins=h2h_manager_duel.get("awayWins", 0),
-                    draws=h2h_manager_duel.get("draws", 0),
-                )
-                if h2h_manager_duel
-                else None
-            ),
+            manager_duel=_summary_from_duel(h2h_manager_duel),
             home_team_standing=_extract_standing(standing_rows, e["homeTeam"]["id"]),
             away_team_standing=_extract_standing(standing_rows, e["awayTeam"]["id"]),
             home_team_season_stats=_extract_season_stats(home_season_stats),
@@ -698,16 +740,7 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
             shotmap_stats=_extract_shotmap_stats(shotmap),
             lineup_confirmed=(lineups.get("confirmed", False) if lineups else None),
             player_of_the_match=_extract_player_of_the_match(best_players),
-            note="; ".join(
-                filter(
-                    None,
-                    [
-                        (f"lineup {'confirmed' if lineups.get('confirmed') else 'predicted, not yet confirmed'}" if lineups else "lineup not published yet"),
-                        (None if stats else "match statistics not available yet (match hasn't started)"),
-                        (None if standing_rows else "no league standings for this competition"),
-                    ],
-                )
-            ),
+            note=_match_details_note(lineups, stats, standing_rows),
         )
 
 
@@ -748,20 +781,32 @@ async def _fetch_top_player_stats(page: Page, team_id: int) -> dict[str, SeasonP
         for e in entries:
             entry = get(e["player"]["name"])
             entry.appearances = max(entry.appearances, e["statistics"].get("appearances", 0))
-            if category == "goals":
-                entry.goals = e["statistics"].get("goals", 0)
-            if category == "assists":
-                entry.assists = e["statistics"].get("assists", 0)
-            if category == "yellowCards":
-                entry.yellow_cards = e["statistics"].get("yellowCards", 0)
-            if category == "redCards":
-                entry.red_cards = e["statistics"].get("redCards", 0)
-            if category == "rating":
-                entry.rating = e["statistics"].get("rating")
-            if category == "expectedGoals":
-                entry.expected_goals = e["statistics"].get("expectedGoals")
+            _apply_category_stat(entry, category, e["statistics"])
 
     return result
+
+
+_CATEGORY_STAT_FIELDS = {
+    "goals": "goals",
+    "assists": "assists",
+    "yellowCards": "yellow_cards",
+    "redCards": "red_cards",
+    "rating": "rating",
+    "expectedGoals": "expected_goals",
+}
+
+
+def _apply_category_stat(entry: SeasonPlayerStats, category: str, statistics: dict[str, Any]) -> None:
+    """Extracted from _fetch_top_player_stats to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged. `rating`/
+    `expectedGoals` have no sensible zero default (unlike the count
+    fields), so they use `.get(name)` with no fallback, same as the
+    original per-category branches."""
+    field = _CATEGORY_STAT_FIELDS.get(category)
+    if field is None:
+        return
+    default = None if field in ("rating", "expected_goals") else 0
+    setattr(entry, field, statistics.get(category, default))
 
 
 async def get_sofascore_team_profile(team_name: str) -> TeamProfile:
@@ -809,7 +854,7 @@ async def get_sofascore_team_profile(team_name: str) -> TeamProfile:
             ts = t.get("transferDateTimestamp")
             if not ts:
                 return None
-            return _to_iso_z(datetime.fromtimestamp(ts, tz=timezone.utc))
+            return _to_iso_z(datetime.fromtimestamp(ts, tz=UTC))
 
         transfers: list[TransferRecord] = []
         for t in (transfers_data or {}).get("transfersIn", []):

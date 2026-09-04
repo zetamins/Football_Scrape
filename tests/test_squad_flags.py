@@ -1,4 +1,8 @@
-from football.insights import compute_card_risks, compute_duel_vulnerabilities, compute_fullback_exposure
+from football.insights import (
+    compute_card_risks,
+    compute_duel_vulnerabilities,
+    compute_fullback_exposure,
+)
 from football.types import DefensiveStats, SeasonPlayerStats, SquadMember
 
 

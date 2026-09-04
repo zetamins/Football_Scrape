@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -40,14 +40,19 @@ async def _fetch_json(url: str, attempts: int = 3) -> Any:
     IPv4) that a plain retry immediately resolved -- a couple of quick
     retries absorbs that without needing Sofascore's heavier
     Cloudflare-oriented backoff schedule."""
-    last_err: BaseException | None = None
+    last_err: Exception | None = None
     for i in range(attempts):
         try:
             async with new_client() as client:
                 resp = await client.get(url, headers={"User-Agent": USER_AGENT})
                 resp.raise_for_status()
                 return resp.json()
-        except BaseException as err:  # noqa: BLE001 - re-raised below, mirrors TS catch-all
+        # Exception, not BaseException -- catching BaseException would also
+        # retry-then-delay a genuine KeyboardInterrupt/SystemExit instead of
+        # honoring it immediately. Re-raised below once retries (or a
+        # non-transient error) exhaust them, mirroring the TS original's
+        # catch-all in effect, not in exact exception class.
+        except Exception as err:  # noqa: BLE001
             last_err = err
             if i < attempts - 1:
                 await asyncio.sleep(1 * (i + 1))
@@ -138,7 +143,7 @@ async def _find_team(team_name: str) -> _SoccerdeskTeam | None:
 
 
 def _slugify(s: str) -> str:
-    return re.sub(r"(^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
+    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
 
 
 def _parse_timestamp(ts: int | None) -> str | None:
@@ -168,7 +173,12 @@ def _to_match_info(m: dict[str, Any]) -> MatchInfo:
     home = next(t for t in m["teams"] if t["pos"] == 0)
     away = next(t for t in m["teams"] if t["pos"] == 1)
     comp_slug = _slugify(m["c_name"])
-    stage_slug = _slugify(m["st_name"])
+    # .get(...) or "" -- st_name can genuinely be missing/None (a match
+    # with no stage/round grouping); the competition string below already
+    # guards this same field the same way, but this slug construction
+    # didn't, so a None st_name crashed here before ever reaching that
+    # fallback. Found via a regression test, not observed live.
+    stage_slug = _slugify(m.get("st_name") or "")
     match_slug = f"{_slugify(home['name'])}-vs-{_slugify(away['name'])}"
     match_id = m["id"]
 
@@ -182,11 +192,17 @@ def _to_match_info(m: dict[str, Any]) -> MatchInfo:
     score = m.get("score")
     has_score = isinstance(score, list) and len(score) >= 2 and score[0] is not None and score[1] is not None
     is_past = (
-        datetime.fromisoformat(kickoff_utc.replace("Z", "+00:00")) < datetime.now(tz=timezone.utc)
+        datetime.fromisoformat(kickoff_utc) < datetime.now(tz=UTC)
         if kickoff_utc
         else False
     )
     finished = has_score and is_past
+    if finished:
+        status = "finished"
+    elif is_past:
+        status = "unknown"
+    else:
+        status = "scheduled"
 
     return MatchInfo(
         source="soccerdesk",
@@ -196,7 +212,7 @@ def _to_match_info(m: dict[str, Any]) -> MatchInfo:
         away_team=away["name"],
         kickoff_utc=kickoff_utc,
         venue=None,
-        status=("finished" if finished else "unknown" if is_past else "scheduled"),
+        status=status,
         home_score=(score[0] if finished else None),
         away_score=(score[1] if finished else None),
         home_score_ht=None,
@@ -217,7 +233,30 @@ async def get_soccerdesk_matches(team_name: str) -> list[MatchInfo]:
     return [_to_match_info(m) for m in all_matches]
 
 
-def _build_player_event_stats(incs: dict[str, Any] | None, name_to_id: dict[str, str]) -> dict[str, dict[str, Any]]:
+def _apply_event_to_stats(e: dict[str, Any], entry, name_to_id: dict[str, str]) -> None:
+    """One incident's effect on the per-player stats dict -- extracted
+    from _build_player_event_stats to keep its own cognitive complexity
+    down (python:S3776); behavior unchanged."""
+    etype = e.get("type")
+    if etype == 4:  # goal
+        scorer_id = e.get("pl_id")
+        if scorer_id:
+            entry(scorer_id)["goals"] += 1
+        for a in e.get("assists") or []:
+            assist_id = name_to_id.get(a.get("pl_name"))
+            if assist_id:
+                entry(assist_id)["assists"] += 1
+    elif etype == 1:  # substitution
+        minute = e.get("min")
+        in_id = e.get("pl_id")
+        out_id = e.get("pl_id_o")
+        if in_id:
+            entry(in_id)["sub_on_minute"] = minute
+        if out_id:
+            entry(out_id)["sub_off_minute"] = minute
+
+
+def _build_player_event_stats(incs: dict[str, Any] | None, name_to_id: dict[str, str]) -> dict[str, dict[str, Any]]:  # NOSONAR(python:S3516) -- both returns are the same *variable* (`stats`), but it's a dict mutated differently along each path (empty vs. populated), not actually a constant value
     """Goals (type 4) carry the scorer's real pl_id, but each entry in
     their own `assists` array only has a name (confirmed live -- its own
     "id" field is the incident id, a different namespace from a player
@@ -234,23 +273,7 @@ def _build_player_event_stats(incs: dict[str, Any] | None, name_to_id: dict[str,
     for minutes in incs.values():
         for items in minutes.values():
             for e in items:
-                etype = e.get("type")
-                if etype == 4:  # goal
-                    scorer_id = e.get("pl_id")
-                    if scorer_id:
-                        entry(scorer_id)["goals"] += 1
-                    for a in e.get("assists") or []:
-                        assist_id = name_to_id.get(a.get("pl_name"))
-                        if assist_id:
-                            entry(assist_id)["assists"] += 1
-                elif etype == 1:  # substitution
-                    minute = e.get("min")
-                    in_id = e.get("pl_id")
-                    out_id = e.get("pl_id_o")
-                    if in_id:
-                        entry(in_id)["sub_on_minute"] = minute
-                    if out_id:
-                        entry(out_id)["sub_off_minute"] = minute
+                _apply_event_to_stats(e, entry, name_to_id)
     return stats
 
 
@@ -308,17 +331,17 @@ def _extract_timeline(incs: dict[str, Any] | None) -> list[TimelineEvent] | None
     if not incs:
         return None
     events: list[TimelineEvent] = []
+    pos_to_team = {0: "home", 1: "away"}
     for minutes in incs.values():
         for items in minutes.values():
             for e in items:
-                pos = e.get("pos")
                 events.append(
                     TimelineEvent(
                         minute=e.get("min", 0),
                         type=_INCIDENT_TYPES.get(e.get("type"), f"type {e.get('type')}"),
                         detail=(f"{e.get('pl_name')} on for {e.get('pl_name_o')}" if e.get("type") == 1 else None),
                         player=e.get("pl_name"),
-                        team=("home" if pos == 0 else "away" if pos == 1 else None),
+                        team=pos_to_team.get(e.get("pos")),
                     )
                 )
     return sorted(events, key=lambda e: e.minute) if events else None
@@ -422,6 +445,45 @@ def _extract_manager(coaches: list[dict[str, Any]] | None) -> ManagerInfo | None
     return ManagerInfo(name=name, country=None, appointed_date=None, previous_manager=None, recent_appointment=None)
 
 
+def _build_name_to_id(home, away) -> dict[str, str]:
+    """Extracted from get_soccerdesk_match_details to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    name_to_id: dict[str, str] = {}
+    for side in (home, away):
+        for group in ("starting", "substitutes"):
+            for p in (side or {}).get(group) or []:
+                name_to_id[p["name"]] = p["id"]
+    return name_to_id
+
+
+async def _fetch_standings_and_h2h(meta, match: MatchInfo):
+    """Returns (head_to_head_summary, recent_meetings, home_team_standing,
+    away_team_standing). Extracted from get_soccerdesk_match_details to
+    keep its own cognitive complexity down (python:S3776); behavior
+    unchanged."""
+    head_to_head_summary = None
+    recent_meetings: list[HeadToHeadMeeting] | None = None
+    home_team_standing: TeamStanding | None = None
+    away_team_standing: TeamStanding | None = None
+    if not meta:
+        return head_to_head_summary, recent_meetings, home_team_standing, away_team_standing
+    try:
+        head_to_head_summary, h2h_matches = await _fetch_h2h(meta.home_id, meta.away_id)
+        recent_meetings = _extract_recent_meetings(h2h_matches, own_team_name=match.home_team)
+    except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => null)
+        head_to_head_summary = None
+    if meta.stage_id:
+        try:
+            stage = await _fetch_json(f"https://www.soccerdesk.com/v1/en/stage/soccer/{meta.stage_id}")
+        except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => null)
+            stage = None
+        tables = ((stage or {}).get("L") or {}).get("tables") or []
+        rows = tables[0].get("teams") if tables else None
+        home_team_standing = _extract_standing(rows, meta.home_id)
+        away_team_standing = _extract_standing(rows, meta.away_id)
+    return head_to_head_summary, recent_meetings, home_team_standing, away_team_standing
+
+
 async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
     """SoccerDesk genuinely has no referee/attendance/weather/match stats
     anywhere in its UI (confirmed: the match page only has Info/Lineups/
@@ -437,33 +499,13 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
     away = next((l for l in lineup if l.get("pos") == 1), None)
     venue = data.get("venue") if data.get("has_venue") else None
 
-    name_to_id: dict[str, str] = {}
-    for side in (home, away):
-        for group in ("starting", "substitutes"):
-            for p in (side or {}).get(group) or []:
-                name_to_id[p["name"]] = p["id"]
+    name_to_id = _build_name_to_id(home, away)
     event_stats = _build_player_event_stats(data.get("incs"), name_to_id)
 
     meta = _match_meta_cache.get(match_id)
-    head_to_head_summary = None
-    recent_meetings: list[HeadToHeadMeeting] | None = None
-    home_team_standing: TeamStanding | None = None
-    away_team_standing: TeamStanding | None = None
-    if meta:
-        try:
-            head_to_head_summary, h2h_matches = await _fetch_h2h(meta.home_id, meta.away_id)
-            recent_meetings = _extract_recent_meetings(h2h_matches, own_team_name=match.home_team)
-        except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => null)
-            head_to_head_summary = None
-        if meta.stage_id:
-            try:
-                stage = await _fetch_json(f"https://www.soccerdesk.com/v1/en/stage/soccer/{meta.stage_id}")
-            except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => null)
-                stage = None
-            tables = ((stage or {}).get("L") or {}).get("tables") or []
-            rows = tables[0].get("teams") if tables else None
-            home_team_standing = _extract_standing(rows, meta.home_id)
-            away_team_standing = _extract_standing(rows, meta.away_id)
+    head_to_head_summary, recent_meetings, home_team_standing, away_team_standing = (
+        await _fetch_standings_and_h2h(meta, match)
+    )
 
     injured_names = [p["name"] for p in [*((home or {}).get("injured") or []), *((away or {}).get("injured") or [])]]
     home_suspended_names = [p["name"] for p in (home or {}).get("suspended") or []]

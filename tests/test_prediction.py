@@ -130,6 +130,17 @@ def test_zero_total_value_does_not_crash_or_apply_a_penalty():
     assert result.home_win_pct == baseline.home_win_pct
 
 
+def test_unknown_available_value_does_not_apply_a_penalty():
+    # total_value known but available_value unknown -- can't compute a
+    # missing fraction without both, so no penalty rather than a
+    # fabricated one.
+    result = compute_match_prediction(
+        None, _elo(1500), _elo(1500), home_squad_strength=_strength(100_000_000, None),
+    ).heuristic_blend
+    baseline = compute_match_prediction(None, _elo(1500), _elo(1500)).heuristic_blend
+    assert result.home_win_pct == baseline.home_win_pct
+
+
 # -- xg_model (Poisson) ----------------------------------------------------
 
 def test_xg_model_none_when_either_teams_xg_missing():

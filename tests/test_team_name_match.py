@@ -1,4 +1,8 @@
-from football.team_name_match import name_query_variants, strip_diacritics, strip_generic_club_tokens
+from football.team_name_match import (
+    name_query_variants,
+    strip_diacritics,
+    strip_generic_club_tokens,
+)
 
 
 def test_strip_diacritics():

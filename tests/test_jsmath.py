@@ -1,4 +1,13 @@
-from football._jsmath import js_number_to_string, js_round, js_round_to, js_to_fixed
+import math
+
+from football._jsmath import (
+    js_number,
+    js_number_or,
+    js_number_to_string,
+    js_round,
+    js_round_to,
+    js_to_fixed,
+)
 
 
 def test_js_round_matches_js_math_round_ties():
@@ -26,3 +35,41 @@ def test_js_number_to_string_drops_trailing_zero():
     assert js_number_to_string(-1.0) == "-1"
     assert js_number_to_string(0.0) == "0"
     assert js_number_to_string(3.5) == "3.5"
+
+
+# --- js_number ------------------------------------------------------------------------------
+
+
+def test_js_number_none_is_nan():
+    assert math.isnan(js_number(None))
+
+
+def test_js_number_empty_string_is_zero():
+    assert js_number("") == 0.0
+    assert js_number("   ") == 0.0
+
+
+def test_js_number_parses_valid_numeric_string():
+    assert js_number(" 42.5 ") == 42.5
+
+
+def test_js_number_unparseable_string_is_nan():
+    assert math.isnan(js_number("not a number"))
+
+
+# --- js_number_or ----------------------------------------------------------------------------
+
+
+def test_js_number_or_uses_default_for_nan_zero_and_empty():
+    assert js_number_or(None, default=7) == 7
+    assert js_number_or("not a number", default=7) == 7
+    assert js_number_or("0", default=7) == 7
+    assert js_number_or("", default=7) == 7
+
+
+def test_js_number_or_returns_real_nonzero_value():
+    assert js_number_or("42.5", default=7) == 42.5
+
+
+def test_js_number_or_default_is_zero_by_default():
+    assert js_number_or(None) == 0

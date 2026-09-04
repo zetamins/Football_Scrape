@@ -24,8 +24,7 @@ the removed external metric.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from .types import EloRating, FormResult
 
@@ -34,7 +33,7 @@ _AVERAGE_OPPONENT_RATING = 1500.0
 _K_FACTOR = 32.0
 
 
-def _is_friendly(competition: Optional[str]) -> bool:
+def _is_friendly(competition: str | None) -> bool:
     # "friendly" alone misses the plural -- "friendlies" doesn't contain
     # it as a substring ("...dly" vs "...dlies"), confirmed by testing
     # both real-world label shapes seen live ("Club Friendly Games") and
@@ -45,7 +44,7 @@ def _is_friendly(competition: Optional[str]) -> bool:
     return "friendly" in lowered or "friendlies" in lowered
 
 
-def compute_elo_rating(results: list[FormResult]) -> Optional[EloRating]:
+def compute_elo_rating(results: list[FormResult]) -> EloRating | None:
     """`results` is expected in the same newest-first order FormSummary's
     last20_overall already uses -- reversed here to process oldest-to-
     newest, since Elo updates must be applied in the order matches were
@@ -66,9 +65,10 @@ def compute_elo_rating(results: list[FormResult]) -> Optional[EloRating]:
         competitive = results
     if not competitive:
         return None
+    result_points = {"W": 1.0, "D": 0.5}
     rating = _BASELINE_RATING
     for r in reversed(competitive):
-        actual = 1.0 if r.result == "W" else 0.5 if r.result == "D" else 0.0
+        actual = result_points.get(r.result, 0.0)
         expected = 1.0 / (1.0 + 10 ** ((_AVERAGE_OPPONENT_RATING - rating) / 400.0))
         # Modest goal-margin scaling (a common practical Elo-for-football
         # variant, e.g. FiveThirtyEight's SPI) -- a 4-0 result moves the
@@ -76,5 +76,5 @@ def compute_elo_rating(results: list[FormResult]) -> Optional[EloRating]:
         # the rating on its own.
         margin_multiplier = 1.0 + min(r.margin, 4) * 0.1
         rating += _K_FACTOR * margin_multiplier * (actual - expected)
-    as_of = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    as_of = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     return EloRating(elo=round(rating, 1), rank=None, as_of=as_of)

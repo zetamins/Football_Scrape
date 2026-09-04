@@ -5,8 +5,8 @@ src/search.ts.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import NamedTuple
 
 from ._jsmath import js_round, js_round_to
 from .merge import normalize_team_name
@@ -33,11 +33,11 @@ from .types import (
 
 
 def _parse_dt(iso: str) -> datetime:
-    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    return datetime.fromisoformat(iso)
 
 
-def next_match(matches: list[MatchInfo]) -> Optional[MatchInfo]:
-    now = datetime.now(tz=timezone.utc)
+def next_match(matches: list[MatchInfo]) -> MatchInfo | None:
+    now = datetime.now(tz=UTC)
     upcoming = sorted(
         (m for m in matches if m.kickoff_utc and _parse_dt(m.kickoff_utc) > now),
         key=lambda m: _parse_dt(m.kickoff_utc),
@@ -45,14 +45,14 @@ def next_match(matches: list[MatchInfo]) -> Optional[MatchInfo]:
     return upcoming[0] if upcoming else None
 
 
-def format_when(kickoff_utc: Optional[str]) -> str:
+def format_when(kickoff_utc: str | None) -> str:
     if not kickoff_utc:
         return "TBD"
     dt = _parse_dt(kickoff_utc)
     return dt.strftime("%Y-%m-%d %H:%M") + " UTC"
 
 
-def is_team_home(m: MatchInfo, team_name: str) -> Optional[bool]:
+def is_team_home(m: MatchInfo, team_name: str) -> bool | None:
     target = normalize_team_name(team_name)
     home = normalize_team_name(m.home_team)
     away = normalize_team_name(m.away_team)
@@ -80,38 +80,61 @@ def day_diff(a: str, b: str) -> int:
     return round((_parse_dt(a) - _parse_dt(b)).total_seconds() / 86400)
 
 
-def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummary:
-    now = datetime.now(tz=timezone.utc)
-
-    played = sorted(
-        (m for m in matches if m.home_score is not None and m.away_score is not None and m.kickoff_utc),
-        key=lambda m: _parse_dt(m.kickoff_utc),
-        reverse=True,
+def _to_form_result(m: MatchInfo, team_name: str) -> FormResult | None:
+    home = is_team_home(m, team_name)
+    if home is None:
+        return None
+    team_score = m.home_score if home else m.away_score
+    opp_score = m.away_score if home else m.home_score
+    if team_score > opp_score:
+        result = "W"
+    elif team_score < opp_score:
+        result = "L"
+    else:
+        result = "D"
+    return FormResult(
+        opponent=(m.away_team if home else m.home_team),
+        competition=m.competition,
+        date=m.kickoff_utc,
+        result=result,
+        scoreline=f"{m.home_score}-{m.away_score}",
+        venue=("home" if home else "away"),
+        margin=abs(team_score - opp_score),
+        neutral_venue=None,
+        ht_scoreline=None,
+        xg_for=None,
+        xg_against=None,
     )
 
-    def to_form_result(m: MatchInfo) -> Optional[FormResult]:
-        home = is_team_home(m, team_name)
-        if home is None:
-            return None
-        team_score = m.home_score if home else m.away_score
-        opp_score = m.away_score if home else m.home_score
-        result = "W" if team_score > opp_score else "L" if team_score < opp_score else "D"
-        return FormResult(
-            opponent=(m.away_team if home else m.home_team),
-            competition=m.competition,
-            date=m.kickoff_utc,
-            result=result,
-            scoreline=f"{m.home_score}-{m.away_score}",
-            venue=("home" if home else "away"),
-            margin=abs(team_score - opp_score),
-            neutral_venue=None,
-            ht_scoreline=None,
-            xg_for=None,
-            xg_against=None,
-        )
 
-    all_results = [r for r in (to_form_result(m) for m in played) if r is not None]
+def _team_goals(r: FormResult) -> dict[str, int]:
+    h, a = (int(n) for n in r.scoreline.split("-"))
+    return {"for": h, "against": a} if r.venue == "home" else {"for": a, "against": h}
 
+
+def _total_goals(r: FormResult) -> int:
+    return sum(int(n) for n in r.scoreline.split("-"))
+
+
+def _both_scored(r: FormResult) -> bool:
+    h, a = (int(n) for n in r.scoreline.split("-"))
+    return h > 0 and a > 0
+
+
+_RESULT_POINTS = {"W": 3, "D": 1, "L": 0}
+
+
+def _points_for_result(r: FormResult) -> int:
+    return _RESULT_POINTS.get(r.result, 0)
+
+
+def _win_rate(results: list[FormResult]) -> float | None:
+    return js_round(len([r for r in results if r.result == "W"]) / len(results) * 100) if results else None
+
+
+def _compute_next5_with_gaps(matches: list[MatchInfo], now: datetime, team_name: str) -> list[FixtureGap]:
+    """Extracted from compute_form_summary to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
     chronological = sorted((m for m in matches if m.kickoff_utc), key=lambda m: _parse_dt(m.kickoff_utc))
     upcoming = [m for m in chronological if _parse_dt(m.kickoff_utc) > now][:5]
     next5_with_gaps: list[FixtureGap] = []
@@ -126,138 +149,95 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
                 days_since_previous=(day_diff(m.kickoff_utc, prev.kickoff_utc) if prev and prev.kickoff_utc else None),
             )
         )
+    return next5_with_gaps
 
-    last_three_played = played[:3]
-    gaps_between_last_three = [
-        day_diff(last_three_played[i].kickoff_utc, last_three_played[i + 1].kickoff_utc)
-        for i in range(len(last_three_played) - 1)
-    ]
 
-    # Only Sofascore's fixture list carries home_score_ht/away_score_ht
-    # (from the same events/next|last response already fetched -- no
-    # extra request). Silently empty for every other source, which is a
-    # real source limitation, not a bug in this computation.
+def _compute_half_split(played: list[MatchInfo], team_name: str) -> HalfSplitStats | None:
+    """Only Sofascore's fixture list carries home_score_ht/away_score_ht
+    (from the same events/next|last response already fetched -- no extra
+    request). Silently empty for every other source, which is a real
+    source limitation, not a bug in this computation. Extracted from
+    compute_form_summary to keep its own cognitive complexity down
+    (python:S3776); behavior unchanged."""
     with_half_time = [m for m in played if m.home_score_ht is not None and m.away_score_ht is not None]
-    half_split: Optional[HalfSplitStats] = None
-    if with_half_time:
-        fh_for = fh_against = sh_for = sh_against = 0
-        for m in with_half_time:
-            home = is_team_home(m, team_name)
-            if home is None:
-                continue
-            ht_for = m.home_score_ht if home else m.away_score_ht
-            ht_against = m.away_score_ht if home else m.home_score_ht
-            ft_for = m.home_score if home else m.away_score
-            ft_against = m.away_score if home else m.home_score
-            fh_for += ht_for
-            fh_against += ht_against
-            sh_for += ft_for - ht_for
-            sh_against += ft_against - ht_against
-        half_split = HalfSplitStats(
-            sample_size=len(with_half_time),
-            first_half_goals_for=fh_for,
-            first_half_goals_against=fh_against,
-            second_half_goals_for=sh_for,
-            second_half_goals_against=sh_against,
-        )
-
-    # From `played` (raw MatchInfo, sorted desc, NOT `all_results`) --
-    # `all_results` can be shorter than `played` when isTeamHome() returns
-    # None for some entries (ambiguous team-name match), so the two aren't
-    # interchangeable here even though they're both "recent matches".
-    # dict.fromkeys preserves first-seen order the same way JS's Set does.
-    recent_competitions = list(dict.fromkeys(m.competition for m in played[:10] if m.competition is not None))
-
-    # Longest run of the same result starting from the most recent match.
-    current_streak: Optional[StreakInfo] = None
-    if all_results:
-        first = all_results[0].result
-        count = 1
-        while count < len(all_results) and all_results[count].result == first:
-            count += 1
-        current_streak = StreakInfo(result=first, count=count)
-
-    def win_rate(results: list[FormResult]) -> Optional[float]:
-        return js_round(len([r for r in results if r.result == "W"]) / len(results) * 100) if results else None
-
-    home_results = [r for r in all_results if r.venue == "home"]
-    away_results = [r for r in all_results if r.venue == "away"]
-
-    def points(r: FormResult) -> int:
-        return 3 if r.result == "W" else 1 if r.result == "D" else 0
-
-    momentum: Optional[MomentumInfo] = None
-    if len(all_results) >= 6:
-        recent = all_results[:3]
-        prior = all_results[3:6]
-        recent_ppg = js_round_to(sum(points(r) for r in recent) / len(recent), 2)
-        prior_ppg = js_round_to(sum(points(r) for r in prior) / len(prior), 2)
-        diff = recent_ppg - prior_ppg
-        trend = "improving" if diff >= 0.5 else "declining" if diff <= -0.5 else "stable"
-        momentum = MomentumInfo(recent_ppg=recent_ppg, prior_ppg=prior_ppg, trend=trend)
-
-    # "Narrow win" means genuinely tight and low-scoring (1-0, 2-1) -- a
-    # 1-goal margin alone would also catch high-scoring shootouts like 4-3.
-    def total_goals(r: FormResult) -> int:
-        return sum(int(n) for n in r.scoreline.split("-"))
-
-    last10_wins = [r for r in all_results[:10] if r.result == "W"]
-    narrow_win_share_pct = (
-        js_round(len([r for r in last10_wins if r.margin == 1 and total_goals(r) <= 3]) / len(last10_wins) * 100)
-        if last10_wins
-        else None
+    if not with_half_time:
+        return None
+    fh_for = fh_against = sh_for = sh_against = 0
+    sample_size = 0
+    for m in with_half_time:
+        home = is_team_home(m, team_name)
+        if home is None:
+            continue
+        sample_size += 1
+        ht_for = m.home_score_ht if home else m.away_score_ht
+        ht_against = m.away_score_ht if home else m.home_score_ht
+        ft_for = m.home_score if home else m.away_score
+        ft_against = m.away_score if home else m.home_score
+        fh_for += ht_for
+        fh_against += ht_against
+        sh_for += ft_for - ht_for
+        sh_against += ft_against - ht_against
+    return HalfSplitStats(
+        sample_size=sample_size,
+        first_half_goals_for=fh_for,
+        first_half_goals_against=fh_against,
+        second_half_goals_for=sh_for,
+        second_half_goals_against=sh_against,
     )
 
-    last10_draws = [r for r in all_results[:10] if r.result == "D"]
-    scoring_draw_share_pct = (
-        js_round(len([r for r in last10_draws if total_goals(r) > 0]) / len(last10_draws) * 100) if last10_draws else None
-    )
 
-    last10_played = all_results[:10]
+def _compute_current_streak(all_results: list[FormResult]) -> StreakInfo | None:
+    """Longest run of the same result starting from the most recent match.
+    Extracted from compute_form_summary to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    if not all_results:
+        return None
+    first = all_results[0].result
+    count = 1
+    while count < len(all_results) and all_results[count].result == first:
+        count += 1
+    return StreakInfo(result=first, count=count)
 
-    def both_scored(r: FormResult) -> bool:
-        h, a = (int(n) for n in r.scoreline.split("-"))
-        return h > 0 and a > 0
 
-    btts_share_pct = js_round(len([r for r in last10_played if both_scored(r)]) / len(last10_played) * 100) if last10_played else None
+def _compute_momentum(all_results: list[FormResult]) -> MomentumInfo | None:
+    """Extracted from compute_form_summary to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    if len(all_results) < 6:
+        return None
+    recent = all_results[:3]
+    prior = all_results[3:6]
+    recent_ppg = js_round_to(sum(_points_for_result(r) for r in recent) / len(recent), 2)
+    prior_ppg = js_round_to(sum(_points_for_result(r) for r in prior) / len(prior), 2)
+    diff = recent_ppg - prior_ppg
+    if diff >= 0.5:
+        trend = "improving"
+    elif diff <= -0.5:
+        trend = "declining"
+    else:
+        trend = "stable"
+    return MomentumInfo(recent_ppg=recent_ppg, prior_ppg=prior_ppg, trend=trend)
 
-    def team_goals(r: FormResult) -> dict[str, int]:
-        h, a = (int(n) for n in r.scoreline.split("-"))
-        return {"for": h, "against": a} if r.venue == "home" else {"for": a, "against": h}
 
-    clean_sheet_streak: Optional[int] = None
-    scoreless_streak: Optional[int] = None
-    if all_results:
-        cs = 0
-        while cs < len(all_results) and team_goals(all_results[cs])["against"] == 0:
-            cs += 1
-        clean_sheet_streak = cs
-        ss = 0
-        while ss < len(all_results) and team_goals(all_results[ss])["for"] == 0:
-            ss += 1
-        scoreless_streak = ss
+def _compute_clean_sheet_and_scoreless_streaks(all_results: list[FormResult]) -> tuple[int | None, int | None]:
+    """Extracted from compute_form_summary to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    if not all_results:
+        return None, None
+    cs = 0
+    while cs < len(all_results) and _team_goals(all_results[cs])["against"] == 0:
+        cs += 1
+    ss = 0
+    while ss < len(all_results) and _team_goals(all_results[ss])["for"] == 0:
+        ss += 1
+    return cs, ss
 
-    def over_share(line: float) -> Optional[float]:
-        return js_round(len([r for r in last10_played if total_goals(r) > line]) / len(last10_played) * 100) if last10_played else None
 
-    over15_share_pct = over_share(1.5)
-    over25_share_pct = over_share(2.5)
-    over35_share_pct = over_share(3.5)
-
-    clean_sheet_share_pct = (
-        js_round(len([r for r in last10_played if team_goals(r)["against"] == 0]) / len(last10_played) * 100)
-        if last10_played
-        else None
-    )
-    failed_to_score_share_pct = (
-        js_round(len([r for r in last10_played if team_goals(r)["for"] == 0]) / len(last10_played) * 100)
-        if last10_played
-        else None
-    )
-
-    # W/D/L split per competition, from the same played-match sample (not
-    # a fresh fetch) -- competitions the team hasn't played in this sample
-    # simply don't appear, rather than showing a zeroed row.
+def _compute_form_by_competition(all_results: list[FormResult]) -> list[CompetitionFormRecord]:
+    """W/D/L split per competition, from the same played-match sample (not
+    a fresh fetch) -- competitions the team hasn't played in this sample
+    simply don't appear, rather than showing a zeroed row. Extracted from
+    compute_form_summary to keep its own cognitive complexity down
+    (python:S3776); behavior unchanged."""
     form_by_competition_map: dict[str, dict[str, int]] = {}
     for r in all_results:
         if not r.competition:
@@ -272,22 +252,139 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
             entry["draws"] += 1
         else:
             entry["losses"] += 1
-        g = team_goals(r)
+        g = _team_goals(r)
         entry["goals_for"] += g["for"]
         entry["goals_against"] += g["against"]
-    form_by_competition = [CompetitionFormRecord(competition=comp, **v) for comp, v in form_by_competition_map.items()]
+    return [CompetitionFormRecord(competition=comp, **v) for comp, v in form_by_competition_map.items()]
 
-    matches_last7_days = len([m for m in played if (now - _parse_dt(m.kickoff_utc)).total_seconds() <= 7 * 86400])
-    matches_last14_days = len([m for m in played if (now - _parse_dt(m.kickoff_utc)).total_seconds() <= 14 * 86400])
+
+class _Last10Stats(NamedTuple):
+    narrow_win_share_pct: float | None
+    scoring_draw_share_pct: float | None
+    btts_share_pct: float | None
+    over15_share_pct: float | None
+    over25_share_pct: float | None
+    over35_share_pct: float | None
+    clean_sheet_share_pct: float | None
+    failed_to_score_share_pct: float | None
+    win_rate_pct: float | None
+    draw_rate_pct: float | None
+    loss_rate_pct: float | None
+    points_per_game: float | None
+    goals_for_per_game: float | None
+    goals_against_per_game: float | None
+
+
+def _compute_last10_stats(all_results: list[FormResult]) -> _Last10Stats:
+    """Every share/rate/per-game stat derived from the last 10 played
+    results. Extracted from compute_form_summary to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    # "Narrow win" means genuinely tight and low-scoring (1-0, 2-1) -- a
+    # 1-goal margin alone would also catch high-scoring shootouts like 4-3.
+    last10_wins = [r for r in all_results[:10] if r.result == "W"]
+    narrow_win_share_pct = (
+        js_round(len([r for r in last10_wins if r.margin == 1 and _total_goals(r) <= 3]) / len(last10_wins) * 100)
+        if last10_wins
+        else None
+    )
+
+    last10_draws = [r for r in all_results[:10] if r.result == "D"]
+    scoring_draw_share_pct = (
+        js_round(len([r for r in last10_draws if _total_goals(r) > 0]) / len(last10_draws) * 100) if last10_draws else None
+    )
+
+    last10_played = all_results[:10]
+
+    btts_share_pct = js_round(len([r for r in last10_played if _both_scored(r)]) / len(last10_played) * 100) if last10_played else None
+
+    def over_share(line: float) -> float | None:
+        return js_round(len([r for r in last10_played if _total_goals(r) > line]) / len(last10_played) * 100) if last10_played else None
+
+    over15_share_pct = over_share(1.5)
+    over25_share_pct = over_share(2.5)
+    over35_share_pct = over_share(3.5)
+
+    clean_sheet_share_pct = (
+        js_round(len([r for r in last10_played if _team_goals(r)["against"] == 0]) / len(last10_played) * 100)
+        if last10_played
+        else None
+    )
+    failed_to_score_share_pct = (
+        js_round(len([r for r in last10_played if _team_goals(r)["for"] == 0]) / len(last10_played) * 100)
+        if last10_played
+        else None
+    )
 
     win_rate_pct = js_round(len([r for r in last10_played if r.result == "W"]) / len(last10_played) * 100) if last10_played else None
     draw_rate_pct = js_round(len([r for r in last10_played if r.result == "D"]) / len(last10_played) * 100) if last10_played else None
     loss_rate_pct = js_round(len([r for r in last10_played if r.result == "L"]) / len(last10_played) * 100) if last10_played else None
-    points_per_game = js_round_to(sum(points(r) for r in last10_played) / len(last10_played), 2) if last10_played else None
-    goals_for_per_game = js_round_to(sum(team_goals(r)["for"] for r in last10_played) / len(last10_played), 2) if last10_played else None
-    goals_against_per_game = (
-        js_round_to(sum(team_goals(r)["against"] for r in last10_played) / len(last10_played), 2) if last10_played else None
+    points_per_game = js_round_to(sum(_points_for_result(r) for r in last10_played) / len(last10_played), 2) if last10_played else None
+    goals_for_per_game = (
+        js_round_to(sum(_team_goals(r)["for"] for r in last10_played) / len(last10_played), 2) if last10_played else None
     )
+    goals_against_per_game = (
+        js_round_to(sum(_team_goals(r)["against"] for r in last10_played) / len(last10_played), 2) if last10_played else None
+    )
+
+    return _Last10Stats(
+        narrow_win_share_pct=narrow_win_share_pct,
+        scoring_draw_share_pct=scoring_draw_share_pct,
+        btts_share_pct=btts_share_pct,
+        over15_share_pct=over15_share_pct,
+        over25_share_pct=over25_share_pct,
+        over35_share_pct=over35_share_pct,
+        clean_sheet_share_pct=clean_sheet_share_pct,
+        failed_to_score_share_pct=failed_to_score_share_pct,
+        win_rate_pct=win_rate_pct,
+        draw_rate_pct=draw_rate_pct,
+        loss_rate_pct=loss_rate_pct,
+        points_per_game=points_per_game,
+        goals_for_per_game=goals_for_per_game,
+        goals_against_per_game=goals_against_per_game,
+    )
+
+
+def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummary:
+    now = datetime.now(tz=UTC)
+
+    played = sorted(
+        (m for m in matches if m.home_score is not None and m.away_score is not None and m.kickoff_utc),
+        key=lambda m: _parse_dt(m.kickoff_utc),
+        reverse=True,
+    )
+
+    all_results = [r for r in (_to_form_result(m, team_name) for m in played) if r is not None]
+
+    next5_with_gaps = _compute_next5_with_gaps(matches, now, team_name)
+
+    last_three_played = played[:3]
+    gaps_between_last_three = [
+        day_diff(last_three_played[i].kickoff_utc, last_three_played[i + 1].kickoff_utc)
+        for i in range(len(last_three_played) - 1)
+    ]
+
+    half_split = _compute_half_split(played, team_name)
+
+    # From `played` (raw MatchInfo, sorted desc, NOT `all_results`) --
+    # `all_results` can be shorter than `played` when isTeamHome() returns
+    # None for some entries (ambiguous team-name match), so the two aren't
+    # interchangeable here even though they're both "recent matches".
+    # dict.fromkeys preserves first-seen order the same way JS's Set does.
+    recent_competitions = list(dict.fromkeys(m.competition for m in played[:10] if m.competition is not None))
+
+    current_streak = _compute_current_streak(all_results)
+
+    home_results = [r for r in all_results if r.venue == "home"]
+    away_results = [r for r in all_results if r.venue == "away"]
+
+    momentum = _compute_momentum(all_results)
+    clean_sheet_streak, scoreless_streak = _compute_clean_sheet_and_scoreless_streaks(all_results)
+    form_by_competition = _compute_form_by_competition(all_results)
+
+    matches_last7_days = len([m for m in played if (now - _parse_dt(m.kickoff_utc)).total_seconds() <= 7 * 86400])
+    matches_last14_days = len([m for m in played if (now - _parse_dt(m.kickoff_utc)).total_seconds() <= 14 * 86400])
+
+    last10 = _compute_last10_stats(all_results)
 
     return FormSummary(
         last5_overall=all_results[:5],
@@ -300,30 +397,30 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
         half_split=half_split,
         recent_competitions=recent_competitions,
         current_streak=current_streak,
-        home_win_rate_pct=win_rate(home_results),
-        away_win_rate_pct=win_rate(away_results),
+        home_win_rate_pct=_win_rate(home_results),
+        away_win_rate_pct=_win_rate(away_results),
         momentum=momentum,
-        narrow_win_share_pct=narrow_win_share_pct,
-        scoring_draw_share_pct=scoring_draw_share_pct,
-        btts_share_pct=btts_share_pct,
+        narrow_win_share_pct=last10.narrow_win_share_pct,
+        scoring_draw_share_pct=last10.scoring_draw_share_pct,
+        btts_share_pct=last10.btts_share_pct,
         clean_sheet_streak=clean_sheet_streak,
         scoreless_streak=scoreless_streak,
-        over15_share_pct=over15_share_pct,
-        over25_share_pct=over25_share_pct,
-        over35_share_pct=over35_share_pct,
-        clean_sheet_share_pct=clean_sheet_share_pct,
-        failed_to_score_share_pct=failed_to_score_share_pct,
+        over15_share_pct=last10.over15_share_pct,
+        over25_share_pct=last10.over25_share_pct,
+        over35_share_pct=last10.over35_share_pct,
+        clean_sheet_share_pct=last10.clean_sheet_share_pct,
+        failed_to_score_share_pct=last10.failed_to_score_share_pct,
         form_by_competition=form_by_competition,
         matches_last7_days=matches_last7_days,
         matches_last14_days=matches_last14_days,
         venue_split_form=None,
         detailed_venue_split=None,
-        win_rate_pct=win_rate_pct,
-        draw_rate_pct=draw_rate_pct,
-        loss_rate_pct=loss_rate_pct,
-        points_per_game=points_per_game,
-        goals_for_per_game=goals_for_per_game,
-        goals_against_per_game=goals_against_per_game,
+        win_rate_pct=last10.win_rate_pct,
+        draw_rate_pct=last10.draw_rate_pct,
+        loss_rate_pct=last10.loss_rate_pct,
+        points_per_game=last10.points_per_game,
+        goals_for_per_game=last10.goals_for_per_game,
+        goals_against_per_game=last10.goals_against_per_game,
     )
 
 
@@ -373,7 +470,7 @@ def result_goals(r: FormResult) -> dict[str, int]:
     return {"for": h, "against": a} if r.venue == "home" else {"for": a, "against": h}
 
 
-def parse_leading_int(s: Optional[str]) -> Optional[int]:
+def parse_leading_int(s: str | None) -> int | None:
     """Fotmob stat values are sometimes plain integers ("3") and sometimes
     "count (%)" strings ("21 (58%)") -- this stops at the first
     non-digit character either way, so it handles both without needing to
@@ -386,7 +483,7 @@ def parse_leading_int(s: Optional[str]) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
-def parse_leading_float(s: Optional[str]) -> Optional[float]:
+def parse_leading_float(s: str | None) -> float | None:
     """parse_leading_int truncates decimals (parseInt("1.19") === 1), wrong
     for Sofascore's own "Expected goals" match stat which is a real
     decimal ("1.19", never a "count (%)" shape) -- this is the
@@ -399,14 +496,14 @@ def parse_leading_float(s: Optional[str]) -> Optional[float]:
     return float(m.group(1)) if m else None
 
 
-def stat_for(match_stats: Optional[list[MatchStatItem]], name: str, own_venue: str) -> Optional[int]:
+def stat_for(match_stats: list[MatchStatItem] | None, name: str, own_venue: str) -> int | None:
     item = next((s for s in (match_stats or []) if s.name == name), None)
     if not item:
         return None
     return parse_leading_int(item.home if own_venue == "home" else item.away)
 
 
-def stat_for_float(match_stats: Optional[list[MatchStatItem]], name: str, own_venue: str) -> Optional[float]:
+def stat_for_float(match_stats: list[MatchStatItem] | None, name: str, own_venue: str) -> float | None:
     item = next((s for s in (match_stats or []) if s.name == name), None)
     if not item:
         return None
@@ -455,7 +552,7 @@ def _tally_player_stats(entry: _UsageAccumulator, p: LineupPlayer) -> None:
 
 
 def _tally_usage(
-    usage_by_player: dict[str, _UsageAccumulator], lineup: Optional[list[LineupPlayer]], bench: Optional[list[LineupPlayer]]
+    usage_by_player: dict[str, _UsageAccumulator], lineup: list[LineupPlayer] | None, bench: list[LineupPlayer] | None
 ) -> None:
     def get(name: str) -> _UsageAccumulator:
         return usage_by_player.setdefault(name, _UsageAccumulator())
@@ -481,7 +578,7 @@ class VenueEnrichmentResult:
     def __init__(
         self,
         form: FormSummary,
-        advanced_stats: Optional[SeasonAdvancedStatsEstimate],
+        advanced_stats: SeasonAdvancedStatsEstimate | None,
         usage_by_player: dict[str, PlayerUsagePattern],
     ) -> None:
         self.form = form
@@ -489,160 +586,181 @@ class VenueEnrichmentResult:
         self.usage_by_player = usage_by_player
 
 
-async def enrich_form_with_venue_classification(
-    raw_matches: list[MatchInfo], form: FormSummary, source: Source
-) -> VenueEnrichmentResult:
-    """Fetches full match details for each of the last20Overall results
-    (bounded window, not the entire played history) to find out where
-    each match was ACTUALLY played, not just which side of the fixture
-    data the team was listed on. A match counts as neutral when the
-    venue's country doesn't match the team's own country on that specific
-    match's own record. The same per-match fetch also carries matchStats
-    and lineup/bench statistics, so advanced-stats aggregation and
-    per-player usage ride along at zero extra requests. Best-effort per
-    match throughout: a handful of failed fetches just leave those
-    entries/stats undetermined rather than failing the whole enrichment."""
-    from .orchestrate import SCRAPERS  # local import: orchestrate imports form, avoid a cycle
+class _SetPieceAccumulator:
+    """Internal accumulator for the scalar totals
+    enrich_form_with_venue_classification used to carry as bare local
+    variables -- bundled into one mutable object purely so the per-match
+    processing loop can be extracted into its own function (python:S3776)
+    without threading a dozen separate `nonlocal`-style scalars through
+    it. Behavior unchanged."""
 
-    enriched: list[FormResult] = []
-    stat_totals: dict[str, dict[str, float]] = {k: {"for": 0, "against": 0, "n": 0} for k in ADVANCED_STAT_NAMES}
-    usage_by_player: dict[str, _UsageAccumulator] = {}
-    xa_for = xa_against = 0.0
+    def __init__(self) -> None:
+        self.corner_goals_for = 0
+        self.corner_goals_against = 0
+        self.penalty_goals_for = 0
+        self.penalty_goals_against = 0
+        self.free_kick_goals_for = 0
+        self.free_kick_goals_against = 0
+        self.non_penalty_xg_for = 0.0
+        self.non_penalty_xg_against = 0.0
+        self.set_piece_xg_for = 0.0
+        self.set_piece_xg_against = 0.0
+        self.penalties_awarded_for = 0
+        self.penalties_awarded_against = 0
+        self.xa_for = 0.0
+        self.xa_against = 0.0
 
-    def sum_xa(lineup: Optional[list[LineupPlayer]], bench: Optional[list[LineupPlayer]]) -> float:
-        return sum((p.xa or 0) for p in [*(lineup or []), *(bench or [])])
 
-    corner_goals_for = corner_goals_against = penalty_goals_for = penalty_goals_against = 0
-    free_kick_goals_for = free_kick_goals_against = 0
-    non_penalty_xg_for = non_penalty_xg_against = set_piece_xg_for = set_piece_xg_against = 0.0
-    penalties_awarded_for = penalties_awarded_against = 0
+def _empty_venue_bucket() -> dict[str, float]:
+    return {
+        "sample_size": 0, "xg_for": 0, "xg_against": 0, "shots_for": 0, "shots_against": 0,
+        "shots_on_target_for": 0, "shots_on_target_against": 0, "possession_sum": 0, "possession_n": 0,
+        "corners_for": 0, "corners_against": 0, "fouls_for": 0, "fouls_against": 0,
+        "yellow_cards_for": 0, "yellow_cards_against": 0, "red_cards_for": 0, "red_cards_against": 0,
+        "big_chances_created_for": 0, "big_chances_created_against": 0,
+    }
 
-    def empty_venue_bucket() -> dict[str, float]:
-        return {
-            "sample_size": 0, "xg_for": 0, "xg_against": 0, "shots_for": 0, "shots_against": 0,
-            "shots_on_target_for": 0, "shots_on_target_against": 0, "possession_sum": 0, "possession_n": 0,
-            "corners_for": 0, "corners_against": 0, "fouls_for": 0, "fouls_against": 0,
-            "yellow_cards_for": 0, "yellow_cards_against": 0, "red_cards_for": 0, "red_cards_against": 0,
-            "big_chances_created_for": 0, "big_chances_created_against": 0,
-        }
 
-    venue_buckets = {"home": empty_venue_bucket(), "away": empty_venue_bucket(), "neutral": empty_venue_bucket()}
+def _sum_xa(lineup: list[LineupPlayer] | None, bench: list[LineupPlayer] | None) -> float:
+    return sum((p.xa or 0) for p in [*(lineup or []), *(bench or [])])
 
-    for result in form.last20_overall:
-        raw = next(
-            (
-                m
-                for m in raw_matches
-                if m.kickoff_utc == result.date
-                and (
-                    normalize_team_name(m.home_team) == normalize_team_name(result.opponent)
-                    or normalize_team_name(m.away_team) == normalize_team_name(result.opponent)
-                )
-            ),
-            None,
-        )
-        if raw is None:
-            enriched.append(result)
-            continue
-        try:
-            details: MatchDetails = await SCRAPERS[source].details(raw)
-            own_country = details.home_team_country if result.venue == "home" else details.away_team_country
-            neutral_venue = (own_country != details.venue_country) if (own_country and details.venue_country) else None
-            if details.home_score_ht is not None and details.away_score_ht is not None:
-                ht_scoreline = (
-                    f"{details.home_score_ht}-{details.away_score_ht}"
-                    if result.venue == "home"
-                    else f"{details.away_score_ht}-{details.home_score_ht}"
-                )
-            else:
-                ht_scoreline = None
-            opp_venue = "away" if result.venue == "home" else "home"
-            xg_for = stat_for_float(details.match_stats, "Expected goals", result.venue)
-            xg_against = stat_for_float(details.match_stats, "Expected goals", opp_venue)
-            enriched.append(
-                FormResult(
-                    opponent=result.opponent, competition=result.competition, date=result.date, result=result.result,
-                    scoreline=result.scoreline, venue=result.venue, margin=result.margin,
-                    neutral_venue=neutral_venue, ht_scoreline=ht_scoreline, xg_for=xg_for, xg_against=xg_against,
-                )
+
+async def _process_one_result(
+    result: FormResult,
+    raw_matches: list[MatchInfo],
+    source: Source,
+    stat_totals: dict[str, dict[str, float]],
+    venue_buckets: dict[str, dict[str, float]],
+    usage_by_player: dict[str, _UsageAccumulator],
+    acc: _SetPieceAccumulator,
+) -> FormResult:
+    """One iteration of enrich_form_with_venue_classification's per-result
+    loop -- mutates stat_totals/venue_buckets/usage_by_player/acc in place
+    (all mutable containers/objects, so updates are visible to the
+    caller) and returns the FormResult to append. Extracted purely to
+    keep the caller's own cognitive complexity down (python:S3776);
+    behavior unchanged, including falling back to the original `result`
+    unenriched on any exception (mirrors TS's catch { enriched.push(result) })."""
+    from .orchestrate import (
+        SCRAPERS,  # local import: orchestrate imports form, avoid a cycle
+    )
+
+    raw = next(
+        (
+            m
+            for m in raw_matches
+            if m.kickoff_utc == result.date
+            and (
+                normalize_team_name(m.home_team) == normalize_team_name(result.opponent)
+                or normalize_team_name(m.away_team) == normalize_team_name(result.opponent)
             )
+        ),
+        None,
+    )
+    if raw is None:
+        return result
+    try:
+        details: MatchDetails = await SCRAPERS[source].details(raw)
+        own_country = details.home_team_country if result.venue == "home" else details.away_team_country
+        neutral_venue = (own_country != details.venue_country) if (own_country and details.venue_country) else None
+        if details.home_score_ht is not None and details.away_score_ht is not None:
+            ht_scoreline = (
+                f"{details.home_score_ht}-{details.away_score_ht}"
+                if result.venue == "home"
+                else f"{details.away_score_ht}-{details.home_score_ht}"
+            )
+        else:
+            ht_scoreline = None
+        opp_venue = "away" if result.venue == "home" else "home"
+        xg_for = stat_for_float(details.match_stats, "Expected goals", result.venue)
+        xg_against = stat_for_float(details.match_stats, "Expected goals", opp_venue)
+        enriched_result = FormResult(
+            opponent=result.opponent, competition=result.competition, date=result.date, result=result.result,
+            scoreline=result.scoreline, venue=result.venue, margin=result.margin,
+            neutral_venue=neutral_venue, ht_scoreline=ht_scoreline, xg_for=xg_for, xg_against=xg_against,
+        )
 
-            for key, stat_name in ADVANCED_STAT_NAMES.items():
-                for_val = stat_for(details.match_stats, stat_name, result.venue)
-                against_val = stat_for(details.match_stats, stat_name, opp_venue)
-                if for_val is not None and against_val is not None:
-                    stat_totals[key]["for"] += for_val
-                    stat_totals[key]["against"] += against_val
-                    stat_totals[key]["n"] += 1
+        for key, stat_name in ADVANCED_STAT_NAMES.items():
+            for_val = stat_for(details.match_stats, stat_name, result.venue)
+            against_val = stat_for(details.match_stats, stat_name, opp_venue)
+            if for_val is not None and against_val is not None:
+                stat_totals[key]["for"] += for_val
+                stat_totals[key]["against"] += against_val
+                stat_totals[key]["n"] += 1
 
-            if neutral_venue is not None:
-                bucket = venue_buckets["neutral"] if neutral_venue else venue_buckets[result.venue]
+        if neutral_venue is not None:
+            bucket = venue_buckets["neutral"] if neutral_venue else venue_buckets[result.venue]
 
-                def both_sides(name: str) -> tuple[float, float]:
-                    return (
-                        stat_for(details.match_stats, name, result.venue) or 0,
-                        stat_for(details.match_stats, name, opp_venue) or 0,
-                    )
+            def both_sides(name: str) -> tuple[float, float]:
+                return (
+                    stat_for(details.match_stats, name, result.venue) or 0,
+                    stat_for(details.match_stats, name, opp_venue) or 0,
+                )
 
-                bucket["sample_size"] += 1
-                bucket["xg_for"] += xg_for or 0
-                bucket["xg_against"] += xg_against or 0
-                shots_f, shots_a = both_sides("Total shots")
-                bucket["shots_for"] += shots_f
-                bucket["shots_against"] += shots_a
-                sot_f, sot_a = both_sides("Shots on target")
-                bucket["shots_on_target_for"] += sot_f
-                bucket["shots_on_target_against"] += sot_a
-                possession = stat_for(details.match_stats, "Ball possession", result.venue)
-                if possession is not None:
-                    bucket["possession_sum"] += possession
-                    bucket["possession_n"] += 1
-                corners_f, corners_a = both_sides("Corner kicks")
-                bucket["corners_for"] += corners_f
-                bucket["corners_against"] += corners_a
-                fouls_f, fouls_a = both_sides("Fouls")
-                bucket["fouls_for"] += fouls_f
-                bucket["fouls_against"] += fouls_a
-                yellow_f, yellow_a = both_sides("Yellow cards")
-                bucket["yellow_cards_for"] += yellow_f
-                bucket["yellow_cards_against"] += yellow_a
-                red_f, red_a = both_sides("Red cards")
-                bucket["red_cards_for"] += red_f
-                bucket["red_cards_against"] += red_a
-                big_f, big_a = both_sides("Big chances")
-                bucket["big_chances_created_for"] += big_f
-                bucket["big_chances_created_against"] += big_a
+            bucket["sample_size"] += 1
+            bucket["xg_for"] += xg_for or 0
+            bucket["xg_against"] += xg_against or 0
+            shots_f, shots_a = both_sides("Total shots")
+            bucket["shots_for"] += shots_f
+            bucket["shots_against"] += shots_a
+            sot_f, sot_a = both_sides("Shots on target")
+            bucket["shots_on_target_for"] += sot_f
+            bucket["shots_on_target_against"] += sot_a
+            possession = stat_for(details.match_stats, "Ball possession", result.venue)
+            if possession is not None:
+                bucket["possession_sum"] += possession
+                bucket["possession_n"] += 1
+            corners_f, corners_a = both_sides("Corner kicks")
+            bucket["corners_for"] += corners_f
+            bucket["corners_against"] += corners_a
+            fouls_f, fouls_a = both_sides("Fouls")
+            bucket["fouls_for"] += fouls_f
+            bucket["fouls_against"] += fouls_a
+            yellow_f, yellow_a = both_sides("Yellow cards")
+            bucket["yellow_cards_for"] += yellow_f
+            bucket["yellow_cards_against"] += yellow_a
+            red_f, red_a = both_sides("Red cards")
+            bucket["red_cards_for"] += red_f
+            bucket["red_cards_against"] += red_a
+            big_f, big_a = both_sides("Big chances")
+            bucket["big_chances_created_for"] += big_f
+            bucket["big_chances_created_against"] += big_a
 
-            own_lineup = details.home_lineup if result.venue == "home" else details.away_lineup
-            own_bench = details.home_bench if result.venue == "home" else details.away_bench
-            opp_lineup = details.away_lineup if result.venue == "home" else details.home_lineup
-            opp_bench = details.away_bench if result.venue == "home" else details.home_bench
-            _tally_usage(usage_by_player, own_lineup, own_bench)
-            xa_for += sum_xa(own_lineup, own_bench)
-            xa_against += sum_xa(opp_lineup, opp_bench)
+        own_lineup = details.home_lineup if result.venue == "home" else details.away_lineup
+        own_bench = details.home_bench if result.venue == "home" else details.away_bench
+        opp_lineup = details.away_lineup if result.venue == "home" else details.home_lineup
+        opp_bench = details.away_bench if result.venue == "home" else details.home_bench
+        _tally_usage(usage_by_player, own_lineup, own_bench)
+        acc.xa_for += _sum_xa(own_lineup, own_bench)
+        acc.xa_against += _sum_xa(opp_lineup, opp_bench)
 
-            if details.set_piece_goals:
-                own = details.set_piece_goals.home if result.venue == "home" else details.set_piece_goals.away
-                opp = details.set_piece_goals.away if result.venue == "home" else details.set_piece_goals.home
-                corner_goals_for += own.corner
-                corner_goals_against += opp.corner
-                penalty_goals_for += own.penalty
-                penalty_goals_against += opp.penalty
-                free_kick_goals_for += own.free_kick
-                free_kick_goals_against += opp.free_kick
+        if details.set_piece_goals:
+            own = details.set_piece_goals.home if result.venue == "home" else details.set_piece_goals.away
+            opp = details.set_piece_goals.away if result.venue == "home" else details.set_piece_goals.home
+            acc.corner_goals_for += own.corner
+            acc.corner_goals_against += opp.corner
+            acc.penalty_goals_for += own.penalty
+            acc.penalty_goals_against += opp.penalty
+            acc.free_kick_goals_for += own.free_kick
+            acc.free_kick_goals_against += opp.free_kick
 
-            if details.shotmap_stats:
-                own = details.shotmap_stats.home if result.venue == "home" else details.shotmap_stats.away
-                opp = details.shotmap_stats.away if result.venue == "home" else details.shotmap_stats.home
-                non_penalty_xg_for += own.non_penalty_xg
-                non_penalty_xg_against += opp.non_penalty_xg
-                set_piece_xg_for += own.set_piece_xg
-                set_piece_xg_against += opp.set_piece_xg
-                penalties_awarded_for += own.penalties_awarded
-                penalties_awarded_against += opp.penalties_awarded
-        except Exception:  # noqa: BLE001 - mirrors TS's catch { enriched.push(result) }
-            enriched.append(result)
+        if details.shotmap_stats:
+            own = details.shotmap_stats.home if result.venue == "home" else details.shotmap_stats.away
+            opp = details.shotmap_stats.away if result.venue == "home" else details.shotmap_stats.home
+            acc.non_penalty_xg_for += own.non_penalty_xg
+            acc.non_penalty_xg_against += opp.non_penalty_xg
+            acc.set_piece_xg_for += own.set_piece_xg
+            acc.set_piece_xg_against += opp.set_piece_xg
+            acc.penalties_awarded_for += own.penalties_awarded
+            acc.penalties_awarded_against += opp.penalties_awarded
+        return enriched_result
+    except Exception:  # noqa: BLE001 - mirrors TS's catch { enriched.push(result) }
+        return result
 
+
+def _compute_venue_split_form(enriched: list[FormResult]) -> VenueSplitForm | None:
+    """Extracted from enrich_form_with_venue_classification to keep its
+    own cognitive complexity down (python:S3776); behavior unchanged."""
     home_ss = home_w = home_d = home_l = home_gf = home_ga = 0
     away_ss = away_w = away_d = away_l = away_gf = away_ga = 0
     neutral_ss = neutral_w = neutral_d = neutral_l = neutral_gf = neutral_ga = 0
@@ -673,99 +791,111 @@ async def enrich_form_with_venue_classification(
             away_d += r.result == "D"
             away_l += r.result == "L"
 
-    venue_split_form: Optional[VenueSplitForm] = (
-        VenueSplitForm(
-            home_sample_size=home_ss, home_wins=home_w, home_draws=home_d, home_losses=home_l,
-            home_goals_for=home_gf, home_goals_against=home_ga,
-            away_sample_size=away_ss, away_wins=away_w, away_draws=away_d, away_losses=away_l,
-            away_goals_for=away_gf, away_goals_against=away_ga,
-            neutral_sample_size=neutral_ss, neutral_wins=neutral_w, neutral_draws=neutral_d, neutral_losses=neutral_l,
-            neutral_goals_for=neutral_gf, neutral_goals_against=neutral_ga,
-        )
-        if any(r.neutral_venue is not None for r in enriched)
-        else None
+    if not any(r.neutral_venue is not None for r in enriched):
+        return None
+    return VenueSplitForm(
+        home_sample_size=home_ss, home_wins=home_w, home_draws=home_d, home_losses=home_l,
+        home_goals_for=home_gf, home_goals_against=home_ga,
+        away_sample_size=away_ss, away_wins=away_w, away_draws=away_d, away_losses=away_l,
+        away_goals_for=away_gf, away_goals_against=away_ga,
+        neutral_sample_size=neutral_ss, neutral_wins=neutral_w, neutral_draws=neutral_d, neutral_losses=neutral_l,
+        neutral_goals_for=neutral_gf, neutral_goals_against=neutral_ga,
     )
 
-    def finalize_venue_bucket(b: dict[str, float]) -> VenueSplitStats:
-        return VenueSplitStats(
-            sample_size=int(b["sample_size"]),
-            xg_for=js_round_to(b["xg_for"], 2), xg_against=js_round_to(b["xg_against"], 2),
-            shots_for=int(b["shots_for"]), shots_against=int(b["shots_against"]),
-            shots_on_target_for=int(b["shots_on_target_for"]), shots_on_target_against=int(b["shots_on_target_against"]),
-            possession_pct_avg=(js_round_to(b["possession_sum"] / b["possession_n"], 1) if b["possession_n"] else None),
-            corners_for=int(b["corners_for"]), corners_against=int(b["corners_against"]),
-            fouls_for=int(b["fouls_for"]), fouls_against=int(b["fouls_against"]),
-            yellow_cards_for=int(b["yellow_cards_for"]), yellow_cards_against=int(b["yellow_cards_against"]),
-            red_cards_for=int(b["red_cards_for"]), red_cards_against=int(b["red_cards_against"]),
-            big_chances_created_for=int(b["big_chances_created_for"]), big_chances_created_against=int(b["big_chances_created_against"]),
-        )
 
+def _finalize_venue_bucket(b: dict[str, float]) -> VenueSplitStats:
+    return VenueSplitStats(
+        sample_size=int(b["sample_size"]),
+        xg_for=js_round_to(b["xg_for"], 2), xg_against=js_round_to(b["xg_against"], 2),
+        shots_for=int(b["shots_for"]), shots_against=int(b["shots_against"]),
+        shots_on_target_for=int(b["shots_on_target_for"]), shots_on_target_against=int(b["shots_on_target_against"]),
+        possession_pct_avg=(js_round_to(b["possession_sum"] / b["possession_n"], 1) if b["possession_n"] else None),
+        corners_for=int(b["corners_for"]), corners_against=int(b["corners_against"]),
+        fouls_for=int(b["fouls_for"]), fouls_against=int(b["fouls_against"]),
+        yellow_cards_for=int(b["yellow_cards_for"]), yellow_cards_against=int(b["yellow_cards_against"]),
+        red_cards_for=int(b["red_cards_for"]), red_cards_against=int(b["red_cards_against"]),
+        big_chances_created_for=int(b["big_chances_created_for"]), big_chances_created_against=int(b["big_chances_created_against"]),
+    )
+
+
+def _compute_detailed_venue_split(venue_buckets: dict[str, dict[str, float]]) -> DetailedVenueSplitForm | None:
+    """Extracted from enrich_form_with_venue_classification to keep its
+    own cognitive complexity down (python:S3776); behavior unchanged."""
     total_sample = venue_buckets["home"]["sample_size"] + venue_buckets["away"]["sample_size"] + venue_buckets["neutral"]["sample_size"]
-    detailed_venue_split = (
-        DetailedVenueSplitForm(
-            home=finalize_venue_bucket(venue_buckets["home"]),
-            away=finalize_venue_bucket(venue_buckets["away"]),
-            neutral=finalize_venue_bucket(venue_buckets["neutral"]),
-        )
-        if total_sample > 0
-        else None
+    if total_sample <= 0:
+        return None
+    return DetailedVenueSplitForm(
+        home=_finalize_venue_bucket(venue_buckets["home"]),
+        away=_finalize_venue_bucket(venue_buckets["away"]),
+        neutral=_finalize_venue_bucket(venue_buckets["neutral"]),
     )
 
-    max_n = max((t["n"] for t in stat_totals.values()), default=0)
-    advanced_stats: Optional[SeasonAdvancedStatsEstimate] = None
-    if max_n:
-        st = stat_totals
-        final_third_total = st["final_third_entries"]["for"] + st["final_third_entries"]["against"]
-        advanced_stats = SeasonAdvancedStatsEstimate(
-            sample_size=int(max_n),
-            touches_in_box_for=int(st["touches_in_box"]["for"]), touches_in_box_against=int(st["touches_in_box"]["against"]),
-            crosses_for=int(st["crosses"]["for"]), crosses_against=int(st["crosses"]["against"]),
-            dribbles_for=int(st["dribbles"]["for"]), dribbles_against=int(st["dribbles"]["against"]),
-            through_balls_for=int(st["through_balls"]["for"]), through_balls_against=int(st["through_balls"]["against"]),
-            final_third_entries_for=int(st["final_third_entries"]["for"]), final_third_entries_against=int(st["final_third_entries"]["against"]),
-            recoveries_for=int(st["recoveries"]["for"]), recoveries_against=int(st["recoveries"]["against"]),
-            errors_lead_to_shot_for=int(st["errors_lead_to_shot"]["for"]), errors_lead_to_shot_against=int(st["errors_lead_to_shot"]["against"]),
-            errors_lead_to_goal_for=int(st["errors_lead_to_goal"]["for"]), errors_lead_to_goal_against=int(st["errors_lead_to_goal"]["against"]),
-            shots_inside_box_for=int(st["shots_inside_box"]["for"]), shots_inside_box_against=int(st["shots_inside_box"]["against"]),
-            shots_outside_box_for=int(st["shots_outside_box"]["for"]), shots_outside_box_against=int(st["shots_outside_box"]["against"]),
-            shots_off_target_for=int(st["shots_off_target"]["for"]), shots_off_target_against=int(st["shots_off_target"]["against"]),
-            blocked_shots_for=int(st["blocked_shots"]["for"]), blocked_shots_against=int(st["blocked_shots"]["against"]),
-            offsides_for=int(st["offsides"]["for"]), offsides_against=int(st["offsides"]["against"]),
-            big_chances_scored_for=int(st["big_chances_scored"]["for"]), big_chances_scored_against=int(st["big_chances_scored"]["against"]),
-            dispossessed_for=int(st["dispossessed"]["for"]), dispossessed_against=int(st["dispossessed"]["against"]),
-            team_tackles_for=int(st["team_tackles"]["for"]), team_tackles_against=int(st["team_tackles"]["against"]),
-            team_interceptions_for=int(st["team_interceptions"]["for"]), team_interceptions_against=int(st["team_interceptions"]["against"]),
-            goals_prevented_for=st["goals_prevented"]["for"], goals_prevented_against=st["goals_prevented"]["against"],
-            big_saves_for=int(st["big_saves"]["for"]), big_saves_against=int(st["big_saves"]["against"]),
-            high_claims_for=int(st["high_claims"]["for"]), high_claims_against=int(st["high_claims"]["against"]),
-            distance_covered_km_for=st["distance_covered_km"]["for"], distance_covered_km_against=st["distance_covered_km"]["against"],
-            sprints_for=int(st["sprints"]["for"]), sprints_against=int(st["sprints"]["against"]),
-            team_clearances_for=int(st["team_clearances"]["for"]), team_clearances_against=int(st["team_clearances"]["against"]),
-            free_kicks_for=int(st["free_kicks"]["for"]), free_kicks_against=int(st["free_kicks"]["against"]),
-            xa_for=js_round_to(xa_for, 2), xa_against=js_round_to(xa_against, 2),
-            corner_goals_for=corner_goals_for, corner_goals_against=corner_goals_against,
-            penalty_goals_for=penalty_goals_for, penalty_goals_against=penalty_goals_against,
-            free_kick_goals_for=free_kick_goals_for, free_kick_goals_against=free_kick_goals_against,
-            total_shots_for=int(st["total_shots"]["for"]), total_shots_against=int(st["total_shots"]["against"]),
-            shots_on_target_for=int(st["shots_on_target"]["for"]), shots_on_target_against=int(st["shots_on_target"]["against"]),
-            corners_for=int(st["corner_kicks"]["for"]), corners_against=int(st["corner_kicks"]["against"]),
-            fouls_for=int(st["fouls"]["for"]), fouls_against=int(st["fouls"]["against"]),
-            yellow_cards_for=int(st["yellow_cards"]["for"]), yellow_cards_against=int(st["yellow_cards"]["against"]),
-            red_cards_for=int(st["red_cards"]["for"]), red_cards_against=int(st["red_cards"]["against"]),
-            possession_pct_avg=(js_round_to(st["ball_possession"]["for"] / st["ball_possession"]["n"], 1) if st["ball_possession"]["n"] else None),
-            big_chances_created_for=int(st["big_chances"]["for"]), big_chances_created_against=int(st["big_chances"]["against"]),
-            non_penalty_xg_for=js_round_to(non_penalty_xg_for, 2), non_penalty_xg_against=js_round_to(non_penalty_xg_against, 2),
-            set_piece_xg_for=js_round_to(set_piece_xg_for, 2), set_piece_xg_against=js_round_to(set_piece_xg_against, 2),
-            penalties_awarded_for=penalties_awarded_for, penalties_awarded_against=penalties_awarded_against,
-            field_tilt_pct=(js_round_to(st["final_third_entries"]["for"] / final_third_total * 100, 1) if final_third_total > 0 else None),
-            source=source,
-        )
 
+def _compute_advanced_stats(
+    stat_totals: dict[str, dict[str, float]], acc: _SetPieceAccumulator, source: Source
+) -> SeasonAdvancedStatsEstimate | None:
+    """Extracted from enrich_form_with_venue_classification to keep its
+    own cognitive complexity down (python:S3776); behavior unchanged."""
+    max_n = max((t["n"] for t in stat_totals.values()), default=0)
+    if not max_n:
+        return None
+    st = stat_totals
+    final_third_total = st["final_third_entries"]["for"] + st["final_third_entries"]["against"]
+    return SeasonAdvancedStatsEstimate(
+        sample_size=int(max_n),
+        touches_in_box_for=int(st["touches_in_box"]["for"]), touches_in_box_against=int(st["touches_in_box"]["against"]),
+        crosses_for=int(st["crosses"]["for"]), crosses_against=int(st["crosses"]["against"]),
+        dribbles_for=int(st["dribbles"]["for"]), dribbles_against=int(st["dribbles"]["against"]),
+        through_balls_for=int(st["through_balls"]["for"]), through_balls_against=int(st["through_balls"]["against"]),
+        final_third_entries_for=int(st["final_third_entries"]["for"]), final_third_entries_against=int(st["final_third_entries"]["against"]),
+        recoveries_for=int(st["recoveries"]["for"]), recoveries_against=int(st["recoveries"]["against"]),
+        errors_lead_to_shot_for=int(st["errors_lead_to_shot"]["for"]), errors_lead_to_shot_against=int(st["errors_lead_to_shot"]["against"]),
+        errors_lead_to_goal_for=int(st["errors_lead_to_goal"]["for"]), errors_lead_to_goal_against=int(st["errors_lead_to_goal"]["against"]),
+        shots_inside_box_for=int(st["shots_inside_box"]["for"]), shots_inside_box_against=int(st["shots_inside_box"]["against"]),
+        shots_outside_box_for=int(st["shots_outside_box"]["for"]), shots_outside_box_against=int(st["shots_outside_box"]["against"]),
+        shots_off_target_for=int(st["shots_off_target"]["for"]), shots_off_target_against=int(st["shots_off_target"]["against"]),
+        blocked_shots_for=int(st["blocked_shots"]["for"]), blocked_shots_against=int(st["blocked_shots"]["against"]),
+        offsides_for=int(st["offsides"]["for"]), offsides_against=int(st["offsides"]["against"]),
+        big_chances_scored_for=int(st["big_chances_scored"]["for"]), big_chances_scored_against=int(st["big_chances_scored"]["against"]),
+        dispossessed_for=int(st["dispossessed"]["for"]), dispossessed_against=int(st["dispossessed"]["against"]),
+        team_tackles_for=int(st["team_tackles"]["for"]), team_tackles_against=int(st["team_tackles"]["against"]),
+        team_interceptions_for=int(st["team_interceptions"]["for"]), team_interceptions_against=int(st["team_interceptions"]["against"]),
+        goals_prevented_for=st["goals_prevented"]["for"], goals_prevented_against=st["goals_prevented"]["against"],
+        big_saves_for=int(st["big_saves"]["for"]), big_saves_against=int(st["big_saves"]["against"]),
+        high_claims_for=int(st["high_claims"]["for"]), high_claims_against=int(st["high_claims"]["against"]),
+        distance_covered_km_for=st["distance_covered_km"]["for"], distance_covered_km_against=st["distance_covered_km"]["against"],
+        sprints_for=int(st["sprints"]["for"]), sprints_against=int(st["sprints"]["against"]),
+        team_clearances_for=int(st["team_clearances"]["for"]), team_clearances_against=int(st["team_clearances"]["against"]),
+        free_kicks_for=int(st["free_kicks"]["for"]), free_kicks_against=int(st["free_kicks"]["against"]),
+        xa_for=js_round_to(acc.xa_for, 2), xa_against=js_round_to(acc.xa_against, 2),
+        corner_goals_for=acc.corner_goals_for, corner_goals_against=acc.corner_goals_against,
+        penalty_goals_for=acc.penalty_goals_for, penalty_goals_against=acc.penalty_goals_against,
+        free_kick_goals_for=acc.free_kick_goals_for, free_kick_goals_against=acc.free_kick_goals_against,
+        total_shots_for=int(st["total_shots"]["for"]), total_shots_against=int(st["total_shots"]["against"]),
+        shots_on_target_for=int(st["shots_on_target"]["for"]), shots_on_target_against=int(st["shots_on_target"]["against"]),
+        corners_for=int(st["corner_kicks"]["for"]), corners_against=int(st["corner_kicks"]["against"]),
+        fouls_for=int(st["fouls"]["for"]), fouls_against=int(st["fouls"]["against"]),
+        yellow_cards_for=int(st["yellow_cards"]["for"]), yellow_cards_against=int(st["yellow_cards"]["against"]),
+        red_cards_for=int(st["red_cards"]["for"]), red_cards_against=int(st["red_cards"]["against"]),
+        possession_pct_avg=(js_round_to(st["ball_possession"]["for"] / st["ball_possession"]["n"], 1) if st["ball_possession"]["n"] else None),
+        big_chances_created_for=int(st["big_chances"]["for"]), big_chances_created_against=int(st["big_chances"]["against"]),
+        non_penalty_xg_for=js_round_to(acc.non_penalty_xg_for, 2), non_penalty_xg_against=js_round_to(acc.non_penalty_xg_against, 2),
+        set_piece_xg_for=js_round_to(acc.set_piece_xg_for, 2), set_piece_xg_against=js_round_to(acc.set_piece_xg_against, 2),
+        penalties_awarded_for=acc.penalties_awarded_for, penalties_awarded_against=acc.penalties_awarded_against,
+        field_tilt_pct=(js_round_to(st["final_third_entries"]["for"] / final_third_total * 100, 1) if final_third_total > 0 else None),
+        source=source,
+    )
+
+
+def _per90(total: float, total_minutes: int) -> float | None:
+    return js_round_to(total / total_minutes * 90, 2) if total_minutes else None
+
+
+def _finalize_usage(usage_by_player: dict[str, _UsageAccumulator]) -> dict[str, PlayerUsagePattern]:
+    """Extracted from enrich_form_with_venue_classification to keep its
+    own cognitive complexity down (python:S3776); behavior unchanged."""
     finalized_usage: dict[str, PlayerUsagePattern] = {}
     for name, entry in usage_by_player.items():
-        def per90(total: float) -> Optional[float]:
-            return js_round_to(total / entry.total_minutes * 90, 2) if entry.total_minutes else None
-
         finalized_usage[name] = PlayerUsagePattern(
             matches_in_squad=entry.matches_in_squad, starts=entry.starts, sub_appearances=entry.sub_appearances,
             unused_bench=entry.unused_bench, total_minutes=entry.total_minutes,
@@ -775,9 +905,39 @@ async def enrich_form_with_venue_classification(
             total_fouls=entry.total_fouls, total_key_passes=entry.total_key_passes,
             appearances_with_stats=entry.appearances_with_stats,
             avg_rating=(js_round_to(entry.rating_sum / entry.appearances_with_stats, 2) if entry.appearances_with_stats else None),
-            goals_per_90=per90(entry.total_goals), assists_per_90=per90(entry.total_assists),
-            xg_per_90=per90(entry.total_xg), xa_per_90=per90(entry.total_xa), key_passes_per_90=per90(entry.total_key_passes),
+            goals_per_90=_per90(entry.total_goals, entry.total_minutes), assists_per_90=_per90(entry.total_assists, entry.total_minutes),
+            xg_per_90=_per90(entry.total_xg, entry.total_minutes), xa_per_90=_per90(entry.total_xa, entry.total_minutes),
+            key_passes_per_90=_per90(entry.total_key_passes, entry.total_minutes),
         )
+    return finalized_usage
+
+
+async def enrich_form_with_venue_classification(
+    raw_matches: list[MatchInfo], form: FormSummary, source: Source
+) -> VenueEnrichmentResult:
+    """Fetches full match details for each of the last20Overall results
+    (bounded window, not the entire played history) to find out where
+    each match was ACTUALLY played, not just which side of the fixture
+    data the team was listed on. A match counts as neutral when the
+    venue's country doesn't match the team's own country on that specific
+    match's own record. The same per-match fetch also carries matchStats
+    and lineup/bench statistics, so advanced-stats aggregation and
+    per-player usage ride along at zero extra requests. Best-effort per
+    match throughout: a handful of failed fetches just leave those
+    entries/stats undetermined rather than failing the whole enrichment."""
+    stat_totals: dict[str, dict[str, float]] = {k: {"for": 0, "against": 0, "n": 0} for k in ADVANCED_STAT_NAMES}
+    usage_by_player: dict[str, _UsageAccumulator] = {}
+    acc = _SetPieceAccumulator()
+    venue_buckets = {"home": _empty_venue_bucket(), "away": _empty_venue_bucket(), "neutral": _empty_venue_bucket()}
+
+    enriched: list[FormResult] = []
+    for result in form.last20_overall:
+        enriched.append(await _process_one_result(result, raw_matches, source, stat_totals, venue_buckets, usage_by_player, acc))
+
+    venue_split_form = _compute_venue_split_form(enriched)
+    detailed_venue_split = _compute_detailed_venue_split(venue_buckets)
+    advanced_stats = _compute_advanced_stats(stat_totals, acc, source)
+    finalized_usage = _finalize_usage(usage_by_player)
 
     new_form = FormSummary(
         **{**form.__dict__, "last20_overall": enriched, "venue_split_form": venue_split_form, "detailed_venue_split": detailed_venue_split}

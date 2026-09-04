@@ -7,7 +7,7 @@ module actually adds: the callback-shape translation + JSON output."""
 
 import json
 
-import football.android_report as android_report
+from football import android_report
 from football.orchestrate import RunSearchResult, SourceStatus
 
 

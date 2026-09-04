@@ -116,6 +116,36 @@ def build_report_json(result: RunSearchResult) -> dict[str, Any]:
     }
 
 
+def _append_match_sections(result: RunSearchResult, lines: list[str]) -> None:
+    """Everything build_report_markdown appends once an upcoming match is
+    known -- extracted purely to keep that function's own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    lines.append("## Next match")
+    lines.append("")
+    merged_match_markdown(result.merged, lines)
+    if result.venue_details:
+        venue_details_markdown(result.venue_details, lines)
+    if result.form and result.form_source:
+        lines.append("")
+        lines.append("## Form")
+        lines.append("")
+        form_summary_markdown(result.form, lines)
+    if result.opponent_form and result.opponent_name:
+        lines.append("")
+        lines.append(f"## {result.opponent_name} form")
+        lines.append("")
+        form_summary_markdown(result.opponent_form, lines)
+    if result.merged_profile:
+        merged_profile_markdown(result.merged_profile, lines)
+    if result.opponent_profile:
+        merged_profile_markdown(result.opponent_profile, lines)
+    if result.insights:
+        insights_markdown(result.insights, result.merged.home_team, result.merged.away_team, lines)
+    completeness = compute_data_completeness(result.merged, result.insights)
+    lines.append("")
+    lines.append(f"**Data completeness:** {completeness['populated']}/{completeness['total']} fields populated this run")
+
+
 def build_report_markdown(result: RunSearchResult) -> str:
     lines: list[str] = [f"# {result.team} — full match report", "", f"_Generated {result.generated_at}_", "", "## Sources", ""]
     for s in result.statuses:
@@ -124,30 +154,7 @@ def build_report_markdown(result: RunSearchResult) -> str:
     lines.append("")
 
     if result.merged:
-        lines.append("## Next match")
-        lines.append("")
-        merged_match_markdown(result.merged, lines)
-        if result.venue_details:
-            venue_details_markdown(result.venue_details, lines)
-        if result.form and result.form_source:
-            lines.append("")
-            lines.append("## Form")
-            lines.append("")
-            form_summary_markdown(result.form, lines)
-        if result.opponent_form and result.opponent_name:
-            lines.append("")
-            lines.append(f"## {result.opponent_name} form")
-            lines.append("")
-            form_summary_markdown(result.opponent_form, lines)
-        if result.merged_profile:
-            merged_profile_markdown(result.merged_profile, lines)
-        if result.opponent_profile:
-            merged_profile_markdown(result.opponent_profile, lines)
-        if result.insights:
-            insights_markdown(result.insights, result.merged.home_team, result.merged.away_team, lines)
-        completeness = compute_data_completeness(result.merged, result.insights)
-        lines.append("")
-        lines.append(f"**Data completeness:** {completeness['populated']}/{completeness['total']} fields populated this run")
+        _append_match_sections(result, lines)
     else:
         lines.append("No upcoming match found from any source.")
 

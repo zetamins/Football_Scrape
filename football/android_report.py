@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Callable
 
 from .orchestrate import SourceStatus, run_search
 from .report import build_report_json
 
-_NOOP_PROGRESS: Callable[[str], None] = lambda msg: None  # noqa: E731
-_NOOP_SOURCE_PROGRESS: Callable[[str], None] = lambda status_json: None  # noqa: E731
+_NOOP_PROGRESS: Callable[[str], None] = lambda msg: None
+_NOOP_SOURCE_PROGRESS: Callable[[str], None] = lambda status_json: None
 
 
 def run_report(

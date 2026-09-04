@@ -45,7 +45,6 @@ adding this:
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 from .types import (
     BettingOdds,
@@ -128,7 +127,7 @@ def _davidson_probabilities(home_elo: float, away_elo: float) -> OutcomeProbabil
     )
 
 
-def _rest_elo_adjustment(own_rest_days: Optional[int], opponent_rest_days: Optional[int]) -> float:
+def _rest_elo_adjustment(own_rest_days: int | None, opponent_rest_days: int | None) -> float:
     """Positive means this side has the rest advantage, negative means
     the opponent does. Zero (no adjustment) whenever either side's
     rest-days figure is unknown -- an absent signal should never
@@ -141,7 +140,7 @@ def _rest_elo_adjustment(own_rest_days: Optional[int], opponent_rest_days: Optio
     return max(-_REST_DAY_ELO_CAP, min(_REST_DAY_ELO_CAP, points))
 
 
-def _availability_elo_penalty(strength: Optional[SquadStrengthInfo]) -> float:
+def _availability_elo_penalty(strength: SquadStrengthInfo | None) -> float:
     """Always <= 0 -- a penalty for the team's own missing squad value,
     never a bonus. Zero whenever total/available value isn't known
     (can't compute a missing fraction without both)."""
@@ -190,7 +189,7 @@ def _poisson_outcome_probabilities(home_rate: float, away_rate: float) -> Outcom
     )
 
 
-def _expected_goal_rates(home_xg: SeasonXGEstimate, away_xg: SeasonXGEstimate) -> Optional[tuple[float, float]]:
+def _expected_goal_rates(home_xg: SeasonXGEstimate, away_xg: SeasonXGEstimate) -> tuple[float, float] | None:
     """Standard simple attack/defense blend (average "how many I usually
     score" with "how many this opponent usually concedes") used across
     most practical from-scratch Poisson-football implementations --
@@ -212,17 +211,17 @@ def _expected_goal_rates(home_xg: SeasonXGEstimate, away_xg: SeasonXGEstimate) -
 
 
 def compute_match_prediction(
-    betting_odds: Optional[BettingOdds],
-    home_elo: Optional[EloRating],
-    away_elo: Optional[EloRating],
-    home_rest_days: Optional[int] = None,
-    away_rest_days: Optional[int] = None,
-    home_squad_strength: Optional[SquadStrengthInfo] = None,
-    away_squad_strength: Optional[SquadStrengthInfo] = None,
-    home_xg: Optional[SeasonXGEstimate] = None,
-    away_xg: Optional[SeasonXGEstimate] = None,
-) -> Optional[MatchPrediction]:
-    market_implied: Optional[OutcomeProbabilities] = None
+    betting_odds: BettingOdds | None,
+    home_elo: EloRating | None,
+    away_elo: EloRating | None,
+    home_rest_days: int | None = None,
+    away_rest_days: int | None = None,
+    home_squad_strength: SquadStrengthInfo | None = None,
+    away_squad_strength: SquadStrengthInfo | None = None,
+    home_xg: SeasonXGEstimate | None = None,
+    away_xg: SeasonXGEstimate | None = None,
+) -> MatchPrediction | None:
+    market_implied: OutcomeProbabilities | None = None
     if betting_odds and betting_odds.home_win_implied_pct is not None:
         market_implied = OutcomeProbabilities(
             home_win_pct=betting_odds.home_win_implied_pct,
@@ -230,7 +229,7 @@ def compute_match_prediction(
             away_win_pct=betting_odds.away_win_implied_pct,
         )
 
-    heuristic_blend: Optional[OutcomeProbabilities] = None
+    heuristic_blend: OutcomeProbabilities | None = None
     if home_elo and away_elo:
         adjusted_home = (
             home_elo.elo
@@ -244,7 +243,7 @@ def compute_match_prediction(
         )
         heuristic_blend = _davidson_probabilities(adjusted_home, adjusted_away)
 
-    xg_model: Optional[OutcomeProbabilities] = None
+    xg_model: OutcomeProbabilities | None = None
     if home_xg and away_xg:
         rates = _expected_goal_rates(home_xg, away_xg)
         if rates is not None:
