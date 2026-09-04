@@ -82,6 +82,32 @@ class ProfileTabTest {
     }
 
     @Test
+    fun `defensive errors section falls back to a home-only row when only home is known`() {
+        composeTestRule.setContent {
+            ProfileTab(
+                insights = InsightsProfile(homeDefensiveErrorsEstimate = SeasonDefensiveErrorsEstimate(10, 4, 6)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Defensive errors").assertExists()
+        composeTestRule.onNodeWithText("4 for / 6 against").assertExists()
+    }
+
+    @Test
+    fun `defensive errors section falls back to an away-only row when only away is known`() {
+        composeTestRule.setContent {
+            ProfileTab(
+                insights = InsightsProfile(awayDefensiveErrorsEstimate = SeasonDefensiveErrorsEstimate(10, 6, 5)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Defensive errors").assertExists()
+        composeTestRule.onNodeWithText("6 for / 5 against").assertExists()
+    }
+
+    @Test
     fun `risk section renders duel vulnerabilities and exposed fullbacks pills`() {
         composeTestRule.setContent {
             ProfileTab(

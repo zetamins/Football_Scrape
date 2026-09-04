@@ -157,12 +157,13 @@ class OverviewTabTest {
     }
 
     @Test
-    fun `standings section falls back to plain text when only one side is known`() {
+    fun `standings section falls back to a home-only row when only home is known`() {
         composeTestRule.setContent {
             OverviewTab(
                 overview =
                     MatchOverview(
-                        homeTeamStanding = TeamStanding(position = 1, played = 5, wins = 4, draws = 1, losses = 0, points = 13, goalDiff = "+8"),
+                        homeTeamStanding =
+                            TeamStanding(position = 1, played = 5, wins = 4, draws = 1, losses = 0, points = 13, goalDiff = "+8", totalTeams = 20),
                     ),
                 venueDetails = null,
                 homeTeam = "Arsenal",
@@ -170,6 +171,25 @@ class OverviewTabTest {
             )
         }
         composeTestRule.onNodeWithText("Standings").assertExists()
+        composeTestRule.onNodeWithText("#1/20 (13pts, 4W-1D-0L, GD +8)").assertExists()
+    }
+
+    @Test
+    fun `standings section falls back to an away-only row when only away is known`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        awayTeamStanding =
+                            TeamStanding(position = 5, played = 5, wins = 3, draws = 0, losses = 2, points = 9, goalDiff = "+2", totalTeams = 20),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Standings").assertExists()
+        composeTestRule.onNodeWithText("#5/20 (9pts, 3W-0D-2L, GD +2)").assertExists()
     }
 
     @Test
