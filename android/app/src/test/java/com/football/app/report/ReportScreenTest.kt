@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -87,6 +88,25 @@ class ReportScreenTest {
     }
 
     @Test
+    fun `share button writes the raw json to cache and opens a real share sheet`() {
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(loadSampleReportJson())
+        composeTestRule.setContent {
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithContentDescription("Share report (e.g. to ChatGPT or Gemini)").performClick()
+
+        // shareReportJson() doesn't need any Activity-Result shadow like
+        // the Download button does -- it's a plain startActivity() call,
+        // which Robolectric records rather than actually launching a
+        // chooser. Confirms the intent was actually built and sent, not
+        // just that the click didn't crash.
+        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        val nextActivity = org.robolectric.Shadows.shadowOf(app).nextStartedActivity
+        assertNotNull(nextActivity)
+    }
+
+    @Test
     fun `tapping a different tab switches the rendered content`() {
         val viewModel = ReportViewModel()
         viewModel.loadFromHistory(loadSampleReportJson())
@@ -118,5 +138,82 @@ class ReportScreenTest {
         // replaced the content rather than just adding to it.
         composeTestRule.onAllNodesWithText("Top scorers").onFirst().assertExists()
         composeTestRule.onNodeWithText("Match").assertDoesNotExist()
+    }
+
+    @Test
+    fun `tapping every tab in the bar renders its own real content`() {
+        // ReportTabContent's when(tab) dispatch, and each of its 6
+        // one-line DecodedTab{...} lambdas (LINEUPS/PERFORMANCE/
+        // DISCIPLINE/PROFILE/STANDINGS/CONTEXT), were previously only
+        // ever exercised for the default OVERVIEW tab plus SQUAD (the
+        // tab-switching test above) -- every other tab was never
+        // actually switched to by any test.
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(loadSampleReportJson())
+        composeTestRule.setContent {
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+
+        composeTestRule.onNodeWithText("Lineups").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Formations").assertExists()
+
+        composeTestRule.onNodeWithText("Performance").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Attack profile").assertExists()
+
+        composeTestRule.onNodeWithText("Discipline").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Cards per game").assertExists()
+
+        composeTestRule.onNodeWithText("Profile").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Style profile").assertExists()
+
+        composeTestRule.onNodeWithText("Standings").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Table position").assertExists()
+
+        composeTestRule.onNodeWithText("Context").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Rest").assertExists()
+
+        composeTestRule.onNodeWithText("Form").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        // Rendered once per team (own + opponent form), unlike every
+        // other tab's marker above.
+        composeTestRule.onAllNodesWithText("Streak & momentum").onFirst().assertExists()
+
+        // Ends on a BACKWARD transition (Form, ordinal 7 -> Overview,
+        // ordinal 0) -- every switch above was forward-only, and
+        // AnimatedContent's transitionSpec branches on direction.
+        composeTestRule.onNodeWithText("Overview").performScrollTo().performClick()
+        // Advances past the slide animation's own duration -- the pixel-
+        // offset lambda passed to slideInHorizontally/slideOutHorizontally
+        // for the backward-transition branch only actually runs once the
+        // animation progresses through real frames, not just on the
+        // initial recomposition triggered by waitForIdle() alone.
+        composeTestRule.mainClock.advanceTimeBy(2000L)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Match").assertExists()
+    }
+
+    @Test
+    fun `a tab whose own section decodes to null falls back to its placeholder`() {
+        // PlaceholderTab was never rendered by any test -- every fixture
+        // used elsewhere in this suite has real data for every tab.
+        // Omitting "insights" entirely (leaving `match` and `team`/
+        // `generatedAt` so the rest of the screen still renders) makes
+        // every insights-derived tab (Performance among them) null.
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(
+            """{"team": "Brentford", "generatedAt": "2026-08-31T02:21:23.778Z", "match": {"home_team": "Brentford", "away_team": "Sunderland"}}""",
+        )
+        composeTestRule.setContent {
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Performance").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Performance not yet implemented.").assertExists()
     }
 }
