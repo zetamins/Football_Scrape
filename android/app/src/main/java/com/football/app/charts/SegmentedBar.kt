@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -55,20 +56,35 @@ fun SegmentedBar(
                 .clip(RoundedCornerShape(height / 2)),
     ) {
         Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
-            val gapPx = gap.toPx()
-            val total = segments.sumOf { it.fraction.toDouble() }.toFloat().coerceAtLeast(0.0001f)
-            var x = 0f
-            segments.forEachIndexed { index, segment ->
-                val widthPx = (segment.fraction / total) * size.width
-                val drawWidth = if (index == segments.lastIndex) widthPx else (widthPx - gapPx).coerceAtLeast(0f)
-                drawRect(
-                    color = segment.color,
-                    topLeft = Offset(x, 0f),
-                    size = Size(drawWidth, size.height),
-                )
-                x += widthPx
-            }
+            drawSegmentedBar(segments, gap)
         }
+    }
+}
+
+/**
+ * The actual segment-drawing logic, extracted from SegmentedBar's
+ * Canvas{} block as a plain (non-@Composable) DrawScope extension --
+ * Kover doesn't credit statements inside an inline Canvas{} draw lambda
+ * as executed under Robolectric, but a plain function invoked directly
+ * via CanvasDrawScope().draw(...) measures correctly. See
+ * SegmentedBarTest.kt.
+ */
+internal fun DrawScope.drawSegmentedBar(
+    segments: List<Segment>,
+    gap: Dp,
+) {
+    val gapPx = gap.toPx()
+    val total = segments.sumOf { it.fraction.toDouble() }.toFloat().coerceAtLeast(0.0001f)
+    var x = 0f
+    segments.forEachIndexed { index, segment ->
+        val widthPx = (segment.fraction / total) * size.width
+        val drawWidth = if (index == segments.lastIndex) widthPx else (widthPx - gapPx).coerceAtLeast(0f)
+        drawRect(
+            color = segment.color,
+            topLeft = Offset(x, 0f),
+            size = Size(drawWidth, size.height),
+        )
+        x += widthPx
     }
 }
 

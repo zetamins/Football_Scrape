@@ -3,7 +3,12 @@ package com.football.app.charts
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.createFontFamilyResolver
+import androidx.compose.ui.unit.sp
+import androidx.test.core.app.ApplicationProvider
 import com.football.app.data.model.LineupPlayer
+import com.football.app.runDrawScope
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,5 +69,29 @@ class PitchDiagramComposeTest {
             PitchDiagram(formation = "4-4-2", players = emptyList(), teamColor = Color.Blue)
         }
         composeTestRule.onRoot().assertExists()
+    }
+
+    @Test
+    fun `drawPitchDiagram runs without throwing`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val textMeasurer =
+            androidx.compose.ui.text.TextMeasurer(
+                defaultFontFamilyResolver = createFontFamilyResolver(context),
+                defaultDensity = androidx.compose.ui.unit.Density(1f),
+                defaultLayoutDirection = androidx.compose.ui.unit.LayoutDirection.Ltr,
+            )
+        val rows = buildRows("4-4-2", eleven())
+        runDrawScope(widthPx = 300f, heightPx = 420f) {
+            drawPitchDiagram(
+                rows = rows,
+                teamColor = Color.Blue,
+                textMeasurer = textMeasurer,
+                shirtNumberStyle = TextStyle(fontSize = 12.sp),
+                playerNameStyle = TextStyle(fontSize = 9.sp),
+                pitchGreenDark = Color(0xFF1E5E2E),
+                pitchGreenLight = Color(0xFF247A3A),
+                lineColor = Color.White.copy(alpha = 0.55f),
+            )
+        }
     }
 }

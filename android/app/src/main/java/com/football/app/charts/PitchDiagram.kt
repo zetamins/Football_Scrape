@@ -10,7 +10,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -65,56 +68,77 @@ fun PitchDiagram(
     val playerNameStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White, fontSize = 9.sp, textAlign = TextAlign.Center)
 
     Canvas(modifier = Modifier.fillMaxWidth().aspectRatio(0.72f)) {
-        val w = size.width
-        val h = size.height
+        drawPitchDiagram(rows, teamColor, textMeasurer, shirtNumberStyle, playerNameStyle, pitchGreenDark, pitchGreenLight, lineColor)
+    }
+}
 
-        // Alternating mown-stripe bands, subtle -- purely decorative,
-        // matches the reference's textured-pitch look without a real
-        // image asset.
-        val stripeCount = 8
-        for (i in 0 until stripeCount) {
-            drawRect(
-                color = if (i % 2 == 0) pitchGreenDark else pitchGreenLight,
-                topLeft = Offset(0f, h * i / stripeCount),
-                size = Size(w, h / stripeCount),
-            )
-        }
+/**
+ * The actual pitch-drawing logic, extracted from PitchDiagram's
+ * Canvas{} block as a plain (non-@Composable) DrawScope extension --
+ * Kover doesn't credit statements inside an inline Canvas{} draw lambda
+ * as executed under Robolectric, but a plain function invoked directly
+ * via CanvasDrawScope().draw(...) measures correctly. See
+ * PitchDiagramTest.kt.
+ */
+internal fun DrawScope.drawPitchDiagram(
+    rows: List<List<LineupPlayer>>,
+    teamColor: Color,
+    textMeasurer: TextMeasurer,
+    shirtNumberStyle: TextStyle,
+    playerNameStyle: TextStyle,
+    pitchGreenDark: Color,
+    pitchGreenLight: Color,
+    lineColor: Color,
+) {
+    val w = size.width
+    val h = size.height
 
-        val stroke = Stroke(width = 2.dp.toPx())
-        drawRect(color = lineColor, topLeft = Offset.Zero, size = Size(w, h), style = stroke)
-        drawLine(lineColor, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = stroke.width)
-        drawCircle(lineColor, radius = w * 0.16f, center = Offset(w / 2, h / 2), style = stroke)
+    // Alternating mown-stripe bands, subtle -- purely decorative,
+    // matches the reference's textured-pitch look without a real
+    // image asset.
+    val stripeCount = 8
+    for (i in 0 until stripeCount) {
+        drawRect(
+            color = if (i % 2 == 0) pitchGreenDark else pitchGreenLight,
+            topLeft = Offset(0f, h * i / stripeCount),
+            size = Size(w, h / stripeCount),
+        )
+    }
 
-        // Penalty boxes, top (opponent end) and bottom (own end, GK's row).
-        val boxW = w * 0.6f
-        val boxH = h * 0.14f
-        drawRect(lineColor, topLeft = Offset((w - boxW) / 2, 0f), size = Size(boxW, boxH), style = stroke)
-        drawRect(lineColor, topLeft = Offset((w - boxW) / 2, h - boxH), size = Size(boxW, boxH), style = stroke)
+    val stroke = Stroke(width = 2.dp.toPx())
+    drawRect(color = lineColor, topLeft = Offset.Zero, size = Size(w, h), style = stroke)
+    drawLine(lineColor, Offset(0f, h / 2), Offset(w, h / 2), strokeWidth = stroke.width)
+    drawCircle(lineColor, radius = w * 0.16f, center = Offset(w / 2, h / 2), style = stroke)
 
-        // Rows bottom (GK, own goal) to top (forwards, opponent goal) --
-        // matches the reference's vertical pitch orientation.
-        val rowCount = rows.size
-        rows.forEachIndexed { rowIndex, rowPlayers ->
-            val rowFromBottom = rowCount - 1 - rowIndex
-            val yFraction = 0.10f + (rowFromBottom.toFloat() / (rowCount - 1).coerceAtLeast(1)) * 0.80f
-            val y = h * yFraction
-            val n = rowPlayers.size
-            rowPlayers.forEachIndexed { i, player ->
-                val xFraction = (i + 1f) / (n + 1f)
-                val x = w * xFraction
+    // Penalty boxes, top (opponent end) and bottom (own end, GK's row).
+    val boxW = w * 0.6f
+    val boxH = h * 0.14f
+    drawRect(lineColor, topLeft = Offset((w - boxW) / 2, 0f), size = Size(boxW, boxH), style = stroke)
+    drawRect(lineColor, topLeft = Offset((w - boxW) / 2, h - boxH), size = Size(boxW, boxH), style = stroke)
 
-                drawCircle(color = Color.Black.copy(alpha = 0.25f), radius = 16.dp.toPx(), center = Offset(x, y + 2.dp.toPx()))
-                drawCircle(color = teamColor, radius = 16.dp.toPx(), center = Offset(x, y))
-                drawCircle(color = Color.White, radius = 16.dp.toPx(), center = Offset(x, y), style = Stroke(width = 1.5.dp.toPx()))
+    // Rows bottom (GK, own goal) to top (forwards, opponent goal) --
+    // matches the reference's vertical pitch orientation.
+    val rowCount = rows.size
+    rows.forEachIndexed { rowIndex, rowPlayers ->
+        val rowFromBottom = rowCount - 1 - rowIndex
+        val yFraction = 0.10f + (rowFromBottom.toFloat() / (rowCount - 1).coerceAtLeast(1)) * 0.80f
+        val y = h * yFraction
+        val n = rowPlayers.size
+        rowPlayers.forEachIndexed { i, player ->
+            val xFraction = (i + 1f) / (n + 1f)
+            val x = w * xFraction
 
-                val shirt = player.shirtNumber?.toString() ?: "-"
-                val numberLayout = textMeasurer.measure(shirt, style = shirtNumberStyle)
-                drawText(numberLayout, topLeft = Offset(x - numberLayout.size.width / 2f, y - numberLayout.size.height / 2f))
+            drawCircle(color = Color.Black.copy(alpha = 0.25f), radius = 16.dp.toPx(), center = Offset(x, y + 2.dp.toPx()))
+            drawCircle(color = teamColor, radius = 16.dp.toPx(), center = Offset(x, y))
+            drawCircle(color = Color.White, radius = 16.dp.toPx(), center = Offset(x, y), style = Stroke(width = 1.5.dp.toPx()))
 
-                val shortName = player.name.substringAfterLast(' ').take(10)
-                val nameLayout = textMeasurer.measure(shortName, style = playerNameStyle)
-                drawText(nameLayout, topLeft = Offset(x - nameLayout.size.width / 2f, y + 18.dp.toPx()))
-            }
+            val shirt = player.shirtNumber?.toString() ?: "-"
+            val numberLayout = textMeasurer.measure(shirt, style = shirtNumberStyle)
+            drawText(numberLayout, topLeft = Offset(x - numberLayout.size.width / 2f, y - numberLayout.size.height / 2f))
+
+            val shortName = player.name.substringAfterLast(' ').take(10)
+            val nameLayout = textMeasurer.measure(shortName, style = playerNameStyle)
+            drawText(nameLayout, topLeft = Offset(x - nameLayout.size.width / 2f, y + 18.dp.toPx()))
         }
     }
 }

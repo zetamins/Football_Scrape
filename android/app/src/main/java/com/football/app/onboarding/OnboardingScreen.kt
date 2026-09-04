@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -83,16 +84,28 @@ fun OnboardingScreen(onGetStarted: () -> Unit) {
 private fun HeroBadge() {
     Box(contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(220.dp)) {
-            drawCircle(
-                brush =
-                    Brush.radialGradient(
-                        colors = listOf(Color(0xFF8FD13F).copy(alpha = 0.35f), Color.Transparent),
-                    ),
-                radius = size.minDimension / 2,
-            )
+            drawHeroBadgeGlow()
         }
         Logo(size = 96.dp)
     }
+}
+
+/**
+ * The actual glow-drawing logic, extracted from HeroBadge's Canvas{}
+ * block as a plain (non-@Composable) DrawScope extension -- Kover
+ * doesn't credit statements inside an inline Canvas{} draw lambda as
+ * executed under Robolectric, but a plain function invoked directly
+ * via CanvasDrawScope().draw(...) measures correctly. See
+ * OnboardingScreenTest.kt.
+ */
+internal fun DrawScope.drawHeroBadgeGlow() {
+    drawCircle(
+        brush =
+            Brush.radialGradient(
+                colors = listOf(Color(0xFF8FD13F).copy(alpha = 0.35f), Color.Transparent),
+            ),
+        radius = size.minDimension / 2,
+    )
 }
 
 /** Two soft radial glows near the top, evoking floodlights against a
@@ -101,12 +114,21 @@ private fun HeroBadge() {
 @Composable
 private fun StadiumGlow() {
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val glow =
-            Brush.radialGradient(
-                colors = listOf(Color(0xFF1E5E2E).copy(alpha = 0.55f), Color.Transparent),
-                center = Offset(size.width * 0.5f, size.height * 0.02f),
-                radius = size.width * 0.9f,
-            )
-        drawRect(brush = glow)
+        drawStadiumGlow()
     }
+}
+
+/**
+ * The actual glow-drawing logic, extracted from StadiumGlow's Canvas{}
+ * block as a plain (non-@Composable) DrawScope extension -- see
+ * drawHeroBadgeGlow's doc comment above for why.
+ */
+internal fun DrawScope.drawStadiumGlow() {
+    val glow =
+        Brush.radialGradient(
+            colors = listOf(Color(0xFF1E5E2E).copy(alpha = 0.55f), Color.Transparent),
+            center = Offset(size.width * 0.5f, size.height * 0.02f),
+            radius = size.width * 0.9f,
+        )
+    drawRect(brush = glow)
 }

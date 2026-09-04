@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
+import com.football.app.runDrawScope
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -52,5 +54,22 @@ class SegmentedBarTest {
         composeTestRule.onNodeWithText("Arsenal 45.0%").assertExists()
         composeTestRule.onNodeWithText("Draw 25.0%").assertExists()
         composeTestRule.onNodeWithText("Chelsea 30.0%").assertExists()
+    }
+
+    @Test
+    fun `drawSegmentedBar runs without throwing, including the last-segment no-gap branch`() {
+        runDrawScope {
+            drawSegmentedBar(
+                segments = listOf(Segment(0.45f, Color.Blue), Segment(0.25f, Color.Gray), Segment(0.3f, Color.Red)),
+                gap = 2.dp,
+            )
+        }
+    }
+
+    @Test
+    fun `drawSegmentedBar handles an all-zero segment list without dividing by zero`() {
+        runDrawScope {
+            drawSegmentedBar(segments = listOf(Segment(0f, Color.Blue), Segment(0f, Color.Red)), gap = 2.dp)
+        }
     }
 }

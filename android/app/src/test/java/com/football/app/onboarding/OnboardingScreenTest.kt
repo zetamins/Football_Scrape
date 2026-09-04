@@ -3,6 +3,7 @@ package com.football.app.onboarding
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.football.app.runDrawScope
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,5 +31,19 @@ class OnboardingScreenTest {
         }
         composeTestRule.onNodeWithText("Get started").performClick()
         assert(clicked)
+    }
+
+    @Test
+    fun `drawHeroBadgeGlow runs without throwing`() {
+        runDrawScope {
+            drawHeroBadgeGlow()
+        }
+    }
+
+    @Test
+    fun `drawStadiumGlow runs without throwing`() {
+        runDrawScope {
+            drawStadiumGlow()
+        }
     }
 }

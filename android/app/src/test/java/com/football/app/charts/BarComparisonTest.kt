@@ -3,6 +3,7 @@ package com.football.app.charts
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import com.football.app.runDrawScope
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,5 +49,20 @@ class BarComparisonTest {
         }
         composeTestRule.onNodeWithText("Arsenal 0").assertExists()
         composeTestRule.onNodeWithText("Chelsea 0").assertExists()
+    }
+
+    @Test
+    fun `drawSingleBar runs without throwing`() {
+        runDrawScope {
+            drawSingleBar(fraction = 0.6f, color = Color.Blue)
+        }
+    }
+
+    @Test
+    fun `drawSingleBar clamps an out-of-range fraction without throwing`() {
+        runDrawScope {
+            drawSingleBar(fraction = 1.5f, color = Color.Red)
+            drawSingleBar(fraction = -0.2f, color = Color.Green)
+        }
     }
 }

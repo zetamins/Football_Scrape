@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -26,47 +27,62 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun Logo(size: Dp = 40.dp) {
     Canvas(modifier = Modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val corner = w * 0.28f
-
-        drawRoundRect(
-            brush =
-                Brush.linearGradient(
-                    colors = listOf(Color(0xFF1E8E3E), Color(0xFF8FD13F)),
-                    start = Offset(0f, 0f),
-                    end = Offset(w, h),
-                ),
-            cornerRadius =
-                androidx.compose.ui.geometry
-                    .CornerRadius(corner, corner),
-        )
-
-        val stroke = Stroke(width = w * 0.075f, cap = StrokeCap.Round)
-
-        // Corner-arc: the quarter-circle corner-kick marking, anchored bottom-left.
-        val arcInset = w * 0.16f
-        val arcSize = w * 0.5f
-        drawArc(
-            color = Color.White,
-            startAngle = 270f,
-            sweepAngle = 90f,
-            useCenter = false,
-            topLeft = Offset(arcInset - arcSize, h - arcInset - arcSize),
-            size =
-                androidx.compose.ui.geometry
-                    .Size(arcSize * 2, arcSize * 2),
-            style = stroke,
-        )
-
-        // Goal-frame chevron: two strokes meeting near the top-right,
-        // crossing the corner-arc's sweep -- the "X" read.
-        val chevron =
-            Path().apply {
-                moveTo(w * 0.42f, h * 0.30f)
-                lineTo(w * 0.74f, h * 0.30f)
-                lineTo(w * 0.74f, h * 0.62f)
-            }
-        drawPath(chevron, color = Color.White, style = stroke)
+        drawLogo()
     }
+}
+
+/**
+ * The actual mark-drawing logic, extracted from Logo's Canvas{} block
+ * as a plain (non-@Composable) DrawScope extension -- Kover doesn't
+ * credit statements inside an inline Canvas{} draw lambda as executed
+ * under Robolectric (confirmed this session: the composable renders
+ * and passes real assertions in a real UI test, but the draw calls
+ * themselves still show as fully missed), but a plain function invoked
+ * directly via CanvasDrawScope().draw(...) -- bypassing Compose's own
+ * rendering pipeline entirely, which Robolectric can't run -- measures
+ * correctly. See LogoTest.kt.
+ */
+internal fun DrawScope.drawLogo() {
+    val w = size.width
+    val h = size.height
+    val corner = w * 0.28f
+
+    drawRoundRect(
+        brush =
+            Brush.linearGradient(
+                colors = listOf(Color(0xFF1E8E3E), Color(0xFF8FD13F)),
+                start = Offset(0f, 0f),
+                end = Offset(w, h),
+            ),
+        cornerRadius =
+            androidx.compose.ui.geometry
+                .CornerRadius(corner, corner),
+    )
+
+    val stroke = Stroke(width = w * 0.075f, cap = StrokeCap.Round)
+
+    // Corner-arc: the quarter-circle corner-kick marking, anchored bottom-left.
+    val arcInset = w * 0.16f
+    val arcSize = w * 0.5f
+    drawArc(
+        color = Color.White,
+        startAngle = 270f,
+        sweepAngle = 90f,
+        useCenter = false,
+        topLeft = Offset(arcInset - arcSize, h - arcInset - arcSize),
+        size =
+            androidx.compose.ui.geometry
+                .Size(arcSize * 2, arcSize * 2),
+        style = stroke,
+    )
+
+    // Goal-frame chevron: two strokes meeting near the top-right,
+    // crossing the corner-arc's sweep -- the "X" read.
+    val chevron =
+        Path().apply {
+            moveTo(w * 0.42f, h * 0.30f)
+            lineTo(w * 0.74f, h * 0.30f)
+            lineTo(w * 0.74f, h * 0.62f)
+        }
+    drawPath(chevron, color = Color.White, style = stroke)
 }

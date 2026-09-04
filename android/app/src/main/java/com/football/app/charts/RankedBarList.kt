@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.football.app.ui.theme.StatNumberStyle
@@ -61,13 +62,29 @@ fun RankedBarList(
                             .height(12.dp)
                             .clip(RoundedCornerShape(3.dp)),
                 ) {
-                    val fraction = (entry.value.toDouble() / maxValue).toFloat().coerceIn(0f, 1f)
-                    drawRect(color = barColor.copy(alpha = 0.15f), topLeft = Offset.Zero, size = Size(size.width, size.height))
-                    drawRect(color = barColor, topLeft = Offset.Zero, size = Size(size.width * fraction, size.height))
+                    drawRankedBar(entry.value.toDouble(), maxValue, barColor)
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(entry.valueText, style = MaterialTheme.typography.bodySmall.merge(StatNumberStyle))
             }
         }
     }
+}
+
+/**
+ * The actual bar-drawing logic, extracted from RankedBarList's Canvas{}
+ * block as a plain (non-@Composable) DrawScope extension -- Kover
+ * doesn't credit statements inside an inline Canvas{} draw lambda as
+ * executed under Robolectric, but a plain function invoked directly
+ * via CanvasDrawScope().draw(...) measures correctly. See
+ * RankedBarListTest.kt.
+ */
+internal fun DrawScope.drawRankedBar(
+    value: Double,
+    maxValue: Double,
+    barColor: Color,
+) {
+    val fraction = (value / maxValue).toFloat().coerceIn(0f, 1f)
+    drawRect(color = barColor.copy(alpha = 0.15f), topLeft = Offset.Zero, size = Size(size.width, size.height))
+    drawRect(color = barColor, topLeft = Offset.Zero, size = Size(size.width * fraction, size.height))
 }

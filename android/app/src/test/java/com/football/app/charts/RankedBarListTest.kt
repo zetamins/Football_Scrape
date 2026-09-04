@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import com.football.app.runDrawScope
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,5 +39,12 @@ class RankedBarListTest {
             RankedBarList(entries = emptyList(), barColor = Color.Green)
         }
         composeTestRule.onRoot().assertExists()
+    }
+
+    @Test
+    fun `drawRankedBar runs without throwing`() {
+        runDrawScope {
+            drawRankedBar(value = 8.0, maxValue = 12.0, barColor = Color.Green)
+        }
     }
 }
