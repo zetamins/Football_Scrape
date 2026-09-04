@@ -66,6 +66,28 @@ class FormTabTest {
     }
 
     @Test
+    fun `a drawing streak and declining momentum render their own branches`() {
+        // Distinct from the "W"/"L"/"improving" cases exercised above and
+        // by "renders down-trending form" below -- streakWord()'s
+        // else-branch ("drawing") and momentumColor()'s "declining"
+        // branch were previously never reached by any fixture.
+        composeTestRule.setContent {
+            FormTab(
+                form =
+                    minimalForm().copy(
+                        currentStreak = StreakInfo(result = "D", count = 3),
+                        momentum = MomentumInfo(recentPpg = 1.0, priorPpg = 1.8, trend = "declining"),
+                    ),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("3-game drawing").assertExists()
+        composeTestRule.onNodeWithText("1.0 ppg (last 3) vs 1.8 ppg (prior 3) -- declining").assertExists()
+    }
+
+    @Test
     fun `rates section renders a segmented bar and win-draw-loss line`() {
         composeTestRule.setContent {
             FormTab(

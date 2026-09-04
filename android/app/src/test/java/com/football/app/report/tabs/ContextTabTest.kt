@@ -43,6 +43,7 @@ class ContextTabTest {
                     InsightsContext(
                         restComparison = RestComparison(ownRestDays = 4, opponentRestDays = 6, moreRested = "away"),
                         homeRestPerformance = RestPerformanceInfo(shortRestPpg = 1.2, shortRestSampleSize = 5, longRestPpg = 2.0, longRestSampleSize = 8),
+                        awayRestPerformance = RestPerformanceInfo(shortRestPpg = 0.9, shortRestSampleSize = 4, longRestPpg = 1.8, longRestSampleSize = 7),
                     ),
                 homeTeam = "Arsenal",
                 awayTeam = "Chelsea",
@@ -51,6 +52,7 @@ class ContextTabTest {
         composeTestRule.onNodeWithText("Rest").assertExists()
         composeTestRule.onNodeWithText("Days since last match").assertExists()
         composeTestRule.onNodeWithText("Arsenal performance by rest").assertExists()
+        composeTestRule.onNodeWithText("Chelsea performance by rest").assertExists()
     }
 
     @Test
@@ -111,10 +113,32 @@ class ContextTabTest {
     }
 
     @Test
+    fun `experience section renders 'not aligned' when the h2h edge doesn't match`() {
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(experienceH2h = ExperienceH2HNote(aligned = false)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Experience").assertExists()
+        composeTestRule.onNodeWithText("not aligned").assertExists()
+    }
+
+    @Test
     fun `travel section renders when the away team is traveling`() {
         composeTestRule.setContent {
             ContextTab(
-                insights = InsightsContext(travelInfo = TravelInfo(awayTraveling = true, awayTravelDistanceKm = 450.0, awayTimezoneDiffHours = 2.0)),
+                insights =
+                    InsightsContext(
+                        travelInfo =
+                            TravelInfo(
+                                awayTraveling = true,
+                                awayTravelDistanceKm = 450.0,
+                                awayTravelTimeHours = 5.5,
+                                awayTimezoneDiffHours = 2.0,
+                            ),
+                    ),
                 homeTeam = "Arsenal",
                 awayTeam = "Chelsea",
             )
@@ -122,7 +146,10 @@ class ContextTabTest {
         // "Travel" alone would match both the SectionCard title and the
         // InfoRow's own label -- asserting on the constructed value text
         // instead confirms the actual traveling-team branch rendered.
-        composeTestRule.onNodeWithText("Chelsea traveling", substring = true).assertExists()
+        // awayTravelTimeHours is set (unlike the "both at home" and
+        // home-traveling tests below) to also exercise the
+        // awayTravelTimeHours?.let{} sub-branch, previously untested.
+        composeTestRule.onNodeWithText("Chelsea traveling (~450.0km, ~5.5h travel, 2.0h tz diff)").assertExists()
     }
 
     @Test
@@ -166,7 +193,7 @@ class ContextTabTest {
                         homeRotation = RotationInfo(changedPlayers = 4, startingXiSize = 11),
                         homeStreakStability = StreakStabilityInfo("W", 4, stable = true),
                         experienceComparison = ExperienceComparison(25.4, 27.1),
-                        travelInfo = TravelInfo(homeTraveling = true, homeTravelDistanceKm = 300.0),
+                        travelInfo = TravelInfo(homeTraveling = true, homeTravelDistanceKm = 300.0, homeTravelTimeHours = 3.5),
                         homePresence = listOf(PresenceEntry("Saka", "A", starting = true)),
                         homeBenchInfo = BenchInfo(9, 45_000_000.0, 620_000_000.0),
                     ),

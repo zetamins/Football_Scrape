@@ -59,7 +59,7 @@ class StandingsTabTest {
                 insights =
                     InsightsStandings(
                         homeStandingsZone = StandingsZoneInfo(position = 1, totalTeams = 20, zone = "Title race", pointsFromBoundary = 3, inTheMix = true),
-                        awayStandingsZone = StandingsZoneInfo(position = 6, totalTeams = 20, zone = "Europe"),
+                        awayStandingsZone = StandingsZoneInfo(position = 6, totalTeams = 20, zone = "Europe", pointsFromBoundary = 5),
                     ),
                 standingsTable = null,
                 homeTeam = "Arsenal",
@@ -81,6 +81,12 @@ class StandingsTabTest {
                                 currentPoints = 13,
                                 scenarios = listOf(StandingsScenario(outcome = "win", newPoints = 16, newPosition = 1)),
                             ),
+                        awayStandingsImpact =
+                            StandingsImpactInfo(
+                                currentPosition = 5,
+                                currentPoints = 9,
+                                scenarios = listOf(StandingsScenario(outcome = "loss", newPoints = 9, newPosition = 7)),
+                            ),
                     ),
                 standingsTable = null,
                 homeTeam = "Arsenal",
@@ -88,6 +94,8 @@ class StandingsTabTest {
             )
         }
         composeTestRule.onNodeWithText("If this match ends in...").assertExists()
+        composeTestRule.onNodeWithText("win: #1").assertExists()
+        composeTestRule.onNodeWithText("loss: #7").assertExists()
     }
 
     @Test

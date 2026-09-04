@@ -114,6 +114,8 @@ class ProfileTabTest {
                 insights =
                     InsightsProfile(
                         homeDuelVulnerabilities = listOf(DuelVulnerability(name = "Timber", groundDuelSuccessPct = 38.0)),
+                        awayDuelVulnerabilities = listOf(DuelVulnerability(name = "Colwill", groundDuelSuccessPct = 42.0)),
+                        homeFullbackExposure = listOf(FullbackExposureInfo(name = "Zinchenko", chancesCreated = 2, groundDuelSuccessPct = 35.0)),
                         awayFullbackExposure = listOf(FullbackExposureInfo(name = "Chilwell", chancesCreated = 3, groundDuelSuccessPct = 40.0)),
                     ),
                 homeTeam = "Arsenal",
@@ -122,6 +124,8 @@ class ProfileTabTest {
         }
         composeTestRule.onNodeWithText("Risk").assertExists()
         composeTestRule.onNodeWithText("Arsenal duel risk").assertExists()
+        composeTestRule.onNodeWithText("Chelsea duel risk").assertExists()
+        composeTestRule.onNodeWithText("Arsenal exposed fullbacks").assertExists()
         composeTestRule.onNodeWithText("Chelsea exposed fullbacks").assertExists()
     }
 
@@ -132,6 +136,7 @@ class ProfileTabTest {
                 insights =
                     InsightsProfile(
                         homeSetPieceThreat = SetPieceThreatFlag(cornersPerGame = 6.5, opponentAerialWinPct = 48.0, elevated = true),
+                        awaySetPieceThreat = SetPieceThreatFlag(cornersPerGame = 4.2, opponentAerialWinPct = 51.0, elevated = false),
                         awayDirectPlayExposure = DirectPlayExposureFlag(longBallSharePct = 12.0, opponentAerialWinPct = 55.0, elevated = true),
                     ),
                 homeTeam = "Arsenal",
@@ -140,6 +145,7 @@ class ProfileTabTest {
         }
         composeTestRule.onNodeWithText("Set-piece & direct-play tendencies").assertExists()
         composeTestRule.onNodeWithText("Arsenal set-piece threat").assertExists()
+        composeTestRule.onNodeWithText("Chelsea set-piece threat").assertExists()
         composeTestRule.onNodeWithText("Chelsea direct-play exposure").assertExists()
     }
 

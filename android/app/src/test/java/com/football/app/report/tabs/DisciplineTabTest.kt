@@ -58,6 +58,7 @@ class DisciplineTabTest {
                         homeCardDiscipline = CardDisciplineInfo(yellowPerGame = 2.1, redPerGame = 0.1, elevatedRisk = true),
                         awayCardDiscipline = CardDisciplineInfo(yellowPerGame = 1.4, redPerGame = 0.0, elevatedRisk = false),
                         homeCardDisciplineVenueSplit = CardDisciplineVenueSplit(atHomeSampleSize = 5, atHomeYellowPerGame = 1.8, awaySampleSize = 5, awayYellowPerGame = 2.4),
+                        awayCardDisciplineVenueSplit = CardDisciplineVenueSplit(atHomeSampleSize = 5, atHomeYellowPerGame = 1.1, awaySampleSize = 5, awayYellowPerGame = 1.6),
                     ),
                 homeTeam = "Arsenal",
                 awayTeam = "Chelsea",
@@ -66,13 +67,26 @@ class DisciplineTabTest {
         composeTestRule.onNodeWithText("Cards per game").assertExists()
         composeTestRule.onNodeWithText("Elevated card risk").assertExists()
         composeTestRule.onNodeWithText("Arsenal by venue").assertExists()
+        composeTestRule.onNodeWithText("Chelsea by venue").assertExists()
     }
 
     @Test
-    fun `cards section falls back to single-team rows when only one side is known`() {
+    fun `cards section falls back to a home-only row when only home is known`() {
         composeTestRule.setContent {
             DisciplineTab(
                 insights = InsightsDiscipline(homeCardDiscipline = CardDisciplineInfo(2.1, 0.1, elevatedRisk = true)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Cards per game").assertExists()
+    }
+
+    @Test
+    fun `cards section falls back to an away-only row when only away is known`() {
+        composeTestRule.setContent {
+            DisciplineTab(
+                insights = InsightsDiscipline(awayCardDiscipline = CardDisciplineInfo(1.4, 0.0, elevatedRisk = false)),
                 homeTeam = "Arsenal",
                 awayTeam = "Chelsea",
             )

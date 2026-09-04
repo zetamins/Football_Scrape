@@ -71,6 +71,21 @@ class ReportScreenTest {
         assert(historyClicked)
     }
 
+    /** Just needs to not crash -- rememberLauncherForActivityResult's own
+     * CreateDocument launch() is a real Android SAF picker intent, not
+     * something this JVM test can complete (no shadow wired for it), but
+     * onDownloadClick's own body (building the sanitized filename and
+     * calling launch()) is plain Kotlin, previously fully uncovered. */
+    @Test
+    fun `download button builds a sanitized filename and launches without crashing`() {
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(loadSampleReportJson())
+        composeTestRule.setContent {
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithContentDescription("Download JSON").performClick()
+    }
+
     @Test
     fun `tapping a different tab switches the rendered content`() {
         val viewModel = ReportViewModel()
