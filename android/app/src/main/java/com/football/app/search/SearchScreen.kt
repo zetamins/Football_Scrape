@@ -239,7 +239,7 @@ private fun rememberStartQueue(context: Context): (List<String>) -> Unit {
  * service protection rather than duplicating that protection just to
  * keep the richer view. */
 @Composable
-private fun SingleSearchProgress(running: QueueState.Running) {
+internal fun SingleSearchProgress(running: QueueState.Running) {
     Column(modifier = Modifier.fillMaxWidth()) {
         val displayMessage = running.message.ifBlank { "Computing match insights..." }
         StepProgressBar(displayMessage)
@@ -255,7 +255,7 @@ private fun SingleSearchProgress(running: QueueState.Running) {
  * previously showed plain text with no progress bar at all despite
  * being driven by the exact same QueueState.Running.message. */
 @Composable
-private fun StepProgressBar(message: String) {
+internal fun StepProgressBar(message: String) {
     val stepProgress = remember(message) { parseStepProgress(message) }
     if (stepProgress != null) {
         LinearProgressIndicator(progress = { stepProgress }, modifier = Modifier.fillMaxWidth())
@@ -333,7 +333,7 @@ private fun BatchQueueSection(
 }
 
 @Composable
-private fun QueueStatusCard(queueState: QueueState) {
+internal fun QueueStatusCard(queueState: QueueState) {
     when (queueState) {
         is QueueState.Running -> {
             Spacer(Modifier.height(16.dp))
@@ -367,7 +367,7 @@ private val STEP_PROGRESS_REGEX = Regex("""^\((\d+)/(\d+)\)""")
  * _step_message()) into a 0f..1f fraction for a determinate progress
  * bar; null for any message without that prefix (the pre-scrape and
  * per-source messages don't have one, and correctly stay indeterminate). */
-private fun parseStepProgress(message: String): Float? {
+internal fun parseStepProgress(message: String): Float? {
     val match = STEP_PROGRESS_REGEX.find(message) ?: return null
     val (stepText, totalText) = match.destructured
     val step = stepText.toIntOrNull() ?: return null
