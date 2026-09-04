@@ -205,6 +205,24 @@ kover {
                     "com.football.app.ComposableSingletons\$MainActivityKt\$lambda-1\$1",
                     "com.football.app.ComposableSingletons\$MainActivityKt\$lambda-2\$1",
                 )
+                // data/model/ is exclusively plain @Serializable data
+                // classes -- zero hand-written functions anywhere in the
+                // package (verified by grepping for `fun` across every
+                // file there). Their real behavior (field/@SerialName
+                // mapping) is already covered by direct decode tests
+                // against real backend JSON fixtures, unaffected by this
+                // exclusion -- it only stops kotlinx.serialization's
+                // compiler-generated write$Self/deserialize methods (a
+                // present/absent branch per optional field, ~50+ per
+                // class) from counting toward Kover's branch-coverage
+                // metric. That generated code isn't reachable via any
+                // Kover config short of a whole-package exclusion (no
+                // method-level filter exists, and the generated method
+                // lives on the same class as the fields themselves, not
+                // a separately excludable nested class) -- same
+                // generated-code-boilerplate category as BuildConfig/
+                // ComposableSingletons above, just discovered later.
+                packages("com.football.app.data.model")
             }
         }
     }
