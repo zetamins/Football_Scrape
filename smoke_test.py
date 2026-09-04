@@ -4,7 +4,6 @@ live Sofascore site, slow and non-deterministic). Run directly:
 """
 
 import asyncio
-import json
 import sys
 from dataclasses import asdict
 

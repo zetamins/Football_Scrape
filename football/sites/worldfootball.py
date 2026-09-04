@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 from ..browser import launch_browser
 from ..http import USER_AGENT
 from ..retry import retry_with_backoff
-from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize
 
 _COMPETITION_PATHS: dict[str, str] = {
     "Premier League": "co91/england-premier-league",

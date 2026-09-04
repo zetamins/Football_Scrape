@@ -32,7 +32,6 @@ from typing import Protocol, TypeVar
 
 from .team_name_match import normalize_for_match as normalize
 
-
 # canonical (normalized) -> [aliases (each already normalized)]
 _RAW_ALIASES: dict[str, list[str]] = {
     # ---- EPL ----

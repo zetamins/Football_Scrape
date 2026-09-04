@@ -22,7 +22,9 @@ from .merge import (
     is_defender_role,
     is_midfield_role,
 )
-from .team_name_match import slugify_for_match as slugify
+from .team_name_match import (
+    slugify_for_match as slugify,  # noqa: F401  # re-exported for cli.py's `from .format_markdown import slugify`
+)
 from .types import (
     CardDisciplineInfo,
     CardDisciplineVenueSplit,

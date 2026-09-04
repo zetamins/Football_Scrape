@@ -38,8 +38,10 @@ def diff(a, b, path=""):
 
 if __name__ == "__main__":
     ts_path, py_path = sys.argv[1], sys.argv[2]
-    ts = normalize(json.load(open(ts_path)))
-    py = json.load(open(py_path))
+    with open(ts_path) as f:
+        ts = normalize(json.load(f))
+    with open(py_path) as f:
+        py = json.load(f)
     d = diff(ts, py)
     print(f"{len(d)} differences")
     for p, msg in d[:80]:

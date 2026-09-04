@@ -19,7 +19,8 @@ from urllib.parse import quote
 from .._jsmath import js_number_or, js_number_to_string, js_round, js_round_to
 from ..http import fetch_json
 from ..team_aliases import known_aliases_for
-from ..team_name_match import name_query_variants, slugify_for_match as _slugify, strip_diacritics
+from ..team_name_match import name_query_variants, strip_diacritics
+from ..team_name_match import slugify_for_match as _slugify
 from ..types import (
     LineupPlayer,
     MatchDetails,

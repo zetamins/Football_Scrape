@@ -35,7 +35,7 @@ from ..browser import launch_browser
 from ..retry import retry_with_backoff
 from ..team_aliases import canonical_for
 from ..team_aliases import normalize as _normalize_alias
-from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize
 from ..types import (
     HeadToHeadSummary,
     LineupPlayer,

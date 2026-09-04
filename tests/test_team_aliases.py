@@ -1,6 +1,11 @@
 from dataclasses import dataclass
 
-from football.team_aliases import canonical_for, find_best_slug_match, known_aliases_for, normalize
+from football.team_aliases import (
+    canonical_for,
+    find_best_slug_match,
+    known_aliases_for,
+    normalize,
+)
 
 
 @dataclass

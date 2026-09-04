@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from ..http import fetch_text
 from ..team_aliases import known_aliases_for
-from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize
 from ..types import ClubStrengthRating
 
 _FULL_NAME_RE = re.compile(r'<span class="full-name">([^<]+)</span>')

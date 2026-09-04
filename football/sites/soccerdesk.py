@@ -20,9 +20,13 @@ from ..http import USER_AGENT, new_client
 from ..team_aliases import known_aliases_for
 from ..team_name_match import (
     name_query_variants,
-    normalize_for_match as _normalize,
-    slugify_for_match as _slugify,
     strip_diacritics,
+)
+from ..team_name_match import (
+    normalize_for_match as _normalize,
+)
+from ..team_name_match import (
+    slugify_for_match as _slugify,
 )
 from ..types import (
     HeadToHeadMeeting,
