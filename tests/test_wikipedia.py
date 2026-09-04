@@ -44,6 +44,46 @@ def test_parse_tenure_fields_returns_none_for_short_row():
     assert _parse_tenure_fields(["Some Team", "2020"]) == (None, None, None, None, None, None)
 
 
+def test_parse_tenure_fields_five_column_record_group_no_goals_columns():
+    # Real bug confirmed live 2026-09-04: Mikel Arteta/Pep Guardiola/Arne
+    # Slot/Unai Emery's current pages all dropped the GF/GA/GD columns from
+    # this table entirely (Team, From, To, P, W, D, L, Win% -- 8 cells, no
+    # goals-for/against/difference at all), which the previous fixed
+    # 9-cell-back offset (calibrated for the 11/12-cell GF/GA/GD shape)
+    # couldn't reach -- it silently returned all-None for every one of
+    # them. Also exercises the 1-decimal-digit win% shape ("060.7", not
+    # "060.70") those same live pages use -- see the next test for that in
+    # isolation.
+    row = ["Arsenal", "22 December 2019", "Present", "356", "216", "67", "73", "060.7"]
+    from_date, played, wins, draws, losses, win_pct = _parse_tenure_fields(row)
+    assert from_date == "22 December 2019"
+    assert (played, wins, draws, losses) == (356, 216, 67, 73)
+    assert win_pct == 60.7
+
+
+def test_parse_tenure_fields_none_when_win_pct_has_no_preceding_record_cells():
+    # wp is found, but nothing record-shaped (a date string, not a plain
+    # or signed integer) sits immediately before it -- numeric_run stays 0,
+    # so there's no P/W/D/L to extract at all.
+    row = ["Team", "20 December 2019", "050.00"]
+    assert _parse_tenure_fields(row) == (None, None, None, None, None, None)
+
+
+def test_find_win_pct_index_matches_single_decimal_digit():
+    # Real bug confirmed live 2026-09-04: _WIN_PCT_RE used to require
+    # exactly 2 decimal digits, but several current manager pages show
+    # only 1 ("060.7") -- the old regex made _find_win_pct_index return
+    # None for these rows before any offset math even ran.
+    row = ["Arsenal", "22 December 2019", "Present", "356", "216", "67", "73", "060.7"]
+    assert _find_win_pct_index(row) == 7
+
+
+def test_select_current_row_prefers_present_five_column_shape():
+    past = ["Everton", "1 July 2015", "1 December 2016", "70", "20", "20", "30", "030.0"]
+    present = ["Arsenal", "22 December 2019", "Present", "356", "216", "67", "73", "060.7"]
+    assert _select_current_row([past, present]) is present
+
+
 def test_parse_tenure_fields_with_trailing_empty_ref_cell():
     # Niko Kovač's real row shape -- Team, From, To, P, W, D, L, GF, GA,
     # GD, Win%, [empty Ref-column cell] (12 cells, no leading icon this

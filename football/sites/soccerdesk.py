@@ -318,9 +318,12 @@ def _extract_lineup_side(
 
 # Undocumented incident type codes, reverse-engineered from real match
 # data: 1 = substitution (pl_id in, pl_id_o out), 4 = goal (score changes
-# at that player). Other codes (cards etc.) may exist but weren't observed
-# in the matches checked during research -- unknown codes fall back to
-# "type N".
+# at that player). Other codes exist -- confirmed live 2026-09-04, codes
+# 10 and 28 both appeared in one real Premier League match (single-player
+# events, no score change, no pl_id_o/pl_name_o pair -- consistent with
+# cards or a VAR-style incident, but not confirmed against an independent
+# source, so not guessed at here) -- unknown codes fall back to "type N"
+# rather than a possibly-wrong label.
 _INCIDENT_TYPES: dict[int, str] = {1: "Substitution", 4: "Goal"}
 
 

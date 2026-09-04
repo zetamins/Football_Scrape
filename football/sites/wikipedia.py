@@ -102,17 +102,28 @@ class _ManagerRecordRow:
         self.date_of_birth = date_of_birth
 
 
-# Win% cells are zero-padded to exactly 2 decimal digits ("056.94",
-# "024.29", "000.00") -- confirmed live across every manager page checked,
-# and distinctive enough (unlike a plain integer P/W/D/L/GF/GA/GD cell) to
-# locate the Record group by CONTENT instead of position. Necessary
-# because position-from-either-end isn't reliable: some pages have an
-# extra leading flag/icon cell (Paulo Fonseca's), others an extra trailing
-# empty Ref-column cell (Niko Kovač's, whose Wikipedia page's ref markup
-# leaves that cell text-empty), and at least one manager (Kovač) has been
-# seen with the SECOND pattern, breaking a pure end-anchored count that
-# only accounted for the first.
-_WIN_PCT_RE = re.compile(r"^\d{1,3}\.\d{2}$")
+# Win% cells were zero-padded to exactly 2 decimal digits ("056.94",
+# "024.29", "000.00") when this was first written -- confirmed live
+# 2026-09-04 that's no longer universal: current pages (Arteta, Guardiola,
+# Slot, Emery all checked) show only 1 decimal digit ("060.7", "066.7"),
+# while Paulo Fonseca's page still shows 2 ("038.24") -- both forms
+# currently coexist. \d{1,2} covers both. Still distinctive enough (unlike
+# a plain integer P/W/D/L/GF/GA/GD cell) to locate the Record group by
+# CONTENT instead of position -- necessary because position-from-either-end
+# isn't reliable: some pages have an extra leading flag/icon cell (Paulo
+# Fonseca's), others an extra trailing empty Ref-column cell (Niko Kovač's,
+# whose Wikipedia page's ref markup leaves that cell text-empty), and at
+# least one manager (Kovač) has been seen with the SECOND pattern, breaking
+# a pure end-anchored count that only accounted for the first.
+_WIN_PCT_RE = re.compile(r"^\d{1,3}\.\d{1,2}$")
+
+# A cell belonging to the numeric "record" run immediately before Win% --
+# P/W/D/L are always plain non-negative integers, but the optional
+# GF/GA/GD trio that some pages still carry between L and Win% can be
+# signed ("+7", "−7" -- Wikipedia uses U+2212 MINUS SIGN, not ASCII
+# hyphen-minus, confirmed live on Fonseca's page), which a plain
+# str.isdigit() check would stop the backward walk on prematurely.
+_RECORD_CELL_RE = re.compile(r"^[+−-]?\d[\d,]*$")
 
 
 def _find_win_pct_index(row: list[str]) -> int | None:
@@ -122,10 +133,32 @@ def _find_win_pct_index(row: list[str]) -> int | None:
     return None
 
 
+def _record_group_start(row: list[str], wp: int) -> int | None:
+    """Index of the P cell (first of the record group), given the already-
+    located Win% index. P/W/D/L/[GF/GA/GD]/Win% -- the GF/GA/GD trio is
+    present on some pages and absent on others (confirmed live 2026-09-04:
+    absent on Arteta/Guardiola/Slot/Emery's current pages, still present on
+    Fonseca's) -- rather than assume a fixed 8-column group ending at Win%
+    (which silently produced None for every field on every page checked
+    that no longer has GF/GA/GD, Arteta included), count backward while
+    cells still look like record-group numbers and take the group's
+    leftmost 4 as P/W/D/L, whatever else (or nothing) follows them."""
+    numeric_run = 0
+    i = wp - 1
+    while i >= 0 and _RECORD_CELL_RE.match(row[i]):
+        numeric_run += 1
+        i -= 1
+    if numeric_run < 4:
+        return None
+    p_index = wp - numeric_run
+    return p_index if p_index >= 2 else None
+
+
 def _select_current_row(team_rows: list[list[str]]) -> list[str]:
     def to_cell(cells: list[str]) -> str | None:
         wp = _find_win_pct_index(cells)
-        return cells[wp - 8] if wp is not None and wp >= 9 else None
+        p_index = _record_group_start(cells, wp) if wp is not None else None
+        return cells[p_index - 1] if p_index is not None else None
 
     present_row = next((cells for cells in team_rows if (to_cell(cells) or "").lower().find("present") != -1), None)
     return present_row if present_row else team_rows[-1]
@@ -137,14 +170,14 @@ def _parse_tenure_fields(
     def to_int(s: str) -> int | None:
         return int(s) if s.isdigit() else None
 
-    # P/W/D/L/GF/GA/GD/Win% is an 8-column group ending at Win% -- located
-    # by content (see _WIN_PCT_RE above), not a fixed offset from either
-    # end, since neither end is reliably shaped across every manager page.
     wp = _find_win_pct_index(row)
-    if wp is None or wp < 9:
+    if wp is None:
         return None, None, None, None, None, None
-    from_date = row[wp - 9]
-    played, wins, draws, losses = to_int(row[wp - 7]), to_int(row[wp - 6]), to_int(row[wp - 5]), to_int(row[wp - 4])
+    p_index = _record_group_start(row, wp)
+    if p_index is None:
+        return None, None, None, None, None, None
+    from_date = row[p_index - 2]
+    played, wins, draws, losses = (to_int(row[p_index + k]) for k in range(4))
     win_pct = float(row[wp])
     return from_date, played, wins, draws, losses, win_pct
 

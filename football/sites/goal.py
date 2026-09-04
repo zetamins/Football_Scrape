@@ -399,14 +399,23 @@ async def get_goal_match_details(match: MatchInfo, client: httpx.AsyncClient | N
     h2h_stats = (content.get("h2h") or {}).get("stats")
     lineups = m.get("lineups") or {}
     event_stats = _build_player_event_stats(m.get("events") or [])
+    venue = m.get("venue") or {}
 
     return MatchDetails(
         **asdict(match),
-        venue_name=(m.get("venue") or {}).get("name"),
+        venue_name=venue.get("name"),
         venue_city=None,
         venue_country=None,
-        venue_lat=None,
-        venue_lon=None,
+        # Confirmed live: `venue.latitude`/`venue.longitude` are present on
+        # every match checked (unlike `referee`, genuinely empty on every
+        # match checked -- see the docstring above), and merge.py already
+        # lists venue_lat/venue_lon as independently fallback-able fields
+        # specifically so a source like this one can fill a gap even when
+        # venue_name itself came from elsewhere (e.g. Sofascore). Previously
+        # hardcoded None here, silently discarding real data this source
+        # already fetches for free.
+        venue_lat=(float(venue["latitude"]) if venue.get("latitude") is not None else None),
+        venue_lon=(float(venue["longitude"]) if venue.get("longitude") is not None else None),
         referee=None,
         referee_stats=None,
         attendance=None,

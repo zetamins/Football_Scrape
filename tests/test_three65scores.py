@@ -418,6 +418,31 @@ def test_get365_scores_team_profile_builds_squad_with_average_age(monkeypatch):
     assert profile.average_age == 25.0
 
 
+def test_get365_scores_team_profile_excludes_coaching_staff_from_squad(monkeypatch):
+    """Real bug confirmed live (2026-09-04): the squads endpoint mixes
+    coaching staff into the same `athletes` array as players. A staff
+    entry has `position: {"id": 0}` with no "name" (their real role lives
+    in `formationPosition` instead, which this project doesn't parse),
+    while every real player has a proper position.name -- that's the
+    reliable distinguishing signal used to filter them out."""
+
+    async def fake_fetch_json(url):
+        if "search" in url:
+            return {"competitors": [_competitor(1, "Home FC")]}
+        if "squads" in url:
+            return {"squads": [{"athletes": [
+                {"id": 1, "name": "Head Coach", "age": 44, "position": {"id": 0}, "formationPosition": {"name": "Coach"}},
+                {"id": 2, "name": "Player A", "age": 24, "position": {"name": "Forward"}},
+            ]}]}
+        raise AssertionError(f"unexpected url: {url}")
+
+    monkeypatch.setattr(three65scores, "fetch_json", fake_fetch_json)
+    profile = asyncio.run(get365_scores_team_profile("Home FC"))
+    assert len(profile.squad) == 1
+    assert profile.squad[0].name == "Player A"
+    assert profile.average_age == 24.0
+
+
 def test_get365_scores_team_profile_empty_squad_when_no_athletes(monkeypatch):
     async def fake_fetch_json(url):
         if "search" in url:

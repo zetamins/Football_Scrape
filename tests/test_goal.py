@@ -407,7 +407,7 @@ def test_get_goal_match_details_builds_full_details(monkeypatch):
         "props": {"pageProps": {"content": {
             "match": {
                 "teamA": {"id": "t1"}, "teamB": {"id": "t2"},
-                "venue": {"name": "Home Stadium"},
+                "venue": {"name": "Home Stadium", "latitude": 51.555, "longitude": -0.106},
                 "lineups": {}, "events": [], "stats": None,
             },
             "summaryStandings": None,
@@ -421,9 +421,46 @@ def test_get_goal_match_details_builds_full_details(monkeypatch):
     monkeypatch.setattr(goal, "fetch_text", fake_fetch_text)
     details = asyncio.run(get_goal_match_details(match))
     assert details.venue_name == "Home Stadium"
+    # Real bug found live (2026-09-04): venue.latitude/longitude are
+    # present on every match checked, but this function used to hardcode
+    # venue_lat/venue_lon to None regardless -- merge.py explicitly lists
+    # these as independently fallback-able fields, so this source silently
+    # discarded real, usable data.
+    assert details.venue_lat == 51.555
+    assert details.venue_lon == -0.106
     assert details.head_to_head_summary.home_wins == 3
     assert details.referee is None
     assert "referee not populated" in details.note
+
+
+def test_get_goal_match_details_venue_lat_lon_none_when_absent(monkeypatch):
+    from football.types import MatchInfo
+
+    match = MatchInfo(
+        source="goal", source_url="https://www.goal.com/en/match/home-vs-away/1", competition="Premier League",
+        home_team="Home FC", away_team="Away FC", kickoff_utc="2026-01-01T15:00:00.000Z", venue=None,
+        status="scheduled", home_score=None, away_score=None, home_score_ht=None, away_score_ht=None,
+        season=None, round=None, match_id="1",
+    )
+    next_data = {
+        "props": {"pageProps": {"content": {
+            "match": {
+                "teamA": {"id": "t1"}, "teamB": {"id": "t2"},
+                "venue": {"name": "Home Stadium"},
+                "lineups": {}, "events": [], "stats": None,
+            },
+            "summaryStandings": None,
+            "h2h": None,
+        }}}
+    }
+
+    async def fake_fetch_text(_url, _client=None):
+        return _next_data_html(next_data)
+
+    monkeypatch.setattr(goal, "fetch_text", fake_fetch_text)
+    details = asyncio.run(get_goal_match_details(match))
+    assert details.venue_lat is None
+    assert details.venue_lon is None
 
 
 # --- get_goal_team_profile (async) ---------------------------------------------------------

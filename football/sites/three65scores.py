@@ -458,7 +458,18 @@ async def get365_scores_match_details(match: MatchInfo) -> MatchDetails:
 async def get365_scores_team_profile(team_name: str) -> TeamProfile:
     """/web/squads/?competitors={id} gives age/position/height directly
     per player -- no injury status or transfers endpoint was found during
-    research."""
+    research.
+
+    Confirmed live: the same `athletes` array also includes coaching staff
+    (head coach, assistant coach) alongside real players, with no explicit
+    type field distinguishing them -- but a real player's `position`
+    always carries a name ("Goalkeeper"/"Defender"/"Midfielder"/
+    "Attacker"), while staff entries have `position: {"id": 0}` with no
+    "name" at all (their actual role instead lives in a separate
+    `formationPosition` field, e.g. {"name": "Coach"}, which this project
+    doesn't otherwise use). Without this filter, Arsenal's manager (Mikel
+    Arteta, age 44) showed up in the squad list as a player with no role
+    and skewed average_age upward."""
     team = await _find_team(team_name)
     if team is None:
         raise ValueError(f'No 365scores team found matching "{team_name}"')
@@ -466,7 +477,7 @@ async def get365_scores_team_profile(team_name: str) -> TeamProfile:
     data = await fetch_json(f"{_BASE}/squads/?{_COMMON}&competitors={team.id}")
     squads = data.get("squads") or []
     athletes = squads[0].get("athletes") if squads else []
-    athletes = athletes or []
+    athletes = [a for a in (athletes or []) if (a.get("position") or {}).get("name")]
 
     squad: list[SquadMember] = [
         SquadMember(

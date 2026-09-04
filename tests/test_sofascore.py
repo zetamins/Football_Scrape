@@ -340,6 +340,22 @@ def test_extract_incidents_none_without_real_events():
     assert _extract_incidents(None) is None
 
 
+def test_extract_incidents_filters_injury_time_markers():
+    # Real bug confirmed live 2026-09-04: injuryTime incidents ("6 minutes
+    # added") carry no player/team at all -- {"length": 6, "time": 90,
+    # "addedTime": 0, "incidentType": "injuryTime", "reversedPeriodTime": 1}
+    # -- and weren't filtered, producing a meaningless timeline entry
+    # (minute 90, type "injuryTime", player=None, team=None) in every real
+    # match checked.
+    incidents = {"incidents": [
+        {"length": 6, "time": 90, "addedTime": 0, "incidentType": "injuryTime", "reversedPeriodTime": 1},
+        {"incidentType": "goal", "time": 30, "isHome": True, "player": {"name": "Scorer"}},
+    ]}
+    events = _extract_incidents(incidents)
+    assert len(events) == 1
+    assert events[0].type == "goal"
+
+
 # --- _extract_set_piece_goals / _extract_shotmap_stats -----------------------------------
 
 

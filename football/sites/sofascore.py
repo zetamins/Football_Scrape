@@ -413,10 +413,22 @@ def _extract_player_of_the_match(best: dict[str, Any] | None) -> PlayerOfTheMatc
     return PlayerOfTheMatch(name=top["player"]["name"], rating=top.get("value"))
 
 
+_NON_EVENT_INCIDENT_TYPES = frozenset({
+    "period",  # HT/FT markers, not real match events
+    # Added-time announcements ("6 minutes added"), confirmed live 2026-09-04
+    # -- shape is {"length": 6, "time": 90, "addedTime": 0, "incidentType":
+    # "injuryTime", "reversedPeriodTime": 1}, no player/team at all, so
+    # without this filter it produced a meaningless timeline entry (minute
+    # 90, type "injuryTime", no player, no team) -- same category "period"
+    # was already excluded for.
+    "injuryTime",
+})
+
+
 def _extract_incidents(incidents: dict[str, Any] | None) -> list[TimelineEvent] | None:
-    """"period" incidents are just HT/FT markers, not real match events --
-    filtered out."""
-    items = [i for i in (incidents or {}).get("incidents", []) if i.get("incidentType") != "period"]
+    """"period"/"injuryTime" incidents are clock markers, not real match
+    events -- filtered out."""
+    items = [i for i in (incidents or {}).get("incidents", []) if i.get("incidentType") not in _NON_EVENT_INCIDENT_TYPES]
     if not items:
         return None
     result = []
