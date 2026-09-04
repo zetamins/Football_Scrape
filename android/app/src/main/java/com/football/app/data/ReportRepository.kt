@@ -12,8 +12,18 @@ import kotlinx.serialization.SerializationException
  * the caller's dispatcher -- this class doesn't dispatch itself, so it
  * stays easy to unit test without coroutine-dispatcher mocking
  * (ReportViewModel is responsible for Dispatchers.IO).
+ *
+ * [runReport] defaults to the real [PythonBridge.runReport] call --
+ * overridable only so a unit test can substitute a fake without needing
+ * Chaquopy's native Python runtime (which [PythonBridge] itself has no
+ * seam to fake around, since it calls the static `Python.getInstance()`
+ * singleton directly). Every real caller uses the default; this is the
+ * one point in the class this repository's own docstring already claims
+ * ("stays easy to unit test") actually needed a seam to be true.
  */
-class ReportRepository {
+class ReportRepository(
+    private val runReport: (String, PythonBridge.ProgressListener, PythonBridge.SourceProgressListener) -> String = PythonBridge::runReport,
+) {
     /**
      * Synchronous/blocking (see PythonBridge's own docstring for why).
      * onState fires multiple times during the call -- a Loading update
@@ -63,12 +73,7 @@ class ReportRepository {
                         onState(SearchState.Loading(sources = sourcesSeen.toList(), message = ""))
                     }
                 }
-            val json =
-                PythonBridge.runReport(
-                    teamName = teamName,
-                    onProgress = progressListener,
-                    onSourceProgress = sourceProgressListener,
-                )
+            val json = runReport(teamName, progressListener, sourceProgressListener)
             onState(SearchState.Success(AppJsonTopLevel.decodeFromString(ReportJson.serializer(), json), json))
         } catch (e: PyException) {
             onState(SearchState.Error(e.message ?: "Search failed"))

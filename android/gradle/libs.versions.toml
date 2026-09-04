@@ -17,6 +17,7 @@ androidxActivityCompose = "1.9.3"
 androidxLifecycle = "2.8.7"
 androidxNavigationCompose = "2.8.4"
 kotlinxSerializationJson = "1.7.3"
+kotlinxCoroutinesTest = "1.9.0"
 vico = "2.0.0"
 junit = "4.13.2"
 androidxTestExtJunit = "1.3.0"
@@ -33,6 +34,7 @@ androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "androidxNavigationCompose" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
 vico-compose = { module = "com.patrykandpatrick.vico:compose", version.ref = "vico" }
 vico-compose-m3 = { module = "com.patrykandpatrick.vico:compose-m3", version.ref = "vico" }
 junit = { module = "junit:junit", version.ref = "junit" }

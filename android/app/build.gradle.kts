@@ -180,6 +180,11 @@ dependencies {
     // ApplicationProvider.getApplicationContext() -- SearchQueueServiceTest
     // needs a real Context to fetch the system NotificationManager.
     testImplementation(libs.androidx.test.core)
+    // Dispatchers.setMain()/runTest -- HistoryViewModel and ReportViewModel
+    // both launch viewModelScope.launch(Dispatchers.IO) coroutines, which
+    // need Dispatchers.Main.immediate available; a plain JVM unit test has
+    // no real Android main looper to provide it without this.
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.core)
