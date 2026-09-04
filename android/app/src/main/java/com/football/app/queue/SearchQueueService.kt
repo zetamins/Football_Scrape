@@ -47,8 +47,13 @@ import java.io.File
 class SearchQueueService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var runJob: Job? = null
-    private lateinit var repository: ReportRepository
-    private lateinit var historyRepository: HistoryRepository
+    // internal, not private -- same reason as notificationManager below:
+    // SearchQueueServiceTest injects a fake ReportRepository (ReportRepository's
+    // own injectable `runReport` seam, already used by ReportRepositoryTest)
+    // to exercise runQueue()/runOne()/onStartCommand() for real without
+    // Chaquopy, bypassing onCreate() entirely.
+    internal lateinit var repository: ReportRepository
+    internal lateinit var historyRepository: HistoryRepository
     // internal, not private -- SearchQueueServiceTest constructs the
     // service without going through onCreate() (which starts the
     // Chaquopy/Python bridge, unavailable in a plain JVM test) and needs
@@ -241,6 +246,17 @@ class SearchQueueService : Service() {
 
         private val _queueState = MutableStateFlow<QueueState>(QueueState.Idle)
         val queueState = _queueState.asStateFlow()
+
+        // Test-only: queueState is companion-scoped (one process-wide
+        // value, by design -- see clearStaleNotificationIfIdle's own
+        // comment), which means a test that actually runs a queue to
+        // completion permanently leaves it Finished for every later test
+        // in the same JVM, including ones (like
+        // clearStaleNotificationIfIdle's own) that need a genuinely Idle
+        // starting state regardless of test execution order.
+        internal fun resetQueueStateForTest() {
+            _queueState.value = QueueState.Idle
+        }
 
         fun start(
             context: Context,
