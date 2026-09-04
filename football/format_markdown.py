@@ -294,6 +294,36 @@ def _weather_detail_extra(w) -> str:
     return extra
 
 
+def _weather_detail_line(w) -> str:
+    """The full "- Weather detail: ..." line, extracted from
+    _append_match_header -- see _weather_detail_extra's own doc comment
+    for why. Behavior unchanged."""
+    humidity = w.humidity_pct if w.humidity_pct is not None else "n/a"
+    wind = w.wind_speed_kmph if w.wind_speed_kmph is not None else "n/a"
+    precip = w.precip_mm if w.precip_mm is not None else "n/a"
+    extra = _weather_detail_extra(w)
+    return f"- Weather detail: humidity {humidity}%, wind {wind} km/h, precip {precip} mm{extra}"
+
+
+def _competition_line(d) -> str:
+    """The "- Competition: ..." line, extracted from _append_match_header
+    -- see _weather_detail_extra's own doc comment for why. Behavior
+    unchanged."""
+    season = f" ({d.season})" if d.season else ""
+    round_str = f", round {d.round}" if d.round is not None else ""
+    return f"- Competition: {d.competition or 'unknown'}{season}{round_str}"
+
+
+def _venue_line(d) -> str | None:
+    """The "- Venue: ..." line, extracted from _append_match_header -- see
+    _weather_detail_extra's own doc comment for why. Behavior unchanged."""
+    if not d.venue_name:
+        return None
+    city = f", {d.venue_city}" if d.venue_city else ""
+    country = f", {d.venue_country}" if d.venue_country else ""
+    return f"- Venue: {d.venue_name}{city}{country}"
+
+
 def _append_match_header(d, lines: list[str]) -> None:
     """First part of merged_match_markdown -- extracted purely to keep
     that function's own cognitive complexity down (python:S3776); each
@@ -303,10 +333,11 @@ def _append_match_header(d, lines: list[str]) -> None:
     lines.append(f"**{d.home_team} vs {d.away_team}**")
     lines.append("")
     lines.append(f"- Kickoff: {format_when(d.kickoff_utc)}")
-    lines.append(f"- Competition: {d.competition or 'unknown'}{f' ({d.season})' if d.season else ''}{f', round {d.round}' if d.round is not None else ''}")
+    lines.append(_competition_line(d))
     lines.append(f"- Status: {d.status}")
-    if d.venue_name:
-        lines.append(f"- Venue: {d.venue_name}{f', {d.venue_city}' if d.venue_city else ''}{f', {d.venue_country}' if d.venue_country else ''}")
+    venue_line = _venue_line(d)
+    if venue_line:
+        lines.append(venue_line)
     if d.referee:
         rs = f" ({referee_stats_str(d.referee_stats)})" if d.referee_stats else ""
         lines.append(f"- Referee: {d.referee}{rs}")
@@ -315,9 +346,7 @@ def _append_match_header(d, lines: list[str]) -> None:
     if d.weather:
         lines.append(f"- Weather: {d.weather}")
     if d.weather_detail:
-        w = d.weather_detail
-        extra = _weather_detail_extra(w)
-        lines.append(f"- Weather detail: humidity {w.humidity_pct if w.humidity_pct is not None else 'n/a'}%, wind {w.wind_speed_kmph if w.wind_speed_kmph is not None else 'n/a'} km/h, precip {w.precip_mm if w.precip_mm is not None else 'n/a'} mm{extra}")
+        lines.append(_weather_detail_line(d.weather_detail))
 
 
 def _append_match_odds_and_standings(d, lines: list[str]) -> None:
@@ -1010,8 +1039,9 @@ def _append_insights_risk_flags(insights: MatchInsights, home_team: str, away_te
 
 
 def _append_insights_impact(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
-    """Final fifth of insights_markdown -- see _append_insights_summary's
-    docstring for why this split is safe."""
+    """Final fifth of insights_markdown, itself split in two -- see
+    _append_insights_summary's docstring for why this split is safe,
+    and _append_insights_impact_estimates below for the rest."""
     if insights.home_card_risks:
         lines.append(f"- {card_risks_str(insights.home_card_risks, home_team)}")
     if insights.away_card_risks:
@@ -1026,6 +1056,11 @@ def _append_insights_impact(insights: MatchInsights, home_team: str, away_team: 
         lines.append(f"- {possession_matchup_str(insights.home_possession_matchup, home_team)}")
     if insights.away_possession_matchup:
         lines.append(f"- {possession_matchup_str(insights.away_possession_matchup, away_team)}")
+    _append_insights_impact_estimates(insights, home_team, away_team, lines)
+
+
+def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Second half of _append_insights_impact -- see its own docstring."""
     if insights.home_corners_estimate:
         lines.append(f"- {corners_estimate_str(insights.home_corners_estimate, home_team)}")
     if insights.away_corners_estimate:

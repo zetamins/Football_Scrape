@@ -21,10 +21,10 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-T = TypeVar("T")  # NOSONAR(S6796) -- PEP 695 generic syntax (def foo[T](...)) needs Python 3.12+, incompatible with this project's declared requires-python = ">=3.11" (this exact PEP 695 swap was already tried and reverted here once, see git history); TypeVar is the correct, intentional form
+T = TypeVar("T")
 
 
-async def retry_with_backoff(fn: Callable[[], Awaitable[T]], attempts: int = 3) -> T:
+async def retry_with_backoff(fn: Callable[[], Awaitable[T]], attempts: int = 3) -> T:  # NOSONAR(S6796) -- PEP 695 generic syntax (def foo[T](...)) needs Python 3.12+, incompatible with this project's declared requires-python = ">=3.11" (this exact PEP 695 swap was already tried and reverted here once, see git history); TypeVar is the correct, intentional form
     # Exception, not BaseException -- catching BaseException would also
     # swallow KeyboardInterrupt/SystemExit/GeneratorExit and retry a
     # deliberate interruption instead of honoring it, which is a real bug,

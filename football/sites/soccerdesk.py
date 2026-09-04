@@ -511,9 +511,14 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
     data = await _fetch_json(f"https://www.soccerdesk.com/v1/en/match/soccer/full/{match_id}")
 
     lineup = data.get("lineup") or []
-    home = next((l for l in lineup if l.get("pos") == 0), None)
-    away = next((l for l in lineup if l.get("pos") == 1), None)
-    venue = data.get("venue") if data.get("has_venue") else None
+    # Defaulted to {} once here rather than at every later .get() call --
+    # removes ~8 repeated `(home or {})`/`(venue or {})` occurrences that
+    # were the bulk of this function's cognitive complexity (python:S3776);
+    # behavior unchanged, since `{}.get(...)` returns None exactly like the
+    # None-guarded form did.
+    home = next((l for l in lineup if l.get("pos") == 0), None) or {}
+    away = next((l for l in lineup if l.get("pos") == 1), None) or {}
+    venue = (data.get("venue") if data.get("has_venue") else None) or {}
 
     name_to_id = _build_name_to_id(home, away)
     event_stats = _build_player_event_stats(data.get("incs"), name_to_id)
@@ -523,16 +528,16 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
         await _fetch_standings_and_h2h(meta, match)
     )
 
-    injured_names = [p["name"] for p in [*((home or {}).get("injured") or []), *((away or {}).get("injured") or [])]]
-    home_suspended_names = [p["name"] for p in (home or {}).get("suspended") or []]
-    away_suspended_names = [p["name"] for p in (away or {}).get("suspended") or []]
-    venue_lat = float(venue["lat"]) if venue and venue.get("lat") else None
-    venue_lon = float(venue["long"]) if venue and venue.get("long") else None
+    injured_names = [p["name"] for p in [*(home.get("injured") or []), *(away.get("injured") or [])]]
+    home_suspended_names = [p["name"] for p in home.get("suspended") or []]
+    away_suspended_names = [p["name"] for p in away.get("suspended") or []]
+    venue_lat = float(venue["lat"]) if venue.get("lat") else None
+    venue_lon = float(venue["long"]) if venue.get("long") else None
 
     return MatchDetails(
-        **{**asdict(match), "venue": (venue or {}).get("name")},
-        venue_name=(venue or {}).get("name"),
-        venue_city=(venue or {}).get("city"),
+        **{**asdict(match), "venue": venue.get("name")},
+        venue_name=venue.get("name"),
+        venue_city=venue.get("city"),
         venue_country=None,
         venue_lat=venue_lat,
         venue_lon=venue_lon,
@@ -552,8 +557,8 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
         away_formation=None,
         home_team_country=None,
         away_team_country=None,
-        home_manager=_extract_manager((home or {}).get("coaches")),
-        away_manager=_extract_manager((away or {}).get("coaches")),
+        home_manager=_extract_manager(home.get("coaches")),
+        away_manager=_extract_manager(away.get("coaches")),
         home_manager_vs_away_club=None,
         away_manager_vs_home_club=None,
         standings_table=None,
