@@ -21,7 +21,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** One ranked row: a name, a value to bar-encode, and the text already formatted for display (e.g. "9g", "6a"). */
-data class RankedEntry(val name: String, val value: Number, val valueText: String)
+data class RankedEntry(
+    val name: String,
+    val value: Number,
+    val valueText: String,
+)
 
 /**
  * A ranked list where each row's bar length is proportional to its
@@ -31,7 +35,11 @@ data class RankedEntry(val name: String, val value: Number, val valueText: Strin
  * players ranked against each other, so it needs its own layout.
  */
 @Composable
-fun RankedBarList(entries: List<RankedEntry>, barColor: Color, modifier: Modifier = Modifier) {
+fun RankedBarList(
+    entries: List<RankedEntry>,
+    barColor: Color,
+    modifier: Modifier = Modifier,
+) {
     if (entries.isEmpty()) return
     val maxValue = entries.maxOf { it.value.toDouble() }.coerceAtLeast(0.0001)
     Column(modifier = modifier.fillMaxWidth()) {
@@ -46,10 +54,11 @@ fun RankedBarList(entries: List<RankedEntry>, barColor: Color, modifier: Modifie
                 )
                 Spacer(Modifier.width(8.dp))
                 Canvas(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(12.dp)
-                        .clip(RoundedCornerShape(3.dp)),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(3.dp)),
                 ) {
                     val fraction = (entry.value.toDouble() / maxValue).toFloat().coerceIn(0f, 1f)
                     drawRect(color = barColor.copy(alpha = 0.15f), topLeft = Offset.Zero, size = Size(size.width, size.height))

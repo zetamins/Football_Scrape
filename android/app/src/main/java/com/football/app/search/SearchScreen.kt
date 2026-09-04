@@ -1,5 +1,13 @@
 package com.football.app.search
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,8 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Button
@@ -18,9 +28,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,32 +41,89 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.football.app.MainActivity
 import com.football.app.components.Logo
+import com.football.app.queue.QueueState
+import com.football.app.queue.SearchQueueService
 import com.football.app.report.ReportViewModel
 import com.football.app.report.SearchState
 import com.football.app.ui.theme.AppTheme
 
 @Composable
-fun SearchScreen(viewModel: ReportViewModel, onReportReady: () -> Unit, onHistoryClick: () -> Unit) {
+fun SearchScreen(
+    viewModel: ReportViewModel,
+    onReportReady: () -> Unit,
+    onHistoryClick: () -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     var teamName by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val queueState by SearchQueueService.queueState.collectAsState()
+    val activity = context as? MainActivity
 
-    // Navigates as a side effect of state, not as part of the click
-    // handler above -- Success can also be reached by re-observing
-    // already-in-flight state (e.g. process restore), not only a fresh
-    // search.
+    // Navigates as a side effect of state, not as part of a click handler
+    // -- Success can be reached either via loadMostRecentFromHistory()
+    // below (a single search completing through the queue) or
+    // loadFromHistory() (opening a saved report from History).
     LaunchedEffect(state) {
         if (state is SearchState.Success) onReportReady()
     }
 
-    val isLoading = state is SearchState.Loading
+    // Every search -- single or batch -- now runs through
+    // SearchQueueService (a "queue of one" for a single team) rather
+    // than ReportViewModel talking to ReportRepository directly. Confirmed
+    // live this matters, not just architectural tidiness: a single search
+    // tied to the Activity's own coroutine had no foreground-service or
+    // battery-optimization protection, and stalled once the app lost
+    // visibility (switching to a different app -- a real backgrounding,
+    // distinct from the lock-screen case setKeepVisibleDuringSearch below
+    // handles). Routing through the same service the batch queue already
+    // used gives single search the identical protection, for free, rather
+    // than duplicating it.
+    var isSingleSearchRun by remember { mutableStateOf(false) }
+    var singleSearchError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(queueState) {
+        val finished = queueState as? QueueState.Finished ?: return@LaunchedEffect
+        if (!isSingleSearchRun) return@LaunchedEffect
+        isSingleSearchRun = false
+        if (finished.succeeded > 0) {
+            viewModel.loadMostRecentFromHistory()
+        } else {
+            singleSearchError = finished.lastError ?: "Search failed."
+        }
+    }
+
+    val startQueue = rememberStartQueue(context)
+    val isSearchRunning = queueState is QueueState.Running
+
+    // Confirmed live: sofascore's scrape (the only source that needs a
+    // real WebView -- see WebViewRenderer.kt) makes zero progress while
+    // the device is locked, resuming instantly the moment it's unlocked.
+    // Root cause: Chromium WebView throttles JS execution for an app
+    // with no visible/resumed window, which a locked keyguard causes
+    // regardless of process priority. setKeepVisibleDuringSearch (see
+    // MainActivity) keeps this Activity's window counted as visible even
+    // while the keyguard is drawn over it. Only for the actual span a
+    // search is running, not left on permanently -- covers single search
+    // and the batch queue identically now that both share queueState.
+    LaunchedEffect(isSearchRunning) {
+        activity?.setKeepVisibleDuringSearch(isSearchRunning)
+    }
+    DisposableEffect(Unit) {
+        onDispose { activity?.setKeepVisibleDuringSearch(false) }
+    }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        // Scrollable -- without this, a queue of more than a few teams
+        // (Batch search section) pushes the "Run queue" button below
+        // the visible screen with no way to reach it. Confirmed live:
+        // 5 queued teams left "Run queue" completely inaccessible.
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(48.dp))
@@ -80,13 +149,17 @@ fun SearchScreen(viewModel: ReportViewModel, onReportReady: () -> Unit, onHistor
             onValueChange = { teamName = it },
             label = { Text("Team name") },
             singleLine = true,
-            enabled = !isLoading,
+            enabled = !isSearchRunning,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = { viewModel.search(teamName) },
-            enabled = teamName.isNotBlank() && !isLoading,
+            onClick = {
+                singleSearchError = null
+                isSingleSearchRun = true
+                startQueue(listOf(teamName))
+            },
+            enabled = teamName.isNotBlank() && !isSearchRunning,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Search")
@@ -94,50 +167,196 @@ fun SearchScreen(viewModel: ReportViewModel, onReportReady: () -> Unit, onHistor
 
         Spacer(Modifier.height(32.dp))
 
-        when (val s = state) {
-            is SearchState.Loading -> LoadingChecklist(s)
-            is SearchState.Error -> Text(
-                s.message,
-                color = AppTheme.colors.statusCritical,
-                modifier = Modifier.padding(top = 8.dp),
+        if (isSingleSearchRun && queueState is QueueState.Running) {
+            SingleSearchProgress(queueState as QueueState.Running)
+        }
+        singleSearchError?.let {
+            Text(it, color = AppTheme.colors.statusCritical, modifier = Modifier.padding(top = 8.dp))
+        }
+
+        Spacer(Modifier.height(32.dp))
+        BatchQueueSection(
+            teamName = teamName,
+            onTeamNameConsumed = { teamName = "" },
+            startQueue = startQueue,
+            showStatusCard = !isSingleSearchRun,
+            isSearchRunning = isSearchRunning,
+        )
+    }
+}
+
+/** Shared "ask for battery-optimization exemption, then notification
+ * permission, then start the service" flow -- used by both the main
+ * Search button (a queue of one) and the batch queue's Run queue button.
+ * Proceeds regardless of what the user picks at each step (best-effort,
+ * same policy SearchQueueService.notify()'s SecurityException handling
+ * already has): a denied permission just means the notification/OEM
+ * backgrounding protection is degraded, not that the search can't run. */
+@Composable
+private fun rememberStartQueue(context: Context): (List<String>) -> Unit {
+    var pendingTeams by remember { mutableStateOf<List<String>>(emptyList()) }
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            SearchQueueService.start(context, pendingTeams)
+        }
+    // Confirmed live: a correctly-declared foreground service alone isn't
+    // enough to survive backgrounding on many OEM Android skins (Samsung,
+    // MIUI, EMUI, ColorOS, vivo/iQOO, etc.) -- SearchQueueService was
+    // getting OOM-killed mid-run because the app never asked to be
+    // exempted from Doze/App Standby battery restrictions. This is the
+    // one system dialog Android lets an app trigger directly for that (no
+    // manual Settings navigation needed).
+    val batteryOptimizationLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    return { teams ->
+        pendingTeams = teams
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
+            batteryOptimizationLauncher.launch(
+                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")),
             )
-            else -> {}
+        } else {
+            // Already exempted -- skip straight to the notification-
+            // permission step rather than showing a system dialog for
+            // something already granted.
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }
 
+/** Determinate-when-possible progress for a single search running through
+ * the queue -- same "(step/6)" parsing LoadingChecklist used to do
+ * directly off SearchState.Loading, now off QueueState.Running.message
+ * instead. Deliberately simpler than the old per-source checklist (no
+ * checkmark list): that per-source detail lived in
+ * SearchState.Loading.sources, which QueueState.Running doesn't carry --
+ * accepted tradeoff for giving single search the queue's foreground-
+ * service protection rather than duplicating that protection just to
+ * keep the richer view. */
+@Composable
+private fun SingleSearchProgress(running: QueueState.Running) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        val displayMessage = running.message.ifBlank { "Computing match insights..." }
+        val stepProgress = remember(displayMessage) { parseStepProgress(displayMessage) }
+        if (stepProgress != null) {
+            LinearProgressIndicator(progress = { stepProgress }, modifier = Modifier.fillMaxWidth())
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Searching \"${running.currentTeam}\"...", style = MaterialTheme.typography.bodyMedium)
+        Text(displayMessage, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
 /**
- * Real per-source progress, not a blank spinner -- backs
- * frontend/DESIGN.md's Premium direction requirement, fed directly by
- * SearchState.Loading.sources (one entry per on_source_progress
- * callback the bridge has actually fired so far).
+ * Add-to-queue + run-queue UI. Deliberately separate from the single
+ * "Search" flow above rather than replacing it -- most searches are one
+ * team, and the queue (a background service + notification, see
+ * SearchQueueService) is specifically for "search several teams, one
+ * after another, without babysitting the app." Both now start the exact
+ * same service, just with different team-name lists.
  */
 @Composable
-private fun LoadingChecklist(loading: SearchState.Loading) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        if (loading.message.isNotBlank()) {
-            Text(loading.message, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(12.dp))
+private fun BatchQueueSection(
+    teamName: String,
+    onTeamNameConsumed: () -> Unit,
+    startQueue: (List<String>) -> Unit,
+    showStatusCard: Boolean,
+    isSearchRunning: Boolean,
+) {
+    var queuedTeams by remember { mutableStateOf(listOf<String>()) }
+    val queueState by SearchQueueService.queueState.collectAsState()
+
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("Batch search", style = MaterialTheme.typography.titleSmall, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = {
+                    val name = teamName.trim()
+                    if (name.isNotEmpty() && name !in queuedTeams) queuedTeams = queuedTeams + name
+                    onTeamNameConsumed()
+                },
+                enabled = teamName.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(if (teamName.isNotBlank()) "Add \"$teamName\" to queue" else "Add to queue")
+            }
         }
-        loading.sources.forEach { status ->
+
+        queuedTeams.forEach { team ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             ) {
-                if (status.succeeded) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = AppTheme.colors.statusGood)
-                    Spacer(Modifier.width(8.dp))
-                    Text("${status.source}: ${status.fixturesScraped} fixtures")
-                } else {
-                    Icon(Icons.Default.Close, contentDescription = null, tint = AppTheme.colors.statusCritical)
-                    Spacer(Modifier.width(8.dp))
-                    Text("${status.source}: ${status.matchesError ?: status.profileError ?: "failed"}")
+                Text(team, modifier = Modifier.weight(1f))
+                IconButton(onClick = { queuedTeams = queuedTeams - team }) {
+                    Icon(Icons.Default.Close, contentDescription = "Remove")
                 }
             }
         }
-        if (loading.sources.isEmpty()) {
+
+        if (queuedTeams.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Button(
+                onClick = {
+                    startQueue(queuedTeams)
+                    queuedTeams = emptyList()
+                },
+                enabled = !isSearchRunning,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Run queue (${queuedTeams.size})")
+            }
+        }
+
+        if (showStatusCard) QueueStatusCard(queueState)
+    }
+}
+
+@Composable
+private fun QueueStatusCard(queueState: QueueState) {
+    when (queueState) {
+        is QueueState.Running -> {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Queue: ${queueState.currentTeam} (${queueState.index + 1}/${queueState.total}) -- ${queueState.message.ifBlank {
+                    "working…"
+                }}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        is QueueState.Finished -> {
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Queue finished: ${queueState.succeeded} succeeded, ${queueState.failed} failed",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        QueueState.Idle -> {
+            // No queue has run yet this session -- nothing to show.
         }
     }
+}
+
+private val STEP_PROGRESS_REGEX = Regex("""^\((\d+)/(\d+)\)""")
+
+/** Parses a leading "(step/total)" prefix (see football/orchestrate.py's
+ * _step_message()) into a 0f..1f fraction for a determinate progress
+ * bar; null for any message without that prefix (the pre-scrape and
+ * per-source messages don't have one, and correctly stay indeterminate). */
+private fun parseStepProgress(message: String): Float? {
+    val match = STEP_PROGRESS_REGEX.find(message) ?: return null
+    val (stepText, totalText) = match.destructured
+    val step = stepText.toIntOrNull() ?: return null
+    val total = totalText.toIntOrNull() ?: return null
+    if (total <= 0) return null
+    return (step.toFloat() / total.toFloat()).coerceIn(0f, 1f)
 }

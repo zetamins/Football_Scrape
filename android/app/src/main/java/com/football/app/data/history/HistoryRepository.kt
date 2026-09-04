@@ -4,8 +4,8 @@ import com.football.app.data.model.ReportJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.util.UUID
 
@@ -24,12 +24,15 @@ import java.util.UUID
  * their own IO-dispatched coroutine and both touch index.json --
  * cheap insurance against a future overlap corrupting the index.
  */
-class HistoryRepository(private val historyDir: File) {
+class HistoryRepository(
+    private val historyDir: File,
+) {
     private val indexFile = File(historyDir, "index.json")
     private val entrySerializer = ListSerializer(HistoryEntry.serializer())
     private val json = Json { ignoreUnknownKeys = true }
 
     @Synchronized
+    @Suppress("SwallowedException", "TooGenericExceptionCaught")
     fun list(): List<HistoryEntry> {
         if (!indexFile.exists()) return emptyList()
         return try {
@@ -42,16 +45,20 @@ class HistoryRepository(private val historyDir: File) {
     }
 
     @Synchronized
-    fun save(report: ReportJson, rawJson: String): HistoryEntry {
+    fun save(
+        report: ReportJson,
+        rawJson: String,
+    ): HistoryEntry {
         historyDir.mkdirs()
         val id = UUID.randomUUID().toString()
-        val entry = HistoryEntry(
-            id = id,
-            team = report.team,
-            opponent = opponentOf(report),
-            generatedAt = report.generatedAt,
-            savedAtEpochMs = System.currentTimeMillis(),
-        )
+        val entry =
+            HistoryEntry(
+                id = id,
+                team = report.team,
+                opponent = opponentOf(report),
+                generatedAt = report.generatedAt,
+                savedAtEpochMs = System.currentTimeMillis(),
+            )
         File(historyDir, "$id.json").writeText(rawJson)
         writeIndex(list() + entry)
         return entry
@@ -59,7 +66,13 @@ class HistoryRepository(private val historyDir: File) {
 
     @Synchronized
     fun delete(id: String) {
-        File(historyDir, "$id.json").delete()
+        // A failed delete (already gone, or a permissions hiccup) isn't
+        // fatal -- the index is rewritten regardless, and an orphaned
+        // file doesn't break list()/load() since those only ever consult
+        // index.json -- but it's still worth a log line rather than
+        // silently discarding File.delete()'s result.
+        val deleted = File(historyDir, "$id.json").delete()
+        if (!deleted) android.util.Log.w("HistoryRepository", "Failed to delete history file for id=$id (may already be gone)")
         writeIndex(list().filterNot { it.id == id })
     }
 

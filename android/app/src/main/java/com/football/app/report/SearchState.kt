@@ -11,13 +11,23 @@ import com.football.app.data.model.SourceStatus
  */
 sealed interface SearchState {
     data object Idle : SearchState
-    data class Loading(val sources: List<SourceStatus> = emptyList(), val message: String = "") : SearchState
+
+    data class Loading(
+        val sources: List<SourceStatus> = emptyList(),
+        val message: String = "",
+    ) : SearchState
 
     // rawJson is the exact string the backend returned (report is just
     // its decoded form) -- kept alongside so Download JSON writes the
     // real payload byte-for-byte, and so History can persist/reload the
     // same bytes rather than a re-serialization that could drop fields
     // the decoded model doesn't capture (e.g. sources).
-    data class Success(val report: ReportJson, val rawJson: String) : SearchState
-    data class Error(val message: String) : SearchState
+    data class Success(
+        val report: ReportJson,
+        val rawJson: String,
+    ) : SearchState
+
+    data class Error(
+        val message: String,
+    ) : SearchState
 }

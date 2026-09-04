@@ -21,24 +21,30 @@ import com.football.app.ui.theme.AppTheme
  * frontend/DESIGN.md). Most recent result first.
  */
 @Composable
-fun FormGuideStrip(results: List<String>, modifier: Modifier = Modifier) {
+fun FormGuideStrip(
+    results: List<String>,
+    modifier: Modifier = Modifier,
+) {
     Row(modifier = modifier) {
         results.forEach { result ->
-            val color = when (result) {
-                "W" -> AppTheme.colors.statusGood
-                "L" -> AppTheme.colors.statusCritical
-                else -> AppTheme.colors.neutral
-            }
+            val color =
+                when (result) {
+                    "W" -> AppTheme.colors.statusGood
+                    "L" -> AppTheme.colors.statusCritical
+                    else -> AppTheme.colors.neutral
+                }
             Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(color),
+                modifier =
+                    Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(color),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(result, color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
             }
-            androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
+            androidx.compose.foundation.layout
+                .Spacer(Modifier.size(4.dp))
         }
     }
 }

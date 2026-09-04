@@ -45,29 +45,31 @@ data class AppColors(
     val squadCategorical: List<Color>,
 )
 
-val LightAppColors = AppColors(
-    homeSeries = Color(0xFF2A78D6),
-    awaySeries = Color(0xFFEB6834),
-    statusGood = Color(0xFF0CA30C),
-    statusWarning = Color(0xFFFAB219),
-    statusCritical = Color(0xFFD03B3B),
-    neutral = Color(0xFFC3C2B7),
-    brandBright = Color(0xFF3E8A24),
-    squadCategorical = listOf(Color(0xFF1BAF7A), Color(0xFFEDA100), Color(0xFFE87BA4), Color(0xFF4A3AA7)),
-)
+val LightAppColors =
+    AppColors(
+        homeSeries = Color(0xFF2A78D6),
+        awaySeries = Color(0xFFEB6834),
+        statusGood = Color(0xFF0CA30C),
+        statusWarning = Color(0xFFFAB219),
+        statusCritical = Color(0xFFD03B3B),
+        neutral = Color(0xFFC3C2B7),
+        brandBright = Color(0xFF3E8A24),
+        squadCategorical = listOf(Color(0xFF1BAF7A), Color(0xFFEDA100), Color(0xFFE87BA4), Color(0xFF4A3AA7)),
+    )
 
-val DarkAppColors = AppColors(
-    homeSeries = Color(0xFF3987E5),
-    awaySeries = Color(0xFFD95926),
-    // Status colors are fixed, never themed (dataviz's own rule) --
-    // same hex in both modes.
-    statusGood = Color(0xFF0CA30C),
-    statusWarning = Color(0xFFFAB219),
-    statusCritical = Color(0xFFD03B3B),
-    neutral = Color(0xFF383835),
-    brandBright = Color(0xFF8FD13F),
-    squadCategorical = listOf(Color(0xFF199E70), Color(0xFFC98500), Color(0xFFD55181), Color(0xFF9085E9)),
-)
+val DarkAppColors =
+    AppColors(
+        homeSeries = Color(0xFF3987E5),
+        awaySeries = Color(0xFFD95926),
+        // Status colors are fixed, never themed (dataviz's own rule) --
+        // same hex in both modes.
+        statusGood = Color(0xFF0CA30C),
+        statusWarning = Color(0xFFFAB219),
+        statusCritical = Color(0xFFD03B3B),
+        neutral = Color(0xFF383835),
+        brandBright = Color(0xFF8FD13F),
+        squadCategorical = listOf(Color(0xFF199E70), Color(0xFFC98500), Color(0xFFD55181), Color(0xFF9085E9)),
+    )
 
 val LocalAppColors = staticCompositionLocalOf { LightAppColors }
 

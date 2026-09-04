@@ -97,7 +97,11 @@ data class TopPerformer(
 )
 
 @Serializable
-data class TopDefender(val name: String, val tacklesMade: Int, val interceptions: Int)
+data class TopDefender(
+    val name: String,
+    val tacklesMade: Int,
+    val interceptions: Int,
+)
 
 @Serializable
 data class BenchRegular(

@@ -1,0 +1,52 @@
+naming:
+  FunctionNaming:
+    # Detekt (unlike ktlint 1.x) has no annotation-based exemption for
+    # this rule, so the standard workaround is widening the pattern
+    # itself: Jetpack Compose functions are conventionally PascalCase
+    # (they behave like widget factories, not regular functions) --
+    # without this, every @Composable in the app trips the default
+    # lowerCamelCase-only pattern.
+    functionPattern: '([a-z][a-zA-Z0-9]*)|([A-Z][a-zA-Z0-9]*)'
+  MatchingDeclarationName:
+    # This module intentionally groups a composable with its small
+    # supporting data class in one file named after the composable (e.g.
+    # RadarChart.kt holds both RadarChart() and its RadarAxis data
+    # class) -- consistent, deliberate organization, not a naming slip.
+    active: false
+
+style:
+  MaxLineLength:
+    # Matches this project's own .editorconfig max_line_length (140), not
+    # detekt's stricter 120 default.
+    maxLineLength: 140
+  MagicNumber:
+    # This module is UI/chart-heavy: color hex literals, epsilon
+    # thresholds, and layout-ratio constants (e.g. `val corner = w *
+    # 0.28f`) read as self-documenting via their variable/parameter name
+    # already -- extracting each into a named constant would be pure
+    # churn, not a real complexity reduction (see project convention: no
+    # abstraction beyond what the code needs).
+    ignorePropertyDeclaration: true
+    ignoreNamedArgument: true
+  ReturnCount:
+    # This codebase uses guard-clause style deliberately for readability
+    # (validate, bail early, fall through to the real work) -- detekt can
+    # exclude those from the count directly rather than just raising the
+    # threshold, which stays precise about what's actually being allowed.
+    excludeGuardClauses: true
+
+exceptions:
+  SwallowedException:
+    # SerializationException is caught-and-nulled deliberately and
+    # repeatedly in ReportScreen.kt/PredictionHero.kt's per-field decode
+    # helpers -- each report field may or may not be present/well-formed
+    # depending on which source populated it, and one field failing to
+    # decode should degrade to "not shown", not crash the whole report
+    # screen. This is the same tolerant-decode convention as the
+    # backend's own per-source optional-field handling.
+    ignoredExceptionTypes:
+      - 'InterruptedException'
+      - 'NumberFormatException'
+      - 'ParseException'
+      - 'MalformedURLException'
+      - 'kotlinx.serialization.SerializationException'

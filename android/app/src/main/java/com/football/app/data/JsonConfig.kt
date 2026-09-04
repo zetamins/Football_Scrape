@@ -19,12 +19,13 @@ import kotlinx.serialization.json.JsonNamingStrategy
  * ReportJson.kt).
  */
 @OptIn(ExperimentalSerializationApi::class)
-val AppJson = Json {
-    ignoreUnknownKeys = true // a new backend field shouldn't crash an older app build
-    namingStrategy = JsonNamingStrategy.SnakeCase
-    explicitNulls = false // the backend omits some optional keys entirely, not just nulls them
-    coerceInputValues = true
-}
+val AppJson =
+    Json {
+        ignoreUnknownKeys = true // a new backend field shouldn't crash an older app build
+        namingStrategy = JsonNamingStrategy.SnakeCase
+        explicitNulls = false // the backend omits some optional keys entirely, not just nulls them
+        coerceInputValues = true
+    }
 
 /**
  * Same config as AppJson, minus namingStrategy. kotlinx.serialization
@@ -40,8 +41,9 @@ val AppJson = Json {
  * AppJson, not this.
  */
 @OptIn(ExperimentalSerializationApi::class)
-val AppJsonTopLevel = Json {
-    ignoreUnknownKeys = true
-    explicitNulls = false
-    coerceInputValues = true
-}
+val AppJsonTopLevel =
+    Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        coerceInputValues = true
+    }

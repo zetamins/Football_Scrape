@@ -38,7 +38,11 @@ import com.football.app.data.model.LineupPlayer
  * malformed.
  */
 @Composable
-fun PitchDiagram(formation: String?, players: List<LineupPlayer>, teamColor: Color) {
+fun PitchDiagram(
+    formation: String?,
+    players: List<LineupPlayer>,
+    teamColor: Color,
+) {
     val rows = remember(formation, players) { buildRows(formation, players) }
     if (rows.isEmpty()) return
 
@@ -91,21 +95,29 @@ fun PitchDiagram(formation: String?, players: List<LineupPlayer>, teamColor: Col
                 drawCircle(color = Color.White, radius = 16.dp.toPx(), center = Offset(x, y), style = Stroke(width = 1.5.dp.toPx()))
 
                 val shirt = player.shirtNumber?.toString() ?: "-"
-                val numberLayout = textMeasurer.measure(shirt, style = TextStyle(color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center))
+                val numberLayout =
+                    textMeasurer.measure(
+                        shirt,
+                        style = TextStyle(color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center),
+                    )
                 drawText(numberLayout, topLeft = Offset(x - numberLayout.size.width / 2f, y - numberLayout.size.height / 2f))
 
                 val shortName = player.name.substringAfterLast(' ').take(10)
-                val nameLayout = textMeasurer.measure(
-                    shortName,
-                    style = TextStyle(color = Color.White, fontSize = 9.sp, textAlign = TextAlign.Center),
-                )
+                val nameLayout =
+                    textMeasurer.measure(
+                        shortName,
+                        style = TextStyle(color = Color.White, fontSize = 9.sp, textAlign = TextAlign.Center),
+                    )
                 drawText(nameLayout, topLeft = Offset(x - nameLayout.size.width / 2f, y + 18.dp.toPx()))
             }
         }
     }
 }
 
-internal fun buildRows(formation: String?, players: List<LineupPlayer>): List<List<LineupPlayer>> {
+internal fun buildRows(
+    formation: String?,
+    players: List<LineupPlayer>,
+): List<List<LineupPlayer>> {
     if (players.isEmpty()) return emptyList()
     val gk = players.filter { it.position == "G" }
     val defenders = players.filter { it.position == "D" }
@@ -115,17 +127,19 @@ internal fun buildRows(formation: String?, players: List<LineupPlayer>): List<Li
 
     val formationParts = formation?.split("-")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size >= 2 }
 
-    val midfieldRows: List<List<LineupPlayer>> = if (formationParts != null && formationParts.size > 2) {
-        val midCounts = formationParts.subList(1, formationParts.size - 1)
-        var idx = 0
-        midCounts.map { count ->
-            val chunk = midfielders.subList(idx.coerceAtMost(midfielders.size), (idx + count).coerceAtMost(midfielders.size))
-            idx += count
-            chunk
-        }.filter { it.isNotEmpty() }
-    } else {
-        listOf(midfielders).filter { it.isNotEmpty() }
-    }
+    val midfieldRows: List<List<LineupPlayer>> =
+        if (formationParts != null && formationParts.size > 2) {
+            val midCounts = formationParts.subList(1, formationParts.size - 1)
+            var idx = 0
+            midCounts
+                .map { count ->
+                    val chunk = midfielders.subList(idx.coerceAtMost(midfielders.size), (idx + count).coerceAtMost(midfielders.size))
+                    idx += count
+                    chunk
+                }.filter { it.isNotEmpty() }
+        } else {
+            listOf(midfielders).filter { it.isNotEmpty() }
+        }
 
     return buildList {
         if (gk.isNotEmpty()) add(gk)

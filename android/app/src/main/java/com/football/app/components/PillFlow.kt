@@ -16,7 +16,10 @@ import androidx.compose.ui.unit.dp
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PillFlow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun PillFlow(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     FlowRow(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

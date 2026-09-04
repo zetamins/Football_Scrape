@@ -20,7 +20,10 @@ import androidx.compose.ui.unit.dp
  * SegmentedBar, so callers can pass raw percentages that sum to ~100,
  * not just values that sum to exactly 1f).
  */
-data class Segment(val fraction: Float, val color: Color)
+data class Segment(
+    val fraction: Float,
+    val color: Color,
+)
 
 /**
  * Proportional segmented bar -- win/draw/away probability, head-to-head
@@ -38,10 +41,11 @@ fun SegmentedBar(
     gap: Dp = 2.dp,
 ) {
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(height / 2)),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .height(height)
+                .clip(RoundedCornerShape(height / 2)),
     ) {
         Canvas(modifier = Modifier.fillMaxWidth().height(height)) {
             val gapPx = gap.toPx()

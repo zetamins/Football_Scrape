@@ -21,7 +21,12 @@ import kotlin.math.sin
  * different natural ranges, e.g. xG vs. touches in box, still overlay
  * legibly since each axis normalizes independently, not against a
  * shared scale). */
-data class RadarAxis(val label: String, val homeValue: Float, val awayValue: Float, val maxValue: Float)
+data class RadarAxis(
+    val label: String,
+    val homeValue: Float,
+    val awayValue: Float,
+    val maxValue: Float,
+)
 
 /**
  * Overlaid two-series radar/pizza chart -- Performance and Profile tabs'
@@ -45,6 +50,7 @@ fun RadarChart(
         val center = Offset(size.width / 2, size.height / 2)
         val radius = (minOf(size.width, size.height) / 2) * 0.72f
         val angleStep = (2 * Math.PI / axes.size).toFloat()
+
         fun angleFor(index: Int) = -(Math.PI / 2).toFloat() + index * angleStep
 
         // Grid rings (4 concentric polygons)
@@ -75,7 +81,10 @@ fun RadarChart(
             )
         }
 
-        fun drawSeries(valueSelector: (RadarAxis) -> Float, color: Color) {
+        fun drawSeries(
+            valueSelector: (RadarAxis) -> Float,
+            color: Color,
+        ) {
             val path = Path()
             axes.forEachIndexed { i, axis ->
                 val angle = angleFor(i)

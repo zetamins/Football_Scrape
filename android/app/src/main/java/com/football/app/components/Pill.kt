@@ -38,24 +38,31 @@ fun Pill(
         color = contentColor,
         fontWeight = fontWeight,
         fontSize = 13.sp,
-        modifier = modifier
-            .background(containerColor, RoundedCornerShape(50))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier =
+            modifier
+                .background(containerColor, RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 
 /** Same shape as Pill, but a bordered/tinted-surface fill rather than a solid color -- for values that don't carry their own semantic color (plain odds numbers, neutral tags). */
 @Composable
-fun OutlinedPill(text: String, borderColor: Color, contentColor: Color, modifier: Modifier = Modifier) {
+fun OutlinedPill(
+    text: String,
+    borderColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = text,
         color = contentColor,
         fontWeight = FontWeight.Medium,
         fontSize = 13.sp,
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(50))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier =
+            modifier
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
 
@@ -67,13 +74,20 @@ fun OutlinedPill(text: String, borderColor: Color, contentColor: Color, modifier
  * same "home" identity.
  */
 @Composable
-fun DotPill(text: String, dotColor: Color, borderColor: Color, contentColor: Color, modifier: Modifier = Modifier) {
+fun DotPill(
+    text: String,
+    dotColor: Color,
+    borderColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-            .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(50))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier =
+            modifier
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                .border(BorderStroke(1.dp, borderColor), RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Box(modifier = Modifier.size(8.dp).background(dotColor, CircleShape))
         Text(

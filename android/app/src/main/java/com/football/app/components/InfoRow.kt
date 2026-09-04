@@ -18,7 +18,11 @@ import androidx.compose.ui.unit.dp
  * for a warn/critical-toned row (e.g. suspended players, elevated risk).
  */
 @Composable
-fun InfoRow(label: String, value: String, valueColor: Color = Color.Unspecified) {
+fun InfoRow(
+    label: String,
+    value: String,
+    valueColor: Color = Color.Unspecified,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor)

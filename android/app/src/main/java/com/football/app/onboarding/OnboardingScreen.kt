@@ -4,10 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -87,9 +87,10 @@ private fun HeroBadge() {
     Box(contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(220.dp)) {
             drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF8FD13F).copy(alpha = 0.35f), Color.Transparent),
-                ),
+                brush =
+                    Brush.radialGradient(
+                        colors = listOf(Color(0xFF8FD13F).copy(alpha = 0.35f), Color.Transparent),
+                    ),
                 radius = size.minDimension / 2,
             )
         }
@@ -103,11 +104,12 @@ private fun HeroBadge() {
 @Composable
 private fun StadiumGlow() {
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val glow = Brush.radialGradient(
-            colors = listOf(Color(0xFF1E5E2E).copy(alpha = 0.55f), Color.Transparent),
-            center = Offset(size.width * 0.5f, size.height * 0.02f),
-            radius = size.width * 0.9f,
-        )
+        val glow =
+            Brush.radialGradient(
+                colors = listOf(Color(0xFF1E5E2E).copy(alpha = 0.55f), Color.Transparent),
+                center = Offset(size.width * 0.5f, size.height * 0.02f),
+                radius = size.width * 0.9f,
+            )
         drawRect(brush = glow)
     }
 }

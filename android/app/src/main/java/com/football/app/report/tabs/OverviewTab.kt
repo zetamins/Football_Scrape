@@ -19,10 +19,10 @@ import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
-import com.football.app.components.SectionCard
 import com.football.app.components.DotPill
 import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
+import com.football.app.components.SectionCard
 import com.football.app.data.model.HeadToHeadSummary
 import com.football.app.data.model.MatchOverview
 import com.football.app.data.model.VenueDetails
@@ -42,7 +42,12 @@ import com.football.app.ui.theme.AppTheme
  * %) are shown instead, since those aren't shown anywhere else.
  */
 @Composable
-fun OverviewTab(overview: MatchOverview, venueDetails: VenueDetails?, homeTeam: String, awayTeam: String) {
+fun OverviewTab(
+    overview: MatchOverview,
+    venueDetails: VenueDetails?,
+    homeTeam: String,
+    awayTeam: String,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         MatchInfoSection(overview)
         VenueSection(overview, venueDetails)
@@ -56,7 +61,6 @@ fun OverviewTab(overview: MatchOverview, venueDetails: VenueDetails?, homeTeam: 
     }
 }
 
-
 @Composable
 private fun MatchInfoSection(overview: MatchOverview) {
     if (overview.kickoffUtc == null && overview.round == null && overview.season == null) return
@@ -68,7 +72,10 @@ private fun MatchInfoSection(overview: MatchOverview) {
 }
 
 @Composable
-private fun VenueSection(overview: MatchOverview, venueDetails: VenueDetails?) {
+private fun VenueSection(
+    overview: MatchOverview,
+    venueDetails: VenueDetails?,
+) {
     if (overview.venueName == null && overview.venueCity == null && venueDetails == null) return
     SectionCard("Venue") {
         val location = listOfNotNull(overview.venueName, overview.venueCity, overview.venueCountry).joinToString(", ")
@@ -91,13 +98,14 @@ private fun WeatherSection(overview: MatchOverview) {
     SectionCard("Weather") {
         overview.weather?.let { InfoRow("Conditions", it) }
         overview.weatherDetail?.let { w ->
-            val parts = listOfNotNull(
-                w.humidityPct?.let { "humidity ${it.toInt()}%" },
-                w.windSpeedKmph?.let { "wind ${it.toInt()} km/h" },
-                w.windGustKmph?.let { "gusts ${it.toInt()} km/h" },
-                w.precipMm?.let { "precip ${it} mm" },
-                w.chanceOfRainPct?.let { "${it.toInt()}% rain chance" },
-            )
+            val parts =
+                listOfNotNull(
+                    w.humidityPct?.let { "humidity ${it.toInt()}%" },
+                    w.windSpeedKmph?.let { "wind ${it.toInt()} km/h" },
+                    w.windGustKmph?.let { "gusts ${it.toInt()} km/h" },
+                    w.precipMm?.let { "precip $it mm" },
+                    w.chanceOfRainPct?.let { "${it.toInt()}% rain chance" },
+                )
             if (parts.isNotEmpty()) InfoRow("Detail", parts.joinToString(", "))
         }
     }
@@ -125,7 +133,11 @@ private fun RefereeSection(overview: MatchOverview) {
 }
 
 @Composable
-private fun ManagersSection(overview: MatchOverview, homeTeam: String, awayTeam: String) {
+private fun ManagersSection(
+    overview: MatchOverview,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (overview.homeManager == null && overview.awayManager == null) return
     SectionCard("Managers") {
         overview.homeManager?.let { m ->
@@ -147,7 +159,11 @@ private fun ManagersSection(overview: MatchOverview, homeTeam: String, awayTeam:
 }
 
 @Composable
-private fun StandingsSection(overview: MatchOverview, homeTeam: String, awayTeam: String) {
+private fun StandingsSection(
+    overview: MatchOverview,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val h = overview.homeTeamStanding
     val a = overview.awayTeamStanding
     if (h == null && a == null) return
@@ -166,14 +182,32 @@ private fun StandingsSection(overview: MatchOverview, homeTeam: String, awayTeam
             InfoRow(homeTeam, "${h.wins}W-${h.draws}D-${h.losses}L, GD ${h.goalDiff}")
             InfoRow(awayTeam, "${a.wins}W-${a.draws}D-${a.losses}L, GD ${a.goalDiff}")
         } else {
-            h?.let { InfoRow(homeTeam, "#${it.position}${it.totalTeams?.let { t -> "/$t" } ?: ""} (${it.points}pts, ${it.wins}W-${it.draws}D-${it.losses}L, GD ${it.goalDiff})") }
-            a?.let { InfoRow(awayTeam, "#${it.position}${it.totalTeams?.let { t -> "/$t" } ?: ""} (${it.points}pts, ${it.wins}W-${it.draws}D-${it.losses}L, GD ${it.goalDiff})") }
+            h?.let {
+                InfoRow(
+                    homeTeam,
+                    "#${it.position}${it.totalTeams?.let { t ->
+                        "/$t"
+                    } ?: ""} (${it.points}pts, ${it.wins}W-${it.draws}D-${it.losses}L, GD ${it.goalDiff})",
+                )
+            }
+            a?.let {
+                InfoRow(
+                    awayTeam,
+                    "#${it.position}${it.totalTeams?.let { t ->
+                        "/$t"
+                    } ?: ""} (${it.points}pts, ${it.wins}W-${it.draws}D-${it.losses}L, GD ${it.goalDiff})",
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun HeadToHeadSection(overview: MatchOverview, homeTeam: String, awayTeam: String) {
+private fun HeadToHeadSection(
+    overview: MatchOverview,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val summary = overview.headToHeadSummary ?: return
     SectionCard("Head-to-head") {
         H2HBar(summary, homeTeam, awayTeam)
@@ -185,7 +219,14 @@ private fun HeadToHeadSection(overview: MatchOverview, homeTeam: String, awayTea
             Spacer(Modifier.height(8.dp))
             Text("Recent meetings", style = MaterialTheme.typography.labelMedium)
             meetings.forEach { m ->
-                val formations = if (m.homeFormation != null && m.awayFormation != null) " (${m.homeFormation} v ${m.awayFormation})" else ""
+                val formations =
+                    if (m.homeFormation != null &&
+                        m.awayFormation != null
+                    ) {
+                        " (${m.homeFormation} v ${m.awayFormation})"
+                    } else {
+                        ""
+                    }
                 val xg = if (m.homeXg != null && m.awayXg != null) ", xG ${m.homeXg}-${m.awayXg}" else ""
                 Text(
                     "${m.date?.take(10) ?: "?"} ${m.scoreline}$formations$xg",
@@ -197,19 +238,29 @@ private fun HeadToHeadSection(overview: MatchOverview, homeTeam: String, awayTea
 }
 
 @Composable
-private fun H2HBar(summary: HeadToHeadSummary, homeTeam: String, awayTeam: String) {
+private fun H2HBar(
+    summary: HeadToHeadSummary,
+    homeTeam: String,
+    awayTeam: String,
+) {
     SegmentedBar(
-        segments = listOf(
-            Segment(summary.homeWins.toFloat(), AppTheme.colors.homeSeries),
-            Segment(summary.draws.toFloat(), AppTheme.colors.neutral),
-            Segment(summary.awayWins.toFloat(), AppTheme.colors.awaySeries),
-        ),
+        segments =
+            listOf(
+                Segment(summary.homeWins.toFloat(), AppTheme.colors.homeSeries),
+                Segment(summary.draws.toFloat(), AppTheme.colors.neutral),
+                Segment(summary.awayWins.toFloat(), AppTheme.colors.awaySeries),
+            ),
     )
     Spacer(Modifier.height(4.dp))
     Row(modifier = Modifier.fillMaxWidth()) {
         Text("$homeTeam ${summary.homeWins}W", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
         Text("${summary.draws}D", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-        Text("$awayTeam ${summary.awayWins}W", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End)
+        Text(
+            "$awayTeam ${summary.awayWins}W",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.End,
+        )
     }
 }
 
@@ -217,11 +268,12 @@ private fun H2HBar(summary: HeadToHeadSummary, homeTeam: String, awayTeam: Strin
 private fun OddsSection(overview: MatchOverview) {
     val odds = overview.bettingOdds ?: return
     SectionCard("Betting odds") {
-        val moneyline = listOfNotNull(
-            odds.homeWinOdds?.let { Triple("Home", it, AppTheme.colors.homeSeries) },
-            odds.drawOdds?.let { Triple("Draw", it, AppTheme.colors.neutral) },
-            odds.awayWinOdds?.let { Triple("Away", it, AppTheme.colors.awaySeries) },
-        )
+        val moneyline =
+            listOfNotNull(
+                odds.homeWinOdds?.let { Triple("Home", it, AppTheme.colors.homeSeries) },
+                odds.drawOdds?.let { Triple("Draw", it, AppTheme.colors.neutral) },
+                odds.awayWinOdds?.let { Triple("Away", it, AppTheme.colors.awaySeries) },
+            )
         if (moneyline.isNotEmpty()) {
             Text("Moneyline", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
@@ -237,10 +289,11 @@ private fun OddsSection(overview: MatchOverview) {
             }
             Spacer(Modifier.height(10.dp))
         }
-        val overUnder = listOfNotNull(
-            odds.over25Odds?.let { "O 2.5" to it },
-            odds.under25Odds?.let { "U 2.5" to it },
-        )
+        val overUnder =
+            listOfNotNull(
+                odds.over25Odds?.let { "O 2.5" to it },
+                odds.under25Odds?.let { "U 2.5" to it },
+            )
         if (overUnder.isNotEmpty()) {
             Text("Over/under", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
@@ -252,7 +305,10 @@ private fun OddsSection(overview: MatchOverview) {
 }
 
 @Composable
-private fun OddsPill(label: String, value: Double) {
+private fun OddsPill(
+    label: String,
+    value: Double,
+) {
     OutlinedPill(text = "$label $value", borderColor = AppTheme.colors.brandBright, contentColor = MaterialTheme.colorScheme.onSurface)
 }
 

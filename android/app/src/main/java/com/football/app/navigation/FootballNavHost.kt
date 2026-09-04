@@ -47,12 +47,14 @@ fun FootballNavHost(navController: NavHostController = rememberNavController()) 
     // both ViewModels take constructor parameters (manual DI, see
     // DESIGN.md's DI decision), which the default no-arg-reflection-
     // based ViewModelProvider factory can't satisfy.
-    val reportViewModel: ReportViewModel = viewModel(
-        factory = viewModelFactory { initializer { ReportViewModel(historyRepository = historyRepository) } },
-    )
-    val historyViewModel: HistoryViewModel = viewModel(
-        factory = viewModelFactory { initializer { HistoryViewModel(historyRepository) } },
-    )
+    val reportViewModel: ReportViewModel =
+        viewModel(
+            factory = viewModelFactory { initializer { ReportViewModel(historyRepository = historyRepository) } },
+        )
+    val historyViewModel: HistoryViewModel =
+        viewModel(
+            factory = viewModelFactory { initializer { HistoryViewModel(historyRepository) } },
+        )
 
     val startDestination = if (onboardingPrefs.hasSeenOnboarding) Destinations.SEARCH else Destinations.ONBOARDING
 
@@ -75,6 +77,10 @@ fun FootballNavHost(navController: NavHostController = rememberNavController()) 
         composable(Destinations.REPORT) {
             ReportScreen(
                 viewModel = reportViewModel,
+                onBack = {
+                    reportViewModel.resetToIdle()
+                    navController.popBackStack()
+                },
                 onHistoryClick = { navController.navigate(Destinations.HISTORY) },
             )
         }

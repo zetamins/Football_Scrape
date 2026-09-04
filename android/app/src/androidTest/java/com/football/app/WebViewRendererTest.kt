@@ -31,6 +31,8 @@ import org.junit.runner.RunWith
  * detection) and the stale-previous-page race (fresh navigation actually
  * replacing the DOM before content is read).
  */
+private const val DOCUMENT_TITLE_SCRIPT = "() => document.title"
+
 @RunWith(AndroidJUnit4::class)
 class WebViewRendererTest {
     private lateinit var server: MockWebServer
@@ -92,7 +94,7 @@ class WebViewRendererTest {
         server.enqueue(MockResponse().setBody("<html><head><title>Real Content</title></head><body>data here</body></html>"))
 
         assertTrue(renderer.goto(url("/challenge"), 10000))
-        assertEquals("Real Content", evaluateOk("() => document.title"))
+        assertEquals("Real Content", evaluateOk(DOCUMENT_TITLE_SCRIPT))
     }
 
     @Test
@@ -105,10 +107,10 @@ class WebViewRendererTest {
         server.enqueue(MockResponse().setBody("<html><head><title>Second Page</title></head><body></body></html>"))
 
         assertTrue(renderer.goto(url("/first"), 10000))
-        assertEquals("First Page", evaluateOk("() => document.title"))
+        assertEquals("First Page", evaluateOk(DOCUMENT_TITLE_SCRIPT))
 
         assertTrue(renderer.goto(url("/second"), 10000))
-        assertEquals("Second Page", evaluateOk("() => document.title"))
+        assertEquals("Second Page", evaluateOk(DOCUMENT_TITLE_SCRIPT))
     }
 
     @Test

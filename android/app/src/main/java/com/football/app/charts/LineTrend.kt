@@ -25,7 +25,11 @@ import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
  * Two series (for/against), most recent match last.
  */
 @Composable
-fun LineTrend(forValues: List<Float>, againstValues: List<Float>, modifier: Modifier = Modifier) {
+fun LineTrend(
+    forValues: List<Float>,
+    againstValues: List<Float>,
+    modifier: Modifier = Modifier,
+) {
     if (forValues.isEmpty() || forValues.size != againstValues.size) return
     val modelProducer = remember { CartesianChartModelProducer() }
 
@@ -38,11 +42,12 @@ fun LineTrend(forValues: List<Float>, againstValues: List<Float>, modifier: Modi
         }
     }
 
-    val chart = rememberCartesianChart(
-        rememberLineCartesianLayer(),
-        startAxis = VerticalAxis.rememberStart(),
-        bottomAxis = HorizontalAxis.rememberBottom(),
-    )
+    val chart =
+        rememberCartesianChart(
+            rememberLineCartesianLayer(),
+            startAxis = VerticalAxis.rememberStart(),
+            bottomAxis = HorizontalAxis.rememberBottom(),
+        )
 
     CartesianChartHost(
         chart = chart,

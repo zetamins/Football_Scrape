@@ -64,7 +64,9 @@ import java.util.concurrent.atomic.AtomicLong
  * addJavascriptInterface entirely rather than trying to fix the binding
  * timing further.
  */
-class WebViewRenderer(private val context: Context) {
+class WebViewRenderer(
+    private val context: Context,
+) {
     private var webView: WebView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val resultCounter = AtomicLong(0)
@@ -89,7 +91,10 @@ class WebViewRenderer(private val context: Context) {
         // reasons. message is a lambda, not a plain String, so building
         // the log text is skipped entirely in release rather than just
         // its output being discarded.
-        private fun logd(tag: String, message: () -> String) {
+        private fun logd(
+            tag: String,
+            message: () -> String,
+        ) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(tag, message())
             }
@@ -110,28 +115,49 @@ class WebViewRenderer(private val context: Context) {
             if (userAgent.isNotBlank()) {
                 wv.settings.userAgentString = userAgent
             }
-            wv.webViewClient = object : WebViewClient() {
-                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                    navigationStarted = true
-                    logd("WebViewRenderer") { "onPageStarted: $url" }
-                }
+            wv.webViewClient =
+                object : WebViewClient() {
+                    override fun onPageStarted(
+                        view: WebView?,
+                        url: String?,
+                        favicon: Bitmap?,
+                    ) {
+                        navigationStarted = true
+                        logd("WebViewRenderer") { "onPageStarted: $url" }
+                    }
 
-                override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                    logd("WebViewRenderer") { "onPageFinished: $finishedUrl" }
-                }
+                    override fun onPageFinished(
+                        view: WebView?,
+                        finishedUrl: String?,
+                    ) {
+                        logd("WebViewRenderer") { "onPageFinished: $finishedUrl" }
+                    }
 
-                override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                    logd("WebViewRenderer") { "onReceivedError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} code=${error?.errorCode} desc=${error?.description}" }
-                }
+                    override fun onReceivedError(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?,
+                        error: android.webkit.WebResourceError?,
+                    ) {
+                        logd("WebViewRenderer") {
+                            "onReceivedError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} code=${error?.errorCode} desc=${error?.description}"
+                        }
+                    }
 
-                override fun onReceivedHttpError(view: WebView?, request: android.webkit.WebResourceRequest?, errorResponse: android.webkit.WebResourceResponse?) {
-                    logd("WebViewRenderer") { "onReceivedHttpError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} status=${errorResponse?.statusCode}" }
+                    override fun onReceivedHttpError(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?,
+                        errorResponse: android.webkit.WebResourceResponse?,
+                    ) {
+                        logd("WebViewRenderer") {
+                            "onReceivedHttpError: url=${request?.url} isForMainFrame=${request?.isForMainFrame} status=${errorResponse?.statusCode}"
+                        }
+                    }
                 }
-            }
             webView = wv
             latch.countDown()
         }
-        latch.await(10, TimeUnit.SECONDS)
+        val completed = latch.await(10, TimeUnit.SECONDS)
+        if (!completed) logd("WebViewRenderer") { "open() timed out waiting for the WebView to be created on the main thread" }
     }
 
     /** Runs one evaluateJavascript call on the main thread and blocks the
@@ -152,7 +178,11 @@ class WebViewRenderer(private val context: Context) {
                 latch.countDown()
             }
         }
-        latch.await(5, TimeUnit.SECONDS)
+        // A timeout here just leaves result[0] null, which isContentReady()
+        // already treats as "not ready yet, try again" (see its own
+        // doc comment) -- logged for diagnostics, not acted on further.
+        val completed = latch.await(5, TimeUnit.SECONDS)
+        if (!completed) logd("WebViewRenderer") { "evalOnMainThread() timed out waiting for evaluateJavascript's callback" }
         return result[0]
     }
 
@@ -200,7 +230,10 @@ class WebViewRenderer(private val context: Context) {
      * NAV_START_MAX_WAIT_MS so a genuinely missing onPageStarted (an
      * edge case, not expected for a fresh loadUrl to a different URL)
      * can't hang the whole call. */
-    fun goto(url: String, timeoutMs: Long): Boolean {
+    fun goto(
+        url: String,
+        timeoutMs: Long,
+    ): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         navigationStarted = false
         mainHandler.post { webView?.loadUrl(url) }
@@ -232,7 +265,11 @@ class WebViewRenderer(private val context: Context) {
      * polling a plain object yields exactly {"ok":...,"value":...}
      * directly -- polling a JSON-string value would double-encode it
      * (JSON of a string wraps it in an extra pair of quotes). */
-    fun evaluate(functionScript: String, argJson: String?, timeoutMs: Long): String {
+    fun evaluate(
+        functionScript: String,
+        argJson: String?,
+        timeoutMs: Long,
+    ): String {
         val deadline = System.currentTimeMillis() + timeoutMs
         // Re-check readiness right before injecting -- closes the
         // (unlikely but possible) race where a fresh navigation starts
@@ -251,7 +288,8 @@ class WebViewRenderer(private val context: Context) {
         // form covers both sync (worldfootball's table scrape, sofascore's
         // innerText read) and async (Squawka's fetch()) scripts without
         // needing to tell them apart.
-        val injectScript = """
+        val injectScript =
+            """
             (function() {
               window['$propName'] = undefined;
               (async () => {
@@ -263,7 +301,7 @@ class WebViewRenderer(private val context: Context) {
                 }
               })();
             })();
-        """.trimIndent()
+            """.trimIndent()
 
         mainHandler.post { webView?.evaluateJavascript(injectScript, null) }
 
@@ -285,6 +323,7 @@ class WebViewRenderer(private val context: Context) {
             webView = null
             latch.countDown()
         }
-        latch.await(5, TimeUnit.SECONDS)
+        val completed = latch.await(5, TimeUnit.SECONDS)
+        if (!completed) logd("WebViewRenderer") { "close() timed out waiting for the WebView to be destroyed on the main thread" }
     }
 }

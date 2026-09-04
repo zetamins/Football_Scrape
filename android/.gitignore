@@ -1,5 +1,6 @@
 *.iml
 .gradle/
+.kotlin/
 local.properties
 .idea/
 .DS_Store
@@ -7,3 +8,13 @@ build/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Release signing -- never commit the keystore password or the keystore
+# file itself. keystore.properties.example (checked in) shows the shape;
+# keystore.properties (this file, real values) stays local-only. The
+# actual .jks lives outside this repo entirely, at
+# ~/.android-keystores/deepxi/ -- the *.jks/*.keystore patterns below are
+# defense in depth in case that convention isn't followed later.
+keystore.properties
+*.jks
+*.keystore

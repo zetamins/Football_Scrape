@@ -55,7 +55,10 @@ data class LosingStreakContextInfo(
 )
 
 @Serializable
-data class ResilienceInfo(val nonWinSampleSize: Int, val drawSharePct: Double)
+data class ResilienceInfo(
+    val nonWinSampleSize: Int,
+    val drawSharePct: Double,
+)
 
 @Serializable
 data class ExperienceComparison(

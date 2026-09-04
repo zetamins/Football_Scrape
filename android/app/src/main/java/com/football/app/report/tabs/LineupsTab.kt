@@ -13,10 +13,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.PitchDiagram
+import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
 import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
-import com.football.app.components.InfoRow
 import com.football.app.data.model.LineupPlayer
 import com.football.app.data.model.MatchLineups
 import com.football.app.ui.theme.AppTheme
@@ -28,12 +28,26 @@ import com.football.app.ui.theme.AppTheme
  * availability/match-detail sections below.
  */
 @Composable
-fun LineupsTab(lineups: MatchLineups, homeTeam: String, awayTeam: String) {
+fun LineupsTab(
+    lineups: MatchLineups,
+    homeTeam: String,
+    awayTeam: String,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         SeasonStatsSection(lineups, homeTeam, awayTeam)
         FormationsSection(lineups)
-        PitchSection("$homeTeam starting XI (${lineups.homeFormation ?: "?"})", lineups.homeLineup, lineups.homeFormation, AppTheme.colors.homeSeries)
-        PitchSection("$awayTeam starting XI (${lineups.awayFormation ?: "?"})", lineups.awayLineup, lineups.awayFormation, AppTheme.colors.awaySeries)
+        PitchSection(
+            "$homeTeam starting XI (${lineups.homeFormation ?: "?"})",
+            lineups.homeLineup,
+            lineups.homeFormation,
+            AppTheme.colors.homeSeries,
+        )
+        PitchSection(
+            "$awayTeam starting XI (${lineups.awayFormation ?: "?"})",
+            lineups.awayLineup,
+            lineups.awayFormation,
+            AppTheme.colors.awaySeries,
+        )
         BenchSection("$homeTeam bench", lineups.homeBench)
         BenchSection("$awayTeam bench", lineups.awayBench)
         UnavailableSection(homeTeam, lineups.homeSuspendedPlayers, lineups.homeMissingPlayers)
@@ -42,9 +56,12 @@ fun LineupsTab(lineups: MatchLineups, homeTeam: String, awayTeam: String) {
     }
 }
 
-
 @Composable
-private fun SeasonStatsSection(lineups: MatchLineups, homeTeam: String, awayTeam: String) {
+private fun SeasonStatsSection(
+    lineups: MatchLineups,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (lineups.homeTeamSeasonStats == null && lineups.awayTeamSeasonStats == null) return
     SectionCard("Season stats") {
         lineups.homeTeamSeasonStats?.let { s ->
@@ -66,7 +83,12 @@ private fun FormationsSection(lineups: MatchLineups) {
 }
 
 @Composable
-private fun PitchSection(title: String, players: List<LineupPlayer>?, formation: String?, teamColor: androidx.compose.ui.graphics.Color) {
+private fun PitchSection(
+    title: String,
+    players: List<LineupPlayer>?,
+    formation: String?,
+    teamColor: androidx.compose.ui.graphics.Color,
+) {
     if (players.isNullOrEmpty()) return
     SectionCard(title) {
         PitchDiagram(formation = formation, players = players, teamColor = teamColor)
@@ -81,16 +103,20 @@ private fun PitchSection(title: String, players: List<LineupPlayer>?, formation:
 }
 
 @Composable
-private fun LineupSection(title: String, players: List<LineupPlayer>?) {
+private fun LineupSection(
+    title: String,
+    players: List<LineupPlayer>?,
+) {
     if (players.isNullOrEmpty()) return
     SectionCard(title) {
         players.forEach { p ->
-            val statLine = listOfNotNull(
-                p.minutesPlayed?.let { "${it}'" },
-                p.goals?.takeIf { it > 0 }?.let { "${it}g" },
-                p.assists?.takeIf { it > 0 }?.let { "${it}a" },
-                p.rating?.let { "$it rating" },
-            ).joinToString(", ")
+            val statLine =
+                listOfNotNull(
+                    p.minutesPlayed?.let { "$it'" },
+                    p.goals?.takeIf { it > 0 }?.let { "${it}g" },
+                    p.assists?.takeIf { it > 0 }?.let { "${it}a" },
+                    p.rating?.let { "$it rating" },
+                ).joinToString(", ")
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                 Text(
                     "${p.shirtNumber?.let { "#$it " } ?: ""}${p.name} (${p.position ?: "?"})",
@@ -104,24 +130,39 @@ private fun LineupSection(title: String, players: List<LineupPlayer>?) {
 }
 
 @Composable
-private fun BenchSection(title: String, players: List<LineupPlayer>?) {
+private fun BenchSection(
+    title: String,
+    players: List<LineupPlayer>?,
+) {
     if (players.isNullOrEmpty()) return
     SectionCard(title) {
         PillFlow {
-            players.forEach { p -> OutlinedPill(text = p.name, borderColor = MaterialTheme.colorScheme.outline, contentColor = MaterialTheme.colorScheme.onSurface) }
+            players.forEach { p ->
+                OutlinedPill(
+                    text = p.name,
+                    borderColor = MaterialTheme.colorScheme.outline,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun UnavailableSection(team: String, suspended: List<String>?, missing: List<com.football.app.data.model.MissingPlayer>?) {
+private fun UnavailableSection(
+    team: String,
+    suspended: List<String>?,
+    missing: List<com.football.app.data.model.MissingPlayer>?,
+) {
     if (suspended.isNullOrEmpty() && missing.isNullOrEmpty()) return
     SectionCard("$team availability") {
         suspended?.takeIf { it.isNotEmpty() }?.let { list ->
             Text("Suspended", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
             PillFlow {
-                list.forEach { name -> OutlinedPill(text = name, borderColor = AppTheme.colors.statusCritical, contentColor = AppTheme.colors.statusCritical) }
+                list.forEach { name ->
+                    OutlinedPill(text = name, borderColor = AppTheme.colors.statusCritical, contentColor = AppTheme.colors.statusCritical)
+                }
             }
             Spacer(Modifier.height(8.dp))
         }

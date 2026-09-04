@@ -27,18 +27,21 @@ import androidx.compose.ui.unit.dp
  * many with an identical treatment).
  */
 @Composable
-fun SectionCard(title: String, content: @Composable () -> Unit) {
+fun SectionCard(
+    title: String,
+    content: @Composable () -> Unit,
+) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceVariant),
-                ),
-            )
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surfaceVariant),
+                    ),
+                ).padding(16.dp),
     ) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))

@@ -15,8 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
-import com.football.app.components.SectionCard
 import com.football.app.components.InfoRow
+import com.football.app.components.SectionCard
 import com.football.app.data.model.InsightsStandings
 import com.football.app.data.model.StandingsTableRow
 import com.football.app.ui.theme.AppTheme
@@ -39,9 +39,12 @@ fun StandingsTab(
     }
 }
 
-
 @Composable
-private fun StrengthSection(insights: InsightsStandings, homeTeam: String, awayTeam: String) {
+private fun StrengthSection(
+    insights: InsightsStandings,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val he = insights.homeEloRating
     val ae = insights.awayEloRating
     val hc = insights.homeClubStrength
@@ -61,36 +64,72 @@ private fun StrengthSection(insights: InsightsStandings, homeTeam: String, awayT
             Spacer(Modifier.height(8.dp))
         }
         if (hc != null && ac != null) {
-            BarComparison("Overall strength (statsultra.com)", hc.overall.toFloat(), ac.overall.toFloat(), AppTheme.colors.homeSeries, AppTheme.colors.awaySeries, "$homeTeam ${hc.overall}", "$awayTeam ${ac.overall}")
+            BarComparison(
+                "Overall strength (statsultra.com)",
+                hc.overall.toFloat(),
+                ac.overall.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${hc.overall}",
+                "$awayTeam ${ac.overall}",
+            )
             Spacer(Modifier.height(8.dp))
-            BarComparison("Attack rating", hc.attack.toFloat(), ac.attack.toFloat(), AppTheme.colors.homeSeries, AppTheme.colors.awaySeries, "$homeTeam ${hc.attack}", "$awayTeam ${ac.attack}")
+            BarComparison(
+                "Attack rating",
+                hc.attack.toFloat(),
+                ac.attack.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${hc.attack}",
+                "$awayTeam ${ac.attack}",
+            )
             Spacer(Modifier.height(8.dp))
-            BarComparison("Defense rating", hc.defense.toFloat(), ac.defense.toFloat(), AppTheme.colors.homeSeries, AppTheme.colors.awaySeries, "$homeTeam ${hc.defense}", "$awayTeam ${ac.defense}")
+            BarComparison(
+                "Defense rating",
+                hc.defense.toFloat(),
+                ac.defense.toFloat(),
+                AppTheme.colors.homeSeries,
+                AppTheme.colors.awaySeries,
+                "$homeTeam ${hc.defense}",
+                "$awayTeam ${ac.defense}",
+            )
         }
     }
 }
 
 @Composable
-private fun ZoneSection(insights: InsightsStandings, homeTeam: String, awayTeam: String) {
+private fun ZoneSection(
+    insights: InsightsStandings,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (insights.homeStandingsZone == null && insights.awayStandingsZone == null) return
     SectionCard("Table position") {
         insights.homeStandingsZone?.let { z ->
             InfoRow(
                 homeTeam,
-                "#${z.position}/${z.totalTeams} (${z.zone})${z.pointsFromBoundary?.let { ", ${it}pts from boundary" } ?: ""}${if (z.inTheMix == true) " -- in the mix" else ""}",
+                "#${z.position}/${z.totalTeams} (${z.zone})${z.pointsFromBoundary?.let {
+                    ", ${it}pts from boundary"
+                } ?: ""}${if (z.inTheMix == true) " -- in the mix" else ""}",
             )
         }
         insights.awayStandingsZone?.let { z ->
             InfoRow(
                 awayTeam,
-                "#${z.position}/${z.totalTeams} (${z.zone})${z.pointsFromBoundary?.let { ", ${it}pts from boundary" } ?: ""}${if (z.inTheMix == true) " -- in the mix" else ""}",
+                "#${z.position}/${z.totalTeams} (${z.zone})${z.pointsFromBoundary?.let {
+                    ", ${it}pts from boundary"
+                } ?: ""}${if (z.inTheMix == true) " -- in the mix" else ""}",
             )
         }
     }
 }
 
 @Composable
-private fun ImpactSection(insights: InsightsStandings, homeTeam: String, awayTeam: String) {
+private fun ImpactSection(
+    insights: InsightsStandings,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (insights.homeStandingsImpact == null && insights.awayStandingsImpact == null) return
     SectionCard("If this match ends in...") {
         insights.homeStandingsImpact?.let { s ->
@@ -103,7 +142,11 @@ private fun ImpactSection(insights: InsightsStandings, homeTeam: String, awayTea
 }
 
 @Composable
-private fun AdvantageSection(insights: InsightsStandings, homeTeam: String, awayTeam: String) {
+private fun AdvantageSection(
+    insights: InsightsStandings,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (insights.homeAdvantage == null && insights.awayAdvantage == null) return
     SectionCard("Home advantage") {
         insights.homeAdvantage?.let { a ->
@@ -116,7 +159,11 @@ private fun AdvantageSection(insights: InsightsStandings, homeTeam: String, away
 }
 
 @Composable
-private fun OpponentRankSection(insights: InsightsStandings, homeTeam: String, awayTeam: String) {
+private fun OpponentRankSection(
+    insights: InsightsStandings,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (insights.homeOpponentRankRecord == null && insights.awayOpponentRankRecord == null) return
     SectionCard("Record vs higher-ranked opponents") {
         insights.homeOpponentRankRecord?.let { r ->

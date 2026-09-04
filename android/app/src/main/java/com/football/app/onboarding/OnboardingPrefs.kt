@@ -7,7 +7,9 @@ import android.content.Context
  * no concurrent-write concerns doesn't need DataStore's async/Flow
  * machinery or a new Gradle dependency.
  */
-class OnboardingPrefs(context: Context) {
+class OnboardingPrefs(
+    context: Context,
+) {
     private val prefs = context.getSharedPreferences("onboarding", Context.MODE_PRIVATE)
 
     var hasSeenOnboarding: Boolean

@@ -25,12 +25,17 @@ import androidx.compose.ui.unit.sp
  * bars and pitch diagram already use, not a literal brand color.
  */
 @Composable
-fun TeamBadge(teamName: String, color: Color, size: Dp = 32.dp) {
+fun TeamBadge(
+    teamName: String,
+    color: Color,
+    size: Dp = 32.dp,
+) {
     Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(color),
+        modifier =
+            Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(color),
         contentAlignment = Alignment.Center,
     ) {
         Text(

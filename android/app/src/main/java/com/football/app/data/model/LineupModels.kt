@@ -40,21 +40,38 @@ data class MissingPlayer(
 )
 
 @Serializable
-data class SetPieceGoalCounts(val corner: Int, val penalty: Int, val freeKick: Int)
+data class SetPieceGoalCounts(
+    val corner: Int,
+    val penalty: Int,
+    val freeKick: Int,
+)
 
 @Serializable
-data class SetPieceGoals(val home: SetPieceGoalCounts, val away: SetPieceGoalCounts)
+data class SetPieceGoals(
+    val home: SetPieceGoalCounts,
+    val away: SetPieceGoalCounts,
+)
 
 @Serializable
-data class ShotmapSideStats(val nonPenaltyXg: Double, val setPieceXg: Double, val penaltiesAwarded: Int)
+data class ShotmapSideStats(
+    val nonPenaltyXg: Double,
+    val setPieceXg: Double,
+    val penaltiesAwarded: Int,
+)
 
 @Serializable
-data class ShotmapStats(val home: ShotmapSideStats, val away: ShotmapSideStats)
+data class ShotmapStats(
+    val home: ShotmapSideStats,
+    val away: ShotmapSideStats,
+)
 
 /** rating is a String ("8.7"), not a number -- matches
  * PlayerOfTheMatch.rating: Optional[str] in types.py exactly. */
 @Serializable
-data class PlayerOfTheMatch(val name: String, val rating: String? = null)
+data class PlayerOfTheMatch(
+    val name: String,
+    val rating: String? = null,
+)
 
 @Serializable
 data class TeamSeasonStats(

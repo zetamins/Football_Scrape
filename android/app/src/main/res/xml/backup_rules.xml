@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Applies to API 23-31 (Android 12+ instead uses data_extraction_rules.xml,
+  referenced separately from the manifest). Backs up everything the app
+  writes; there's nothing sensitive to exclude: no auth tokens, API keys,
+  or credentials are ever stored client-side (the Python backend embedded
+  via Chaquopy calls public scraping endpoints directly, with no login of
+  its own), and HistoryRepository's saved search reports are the exact
+  thing worth restoring on reinstall. Declared explicitly (rather than
+  relying on the pre-Android-12 implicit "back up everything" default)
+  per SonarQube xml:S6358.
+-->
+<full-backup-content>
+    <include domain="file" path="." />
+</full-backup-content>

@@ -13,16 +13,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.football.app.charts.BarComparison
+import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
 import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
-import com.football.app.components.InfoRow
+import com.football.app.data.model.CardDisciplineInfo
 import com.football.app.data.model.InsightsDiscipline
 import com.football.app.ui.theme.AppTheme
 
 /** frontend/DESIGN.md's Discipline tab. */
 @Composable
-fun DisciplineTab(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
+fun DisciplineTab(
+    insights: InsightsDiscipline,
+    homeTeam: String,
+    awayTeam: String,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         CardsSection(insights, homeTeam, awayTeam)
         FoulsAndCornersSection(insights, homeTeam, awayTeam)
@@ -32,41 +37,21 @@ fun DisciplineTab(insights: InsightsDiscipline, homeTeam: String, awayTeam: Stri
     }
 }
 
-
 @Composable
-private fun CardsSection(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
+private fun CardsSection(
+    insights: InsightsDiscipline,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val home = insights.homeCardDiscipline
     val away = insights.awayCardDiscipline
     if (home == null && away == null) return
     SectionCard("Cards per game") {
         if (home != null && away != null) {
-            BarComparison(
-                "Yellow cards per game",
-                home.yellowPerGame.toFloat(),
-                away.yellowPerGame.toFloat(),
-                AppTheme.colors.homeSeries,
-                AppTheme.colors.awaySeries,
-                "$homeTeam ${home.yellowPerGame}",
-                "$awayTeam ${away.yellowPerGame}",
-            )
-            if (home.elevatedRisk || away.elevatedRisk) {
-                Spacer(Modifier.height(6.dp))
-                val flagged = listOfNotNull(homeTeam.takeIf { home.elevatedRisk }, awayTeam.takeIf { away.elevatedRisk })
-                InfoRow("Elevated card risk", flagged.joinToString(", "), valueColor = AppTheme.colors.statusWarning)
-            }
-            Spacer(Modifier.height(8.dp))
-            BarComparison(
-                "Red cards per game",
-                home.redPerGame.toFloat(),
-                away.redPerGame.toFloat(),
-                AppTheme.colors.homeSeries,
-                AppTheme.colors.awaySeries,
-                "$homeTeam ${home.redPerGame}",
-                "$awayTeam ${away.redPerGame}",
-            )
+            BothTeamsCardRows(homeTeam, awayTeam, home, away)
         } else {
-            home?.let { InfoRow(homeTeam, "${it.yellowPerGame}Y / ${it.redPerGame}R per game", valueColor = if (it.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified) }
-            away?.let { InfoRow(awayTeam, "${it.yellowPerGame}Y / ${it.redPerGame}R per game", valueColor = if (it.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified) }
+            home?.let { SingleTeamCardRow(homeTeam, it) }
+            away?.let { SingleTeamCardRow(awayTeam, it) }
         }
         insights.homeCardDisciplineVenueSplit?.let { s ->
             Spacer(Modifier.height(8.dp))
@@ -84,8 +69,59 @@ private fun CardsSection(insights: InsightsDiscipline, homeTeam: String, awayTea
     }
 }
 
+/** Both teams' card rows, shown when both sides have card-discipline data. */
 @Composable
-private fun FoulsAndCornersSection(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
+private fun BothTeamsCardRows(
+    homeTeam: String,
+    awayTeam: String,
+    home: CardDisciplineInfo,
+    away: CardDisciplineInfo,
+) {
+    BarComparison(
+        "Yellow cards per game",
+        home.yellowPerGame.toFloat(),
+        away.yellowPerGame.toFloat(),
+        AppTheme.colors.homeSeries,
+        AppTheme.colors.awaySeries,
+        "$homeTeam ${home.yellowPerGame}",
+        "$awayTeam ${away.yellowPerGame}",
+    )
+    if (home.elevatedRisk || away.elevatedRisk) {
+        Spacer(Modifier.height(6.dp))
+        val flagged = listOfNotNull(homeTeam.takeIf { home.elevatedRisk }, awayTeam.takeIf { away.elevatedRisk })
+        InfoRow("Elevated card risk", flagged.joinToString(", "), valueColor = AppTheme.colors.statusWarning)
+    }
+    Spacer(Modifier.height(8.dp))
+    BarComparison(
+        "Red cards per game",
+        home.redPerGame.toFloat(),
+        away.redPerGame.toFloat(),
+        AppTheme.colors.homeSeries,
+        AppTheme.colors.awaySeries,
+        "$homeTeam ${home.redPerGame}",
+        "$awayTeam ${away.redPerGame}",
+    )
+}
+
+/** Fallback when only one side has card-discipline data. */
+@Composable
+private fun SingleTeamCardRow(
+    team: String,
+    discipline: CardDisciplineInfo,
+) {
+    InfoRow(
+        team,
+        "${discipline.yellowPerGame}Y / ${discipline.redPerGame}R per game",
+        valueColor = if (discipline.elevatedRisk) AppTheme.colors.statusWarning else Color.Unspecified,
+    )
+}
+
+@Composable
+private fun FoulsAndCornersSection(
+    insights: InsightsDiscipline,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val h = insights.homeFoulsEstimate
     val a = insights.awayFoulsEstimate
     if (h == null || a == null) return
@@ -110,16 +146,44 @@ private fun FoulsAndCornersSection(insights: InsightsDiscipline, homeTeam: Strin
 }
 
 @Composable
-private fun MatchedSampleSection(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
+private fun MatchedSampleSection(
+    insights: InsightsDiscipline,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val h = insights.homeAdvancedStats
     val a = insights.awayAdvancedStats
     if (h == null || a == null) return
     SectionCard("Matched sample (sofascore)") {
-        BarComparison("Yellow cards", h.yellowCardsFor.toFloat(), a.yellowCardsFor.toFloat(), AppTheme.colors.homeSeries, AppTheme.colors.awaySeries, "$homeTeam ${h.yellowCardsFor}", "$awayTeam ${a.yellowCardsFor}")
+        BarComparison(
+            "Yellow cards",
+            h.yellowCardsFor.toFloat(),
+            a.yellowCardsFor.toFloat(),
+            AppTheme.colors.homeSeries,
+            AppTheme.colors.awaySeries,
+            "$homeTeam ${h.yellowCardsFor}",
+            "$awayTeam ${a.yellowCardsFor}",
+        )
         Spacer(Modifier.height(8.dp))
-        BarComparison("Red cards", h.redCardsFor.toFloat(), a.redCardsFor.toFloat(), AppTheme.colors.homeSeries, AppTheme.colors.awaySeries, "$homeTeam ${h.redCardsFor}", "$awayTeam ${a.redCardsFor}")
+        BarComparison(
+            "Red cards",
+            h.redCardsFor.toFloat(),
+            a.redCardsFor.toFloat(),
+            AppTheme.colors.homeSeries,
+            AppTheme.colors.awaySeries,
+            "$homeTeam ${h.redCardsFor}",
+            "$awayTeam ${a.redCardsFor}",
+        )
         Spacer(Modifier.height(8.dp))
-        BarComparison("Fouls", h.foulsFor.toFloat(), a.foulsFor.toFloat(), AppTheme.colors.homeSeries, AppTheme.colors.awaySeries, "$homeTeam ${h.foulsFor}", "$awayTeam ${a.foulsFor}")
+        BarComparison(
+            "Fouls",
+            h.foulsFor.toFloat(),
+            a.foulsFor.toFloat(),
+            AppTheme.colors.homeSeries,
+            AppTheme.colors.awaySeries,
+            "$homeTeam ${h.foulsFor}",
+            "$awayTeam ${a.foulsFor}",
+        )
         Spacer(Modifier.height(8.dp))
         InfoRow(
             "$homeTeam penalties conceded",
@@ -135,7 +199,11 @@ private fun MatchedSampleSection(insights: InsightsDiscipline, homeTeam: String,
 }
 
 @Composable
-private fun CardRisksSection(insights: InsightsDiscipline, homeTeam: String, awayTeam: String) {
+private fun CardRisksSection(
+    insights: InsightsDiscipline,
+    homeTeam: String,
+    awayTeam: String,
+) {
     if (insights.homeCardRisks.isNullOrEmpty() && insights.awayCardRisks.isNullOrEmpty()) return
     SectionCard("Card risk") {
         insights.homeCardRisks?.takeIf { it.isNotEmpty() }?.let { risks -> CardRiskPills(homeTeam, risks) }
@@ -144,7 +212,10 @@ private fun CardRisksSection(insights: InsightsDiscipline, homeTeam: String, awa
 }
 
 @Composable
-private fun CardRiskPills(team: String, risks: List<com.football.app.data.model.PlayerCardRisk>) {
+private fun CardRiskPills(
+    team: String,
+    risks: List<com.football.app.data.model.PlayerCardRisk>,
+) {
     Text("$team players", style = MaterialTheme.typography.labelMedium)
     Spacer(Modifier.height(6.dp))
     PillFlow {
@@ -173,7 +244,9 @@ private fun RefereeNoteSection(insights: InsightsDiscipline) {
             Text("Flagged players", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
             PillFlow {
-                note.flaggedPlayers.forEach { p -> OutlinedPill(text = p.name, borderColor = AppTheme.colors.statusWarning, contentColor = AppTheme.colors.statusWarning) }
+                note.flaggedPlayers.forEach { p ->
+                    OutlinedPill(text = p.name, borderColor = AppTheme.colors.statusWarning, contentColor = AppTheme.colors.statusWarning)
+                }
             }
         }
     }

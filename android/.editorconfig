@@ -1,0 +1,11 @@
+root = true
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 4
+max_line_length = 140
+insert_final_newline = true
+# Jetpack Compose functions are conventionally PascalCase (they behave
+# like widget factories, not regular functions) -- without this, ktlint's
+# default function-naming rule flags every @Composable in the app.
+ktlint_function_naming_ignore_when_annotated_with = Composable

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backs the FileProvider used only to share a report's raw JSON (Share
+  button, ReportScreen.kt) via a content:// URI; ACTION_SEND with a
+  file:// URI is blocked by FileUriExposedException on API 24+, so a
+  FileProvider is required, not optional. cache-path is scoped to the
+  one subdirectory shareReportJson() actually writes into
+  (cacheDir/shared), not the whole cache directory.
+-->
+<paths>
+    <cache-path name="shared_reports" path="shared/" />
+</paths>

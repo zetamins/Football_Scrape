@@ -31,12 +31,15 @@ fun Logo(size: Dp = 40.dp) {
         val corner = w * 0.28f
 
         drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF1E8E3E), Color(0xFF8FD13F)),
-                start = Offset(0f, 0f),
-                end = Offset(w, h),
-            ),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(corner, corner),
+            brush =
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF1E8E3E), Color(0xFF8FD13F)),
+                    start = Offset(0f, 0f),
+                    end = Offset(w, h),
+                ),
+            cornerRadius =
+                androidx.compose.ui.geometry
+                    .CornerRadius(corner, corner),
         )
 
         val stroke = Stroke(width = w * 0.075f, cap = StrokeCap.Round)
@@ -50,17 +53,20 @@ fun Logo(size: Dp = 40.dp) {
             sweepAngle = 90f,
             useCenter = false,
             topLeft = Offset(arcInset - arcSize, h - arcInset - arcSize),
-            size = androidx.compose.ui.geometry.Size(arcSize * 2, arcSize * 2),
+            size =
+                androidx.compose.ui.geometry
+                    .Size(arcSize * 2, arcSize * 2),
             style = stroke,
         )
 
         // Goal-frame chevron: two strokes meeting near the top-right,
         // crossing the corner-arc's sweep -- the "X" read.
-        val chevron = Path().apply {
-            moveTo(w * 0.42f, h * 0.30f)
-            lineTo(w * 0.74f, h * 0.30f)
-            lineTo(w * 0.74f, h * 0.62f)
-        }
+        val chevron =
+            Path().apply {
+                moveTo(w * 0.42f, h * 0.30f)
+                lineTo(w * 0.74f, h * 0.30f)
+                lineTo(w * 0.74f, h * 0.62f)
+            }
         drawPath(chevron, color = Color.White, style = stroke)
     }
 }

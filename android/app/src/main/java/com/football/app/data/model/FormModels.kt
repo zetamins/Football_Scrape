@@ -18,7 +18,11 @@ data class FormResult(
 )
 
 @Serializable
-data class FixtureGap(val opponent: String, val date: String? = null, val daysSincePrevious: Int? = null)
+data class FixtureGap(
+    val opponent: String,
+    val date: String? = null,
+    val daysSincePrevious: Int? = null,
+)
 
 @Serializable
 data class HalfSplitStats(
@@ -30,10 +34,17 @@ data class HalfSplitStats(
 )
 
 @Serializable
-data class StreakInfo(val result: String, val count: Int)
+data class StreakInfo(
+    val result: String,
+    val count: Int,
+)
 
 @Serializable
-data class MomentumInfo(val recentPpg: Double, val priorPpg: Double, val trend: String)
+data class MomentumInfo(
+    val recentPpg: Double,
+    val priorPpg: Double,
+    val trend: String,
+)
 
 @Serializable
 data class CompetitionFormRecord(
@@ -95,7 +106,11 @@ data class VenueSplitStats(
 )
 
 @Serializable
-data class DetailedVenueSplitForm(val home: VenueSplitStats, val away: VenueSplitStats, val neutral: VenueSplitStats)
+data class DetailedVenueSplitForm(
+    val home: VenueSplitStats,
+    val away: VenueSplitStats,
+    val neutral: VenueSplitStats,
+)
 
 /**
  * The full form/opponentForm shape (frontend/DESIGN.md's Form tab --

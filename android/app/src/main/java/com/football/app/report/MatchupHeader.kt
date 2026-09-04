@@ -25,7 +25,10 @@ import com.football.app.ui.theme.AppTheme
  * number pair).
  */
 @Composable
-fun MatchupHeader(homeTeam: String, awayTeam: String) {
+fun MatchupHeader(
+    homeTeam: String,
+    awayTeam: String,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -43,7 +46,13 @@ fun MatchupHeader(homeTeam: String, awayTeam: String) {
 }
 
 @Composable
-private fun TeamColumn(team: String, color: androidx.compose.ui.graphics.Color, modifier: Modifier, textAlign: TextAlign, horizontalAlignment: Alignment.Horizontal) {
+private fun TeamColumn(
+    team: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier,
+    textAlign: TextAlign,
+    horizontalAlignment: Alignment.Horizontal,
+) {
     Column(modifier = modifier, horizontalAlignment = horizontalAlignment) {
         TeamBadge(team, color, size = 52.dp)
         Spacer(Modifier.width(4.dp))

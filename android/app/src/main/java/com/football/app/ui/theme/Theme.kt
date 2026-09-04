@@ -32,52 +32,55 @@ private val Brand = Color(0xFF218838)
 // (scripts/validate_palette.js, --mode dark --surface "#0F1A12"): home/
 // away series and status colors all pass contrast against this surface
 // unchanged from their prior neutral-dark values.
-private val DarkColorScheme = darkColorScheme(
-    primary = Brand,
-    onPrimary = Color.White,
-    secondary = Brand,
-    onSecondary = Color.White,
-    background = Color(0xFF0F1A12),
-    onBackground = Color(0xFFF4F7F2),
-    surface = Color(0xFF17241A),
-    onSurface = Color(0xFFF4F7F2),
-    // Unset roles (surfaceVariant/outline/etc.) otherwise fall back to
-    // Material3's own baseline-violet defaults, not this theme's green --
-    // set explicitly so OutlinedTextField borders, muted labels, and
-    // Card containers all read as one palette, not baseline M3 peeking
-    // through around the parts this theme didn't override.
-    surfaceVariant = Color(0xFF1E2E22),
-    onSurfaceVariant = Color(0xFF8FA391),
-    outline = Color(0xFF3A4F3E),
-    outlineVariant = Color(0xFF2A3B2E),
-)
+private val DarkColorScheme =
+    darkColorScheme(
+        primary = Brand,
+        onPrimary = Color.White,
+        secondary = Brand,
+        onSecondary = Color.White,
+        background = Color(0xFF0F1A12),
+        onBackground = Color(0xFFF4F7F2),
+        surface = Color(0xFF17241A),
+        onSurface = Color(0xFFF4F7F2),
+        // Unset roles (surfaceVariant/outline/etc.) otherwise fall back to
+        // Material3's own baseline-violet defaults, not this theme's green --
+        // set explicitly so OutlinedTextField borders, muted labels, and
+        // Card containers all read as one palette, not baseline M3 peeking
+        // through around the parts this theme didn't override.
+        surfaceVariant = Color(0xFF1E2E22),
+        onSurfaceVariant = Color(0xFF8FA391),
+        outline = Color(0xFF3A4F3E),
+        outlineVariant = Color(0xFF2A3B2E),
+    )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Brand,
-    onPrimary = Color.White,
-    secondary = Brand,
-    onSecondary = Color.White,
-    background = Color(0xFFF9F9F7),
-    onBackground = Color(0xFF0B0B0B),
-    surface = Color(0xFFFCFCFB),
-    onSurface = Color(0xFF0B0B0B),
-    surfaceVariant = Color(0xFFEFF1EC),
-    onSurfaceVariant = Color(0xFF49524B),
-    outline = Color(0xFFC7CDC5),
-    outlineVariant = Color(0xFFDEE3DC),
-)
+private val LightColorScheme =
+    lightColorScheme(
+        primary = Brand,
+        onPrimary = Color.White,
+        secondary = Brand,
+        onSecondary = Color.White,
+        background = Color(0xFFF9F9F7),
+        onBackground = Color(0xFF0B0B0B),
+        surface = Color(0xFFFCFCFB),
+        onSurface = Color(0xFF0B0B0B),
+        surfaceVariant = Color(0xFFEFF1EC),
+        onSurfaceVariant = Color(0xFF49524B),
+        outline = Color(0xFFC7CDC5),
+        outlineVariant = Color(0xFFDEE3DC),
+    )
 
 // Rounder than Material3's defaults (medium=12dp/large=16dp) across the
 // board -- the reference's whole visual language is heavily rounded
 // (cards, pills, buttons); this is the one central override that lifts
 // every Card/Button/Dialog toward that without touching each call site.
-private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(22.dp),
-    extraLarge = RoundedCornerShape(28.dp),
-)
+private val AppShapes =
+    Shapes(
+        extraSmall = RoundedCornerShape(8.dp),
+        small = RoundedCornerShape(12.dp),
+        medium = RoundedCornerShape(18.dp),
+        large = RoundedCornerShape(22.dp),
+        extraLarge = RoundedCornerShape(28.dp),
+    )
 
 @Composable
 fun FootballTheme(

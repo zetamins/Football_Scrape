@@ -36,10 +36,17 @@ data class SeasonDefensiveErrorsEstimate(
 )
 
 @Serializable
-data class DuelVulnerability(val name: String, val groundDuelSuccessPct: Double)
+data class DuelVulnerability(
+    val name: String,
+    val groundDuelSuccessPct: Double,
+)
 
 @Serializable
-data class FullbackExposureInfo(val name: String, val chancesCreated: Int, val groundDuelSuccessPct: Double)
+data class FullbackExposureInfo(
+    val name: String,
+    val chancesCreated: Int,
+    val groundDuelSuccessPct: Double,
+)
 
 @Serializable
 data class SetPieceThreatFlag(

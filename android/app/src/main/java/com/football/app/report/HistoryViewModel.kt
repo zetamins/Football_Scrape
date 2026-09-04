@@ -17,7 +17,9 @@ import kotlinx.coroutines.launch
  * calls both, the same "state change drives navigation" pattern
  * SearchScreen already uses for its own Success transition.
  */
-class HistoryViewModel(private val repository: HistoryRepository) : ViewModel() {
+class HistoryViewModel(
+    private val repository: HistoryRepository,
+) : ViewModel() {
     private val _entries = MutableStateFlow<List<HistoryEntry>>(emptyList())
     val entries: StateFlow<List<HistoryEntry>> = _entries.asStateFlow()
 
@@ -39,7 +41,10 @@ class HistoryViewModel(private val repository: HistoryRepository) : ViewModel() 
     }
 
     /** Loads the saved raw JSON for [id] into [reportViewModel]; runs off the main thread. */
-    fun open(id: String, reportViewModel: ReportViewModel) {
+    fun open(
+        id: String,
+        reportViewModel: ReportViewModel,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val rawJson = repository.load(id) ?: return@launch
             reportViewModel.loadFromHistory(rawJson)

@@ -1,9 +1,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Lets SearchScreen.kt prompt the user, via
+         Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, to exempt
+         this app from Doze/App Standby battery restrictions. A
+         foreground service alone is not enough on many OEM Android
+         skins (Samsung, Xiaomi/MIUI, Huawei/EMUI, Oppo/ColorOS, etc.);
+         confirmed live, the queue's SearchQueueService was getting
+         OOM-killed mid-run despite being a correctly-declared foreground
+         service, because the app had never asked for this exemption. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
         android:label="DeepXI"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.FootballApp">
@@ -15,5 +30,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".queue.SearchQueueService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <!-- Share button (ReportScreen.kt) needs a content:// URI to hand
+             a JSON file to ChatGPT/Gemini/etc via ACTION_SEND; a plain
+             file:// URI is blocked (FileUriExposedException) on API
+             24+. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

@@ -119,17 +119,18 @@ data class WeatherDetail(
 )
 
 @Serializable
-data class AdditionalNote(val note: String)
+data class AdditionalNote(
+    val note: String,
+)
 
-/**
- * report.venueDetails -- a whole top-level section (stadium profile, not
- * match-specific) that was decoded into ReportJson but never actually
- * read by any tab until now. Distinct from MatchOverview's
- * venueName/venueCity/venueCountry/venueCapacity, which come from
- * `match` and can legitimately disagree (e.g. a sponsor-renamed stadium)
- * -- shown as additional facts in the same Venue card, not a merge/dedupe
- * of the two sources.
- */
+// report.venueDetails -- a whole top-level section (stadium profile, not
+// match-specific) that was decoded into ReportJson but never actually
+// read by any tab until now. Distinct from MatchOverview's
+// venueName/venueCity/venueCountry/venueCapacity, which come from
+// `match` and can legitimately disagree (e.g. a sponsor-renamed stadium)
+// -- shown as additional facts in the same Venue card, not a merge/dedupe
+// of the two sources.
+
 /**
  * renovated/recordAttendance are String, not Int, despite looking
  * numeric -- renovated can be a range ("2000, 2002", "1998-1999") and

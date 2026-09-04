@@ -37,9 +37,13 @@ fun BarComparison(
     awayColor: Color,
     homeText: String,
     awayText: String,
-    modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    // No `modifier: Modifier = Modifier` param -- every one of this
+    // composable's ~27 call sites across the report tabs already omits
+    // it (none need custom layout beyond fillMaxWidth), and an unused
+    // 8th parameter was exactly what pushed this over kotlin:S107's
+    // 7-parameter threshold. Add it back if a real caller ever needs it.
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(4.dp))
         val maxValue = maxOf(homeValue, awayValue, 0.0001f)
@@ -50,13 +54,18 @@ fun BarComparison(
 }
 
 @Composable
-private fun SingleBar(fraction: Float, color: Color, valueText: String) {
+private fun SingleBar(
+    fraction: Float,
+    color: Color,
+    valueText: String,
+) {
     Column {
         androidx.compose.foundation.layout.Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(14.dp)
-                .clip(RoundedCornerShape(4.dp)),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(4.dp)),
         ) {
             Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
                 drawRect(

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) equivalent of backup_rules.xml; see that file's
+  comment for why "back up everything" is the correct, deliberate choice
+  here (no client-side secrets exist to exclude). Covers both cloud
+  backup and the on-device transfer (old-phone-to-new-phone) path.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="." />
+    </device-transfer>
+</data-extraction-rules>

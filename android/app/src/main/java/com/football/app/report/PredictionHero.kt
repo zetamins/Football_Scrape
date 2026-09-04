@@ -39,7 +39,11 @@ import kotlinx.serialization.json.JsonObject
  * no backing data emits nothing, not a placeholder.
  */
 @Composable
-fun PredictionHero(insightsJson: JsonElement?, homeTeam: String, awayTeam: String) {
+fun PredictionHero(
+    insightsJson: JsonElement?,
+    homeTeam: String,
+    awayTeam: String,
+) {
     val prediction = remember(insightsJson) { decodePrediction(insightsJson) } ?: return
     if (prediction.marketImplied == null && prediction.heuristicBlend == null && prediction.xgModel == null) return
 
@@ -48,12 +52,13 @@ fun PredictionHero(insightsJson: JsonElement?, homeTeam: String, awayTeam: Strin
     // the reference's vibrant "headline card" treatment rather than
     // blending in with every other SectionCard.
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Brush.linearGradient(listOf(Color(0xFF1E8E3E), Color(0xFF74C43F))))
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Brush.linearGradient(listOf(Color(0xFF1E8E3E), Color(0xFF74C43F))))
+                .padding(16.dp),
     ) {
         Text("Prediction", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(12.dp))
@@ -72,7 +77,12 @@ fun PredictionHero(insightsJson: JsonElement?, homeTeam: String, awayTeam: Strin
 }
 
 @Composable
-private fun ProbabilityRow(label: String, probs: WinProbabilities, homeTeam: String, awayTeam: String) {
+private fun ProbabilityRow(
+    label: String,
+    probs: WinProbabilities,
+    homeTeam: String,
+    awayTeam: String,
+) {
     // Explicit white throughout -- this sits on PredictionHero's green
     // gradient fill, not the theme surface, so the default onSurface
     // text color (near-black in light mode) would be unreadable here.
@@ -80,11 +90,12 @@ private fun ProbabilityRow(label: String, probs: WinProbabilities, homeTeam: Str
         Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
         Spacer(Modifier.height(4.dp))
         SegmentedBar(
-            segments = listOf(
-                Segment(probs.homeWinPct.toFloat(), AppTheme.colors.homeSeries),
-                Segment(probs.drawPct.toFloat(), AppTheme.colors.neutral),
-                Segment(probs.awayWinPct.toFloat(), AppTheme.colors.awaySeries),
-            ),
+            segments =
+                listOf(
+                    Segment(probs.homeWinPct.toFloat(), AppTheme.colors.homeSeries),
+                    Segment(probs.drawPct.toFloat(), AppTheme.colors.neutral),
+                    Segment(probs.awayWinPct.toFloat(), AppTheme.colors.awaySeries),
+                ),
         )
         Spacer(Modifier.height(4.dp))
         Row(modifier = Modifier.fillMaxWidth()) {

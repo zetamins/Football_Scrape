@@ -17,10 +17,10 @@ import com.football.app.charts.FormGuideStrip
 import com.football.app.charts.LineTrend
 import com.football.app.charts.Segment
 import com.football.app.charts.SegmentedBar
+import com.football.app.components.InfoRow
 import com.football.app.components.OutlinedPill
 import com.football.app.components.PillFlow
 import com.football.app.components.SectionCard
-import com.football.app.components.InfoRow
 import com.football.app.data.model.FormSummary
 import com.football.app.ui.theme.AppTheme
 
@@ -29,7 +29,12 @@ import com.football.app.ui.theme.AppTheme
  * for the searched team and its opponent, same shape either way).
  */
 @Composable
-fun FormTab(form: FormSummary, opponentForm: FormSummary, teamLabel: String, opponentLabel: String) {
+fun FormTab(
+    form: FormSummary,
+    opponentForm: FormSummary,
+    teamLabel: String,
+    opponentLabel: String,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         Text(teamLabel, style = MaterialTheme.typography.titleMedium)
         OneTeamForm(form)
@@ -50,7 +55,6 @@ private fun OneTeamForm(form: FormSummary) {
     NextFixturesSection(form)
 }
 
-
 @Composable
 private fun StreakSection(form: FormSummary) {
     if (form.currentStreak == null && form.last10Overall.isEmpty()) return
@@ -59,19 +63,12 @@ private fun StreakSection(form: FormSummary) {
             FormGuideStrip(form.last10Overall.map { it.result })
             Spacer(Modifier.height(8.dp))
         }
-        form.currentStreak?.let { s ->
-            val word = when (s.result) { "W" -> "winning"; "L" -> "losing"; else -> "drawing" }
-            InfoRow("Streak", "${s.count}-game $word")
-        }
+        form.currentStreak?.let { s -> InfoRow("Streak", "${s.count}-game ${streakWord(s.result)}") }
         form.momentum?.let { m ->
             InfoRow(
                 "Momentum",
                 "${m.recentPpg} ppg (last 3) vs ${m.priorPpg} ppg (prior 3) -- ${m.trend}",
-                valueColor = when (m.trend) {
-                    "improving" -> AppTheme.colors.statusGood
-                    "declining" -> AppTheme.colors.statusCritical
-                    else -> Color.Unspecified
-                },
+                valueColor = momentumColor(m.trend),
             )
         }
         if (form.cleanSheetStreak != null && form.cleanSheetStreak >= 2) {
@@ -83,6 +80,21 @@ private fun StreakSection(form: FormSummary) {
     }
 }
 
+private fun streakWord(result: String): String =
+    when (result) {
+        "W" -> "winning"
+        "L" -> "losing"
+        else -> "drawing"
+    }
+
+@Composable
+private fun momentumColor(trend: String): Color =
+    when (trend) {
+        "improving" -> AppTheme.colors.statusGood
+        "declining" -> AppTheme.colors.statusCritical
+        else -> Color.Unspecified
+    }
+
 @Composable
 private fun RatesSection(form: FormSummary) {
     val hasRates = form.winRatePct != null || form.pointsPerGame != null
@@ -90,11 +102,12 @@ private fun RatesSection(form: FormSummary) {
     SectionCard("Rates (last 10)") {
         if (form.winRatePct != null && form.drawRatePct != null && form.lossRatePct != null) {
             SegmentedBar(
-                segments = listOf(
-                    Segment(form.winRatePct.toFloat(), AppTheme.colors.statusGood),
-                    Segment(form.drawRatePct.toFloat(), AppTheme.colors.neutral),
-                    Segment(form.lossRatePct.toFloat(), AppTheme.colors.statusCritical),
-                ),
+                segments =
+                    listOf(
+                        Segment(form.winRatePct.toFloat(), AppTheme.colors.statusGood),
+                        Segment(form.drawRatePct.toFloat(), AppTheme.colors.neutral),
+                        Segment(form.lossRatePct.toFloat(), AppTheme.colors.statusCritical),
+                    ),
             )
             Spacer(Modifier.height(4.dp))
         }
@@ -108,7 +121,10 @@ private fun RatesSection(form: FormSummary) {
         form.scoringDrawSharePct?.let { InfoRow("Scoring draws", "$it% of last 10 draws") }
         form.bttsSharePct?.let { InfoRow("BTTS rate", "$it%") }
         form.halfSplit?.let { h ->
-            InfoRow("Half split", "1H ${h.firstHalfGoalsFor}-${h.firstHalfGoalsAgainst}, 2H ${h.secondHalfGoalsFor}-${h.secondHalfGoalsAgainst}")
+            InfoRow(
+                "Half split",
+                "1H ${h.firstHalfGoalsFor}-${h.firstHalfGoalsAgainst}, 2H ${h.secondHalfGoalsFor}-${h.secondHalfGoalsAgainst}",
+            )
         }
     }
 }
@@ -160,8 +176,11 @@ private fun VenueSplitSection(form: FormSummary) {
         form.detailedVenueSplit?.let { d ->
             fun bucketStr(b: com.football.app.data.model.VenueSplitStats): String {
                 if (b.sampleSize == 0) return "n=0"
+
                 fun per(n: Number) = "%.1f".format(n.toDouble() / b.sampleSize)
-                return "xG ${per(b.xgFor)}-${per(b.xgAgainst)}/g, shots ${per(b.shotsFor)}-${per(b.shotsAgainst)}/g, poss ${b.possessionPctAvg ?: "n/a"}%"
+                return "xG ${per(
+                    b.xgFor,
+                )}-${per(b.xgAgainst)}/g, shots ${per(b.shotsFor)}-${per(b.shotsAgainst)}/g, poss ${b.possessionPctAvg ?: "n/a"}%"
             }
             InfoRow("Home detail", bucketStr(d.home))
             InfoRow("Away detail", bucketStr(d.away))
@@ -184,7 +203,13 @@ private fun CongestionSection(form: FormSummary) {
             Text("Competitions", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
             PillFlow {
-                form.recentCompetitions.forEach { c -> OutlinedPill(text = c, borderColor = MaterialTheme.colorScheme.outline, contentColor = MaterialTheme.colorScheme.onSurface) }
+                form.recentCompetitions.forEach { c ->
+                    OutlinedPill(
+                        text = c,
+                        borderColor = MaterialTheme.colorScheme.outline,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
         }

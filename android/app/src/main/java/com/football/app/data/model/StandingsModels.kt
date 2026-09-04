@@ -3,7 +3,11 @@ package com.football.app.data.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class EloRating(val elo: Double, val rank: Int? = null, val asOf: String)
+data class EloRating(
+    val elo: Double,
+    val rank: Int? = null,
+    val asOf: String,
+)
 
 @Serializable
 data class ClubStrengthRating(
@@ -24,7 +28,11 @@ data class StandingsZoneInfo(
 )
 
 @Serializable
-data class StandingsScenario(val outcome: String, val newPoints: Int, val newPosition: Int? = null)
+data class StandingsScenario(
+    val outcome: String,
+    val newPoints: Int,
+    val newPosition: Int? = null,
+)
 
 @Serializable
 data class StandingsImpactInfo(
@@ -42,7 +50,12 @@ data class HomeAdvantageInfo(
 )
 
 @Serializable
-data class OpponentRankRecord(val sampleSize: Int, val wins: Int, val draws: Int, val losses: Int)
+data class OpponentRankRecord(
+    val sampleSize: Int,
+    val wins: Int,
+    val draws: Int,
+    val losses: Int,
+)
 
 /** Everything Standings needs from `insights` (frontend/DESIGN.md). */
 @Serializable
@@ -66,10 +79,16 @@ data class InsightsStandings(
  * fields (this project's own DESIGN.md draft assumed a richer row before
  * checking the real dataclass -- corrected here). */
 @Serializable
-data class StandingsTableRow(val teamName: String, val position: Int, val points: Int)
+data class StandingsTableRow(
+    val teamName: String,
+    val position: Int,
+    val points: Int,
+)
 
 /** Just standings_table from `match` -- a separate wrapper (same pattern
  * as MatchOverview/MatchLineups) since this one field belongs to `match`
  * while the rest of Standings' data lives in `insights`. */
 @Serializable
-data class MatchStandingsTable(val standingsTable: List<StandingsTableRow>? = null)
+data class MatchStandingsTable(
+    val standingsTable: List<StandingsTableRow>? = null,
+)

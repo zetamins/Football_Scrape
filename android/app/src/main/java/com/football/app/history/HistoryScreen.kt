@@ -135,17 +135,23 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun HistoryRow(entry: HistoryEntry, onOpen: () -> Unit, onDeleteRequest: () -> Unit) {
+private fun HistoryRow(
+    entry: HistoryEntry,
+    onOpen: () -> Unit,
+    onDeleteRequest: () -> Unit,
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpen)
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpen)
+                    .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
