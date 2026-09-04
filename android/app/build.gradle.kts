@@ -97,6 +97,22 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests {
+            // Required for Robolectric-based Compose tests (Phase 4):
+            // without this, Robolectric can't find the merged debug
+            // manifest at all ("No manifest file found at
+            // ./AndroidManifest.xml"), which is where ui-test-manifest's
+            // injected ComponentActivity declaration lives --
+            // createComposeRule() launches that activity internally via
+            // ActivityScenarioRule, and without the merged manifest that
+            // launch fails outright ("Unable to resolve activity for
+            // Intent... cmp=.../androidx.activity.ComponentActivity"),
+            // confirmed live via this exact failure before adding this.
+            isIncludeAndroidResources = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -185,6 +201,19 @@ dependencies {
     // need Dispatchers.Main.immediate available; a plain JVM unit test has
     // no real Android main looper to provide it without this.
     testImplementation(libs.kotlinx.coroutines.test)
+    // Compose UI tests (Phase 4) run via Robolectric on the plain JVM
+    // (testDebugUnitTest), not as instrumented androidTest -- this
+    // machine's emulator is memory-constrained and has previously needed
+    // manual recovery to boot at all (see progress notes from the
+    // SearchQueueService live-testing session), making it an unreliable
+    // dependency for routine test runs. createComposeRule() (not
+    // createAndroidComposeRule<T>()) works under Robolectric directly,
+    // matching this project's existing Robolectric usage
+    // (SearchQueueServiceTest) rather than introducing a second,
+    // device-dependent test mechanism.
+    testImplementation(platform(libs.compose.bom))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.androidx.test.core)

@@ -1,0 +1,42 @@
+package com.football.app.charts
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class RankedBarListTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    @Test
+    fun `renders every entry's name and value text`() {
+        composeTestRule.setContent {
+            RankedBarList(
+                entries =
+                    listOf(
+                        RankedEntry("Saka", 12, "12g"),
+                        RankedEntry("Havertz", 8, "8g"),
+                    ),
+                barColor = Color.Green,
+            )
+        }
+        composeTestRule.onNodeWithText("Saka").assertExists()
+        composeTestRule.onNodeWithText("12g").assertExists()
+        composeTestRule.onNodeWithText("Havertz").assertExists()
+        composeTestRule.onNodeWithText("8g").assertExists()
+    }
+
+    @Test
+    fun `renders nothing for an empty list rather than throwing`() {
+        composeTestRule.setContent {
+            RankedBarList(entries = emptyList(), barColor = Color.Green)
+        }
+        composeTestRule.onRoot().assertExists()
+    }
+}
