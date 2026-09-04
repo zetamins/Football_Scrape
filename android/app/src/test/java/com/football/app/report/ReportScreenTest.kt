@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,10 +78,30 @@ class ReportScreenTest {
         composeTestRule.setContent {
             ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
         }
-        composeTestRule.onNodeWithText("Squad").performClick()
-        // Squad tab renders the searched team's own name as a section
-        // header -- among other, already-present "Brentford" mentions
-        // (header, matchup), so this checks presence, not uniqueness.
-        composeTestRule.onAllNodesWithText("Brentford").onFirst().assertExists()
+        // Overview (the default tab) renders a "Match" section card --
+        // confirms the starting state before switching.
+        composeTestRule.onNodeWithText("Match").assertExists()
+
+        // performScrollTo() is required here: the tab bar is a
+        // horizontally-scrollable Row and, under Robolectric's narrow
+        // default test viewport (320px), "Squad" (the last tab) lays out
+        // beyond the visible/clipped bounds. Without scrolling it into
+        // view first, performClick() synthesizes a touch at the node's
+        // true (off-screen) root-coordinate center, which silently lands
+        // outside the compose root and never reaches the click handler --
+        // confirmed live via a full semantics-tree dump showing the tab
+        // content never changed despite the click "succeeding" with no
+        // exception. That false failure was initially mistaken for a
+        // possible real tab-switching bug; it was not one -- with
+        // performScrollTo() added, the switch works correctly.
+        composeTestRule.onNodeWithText("Squad").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        // "Top scorers" is Squad-tab-exclusive (unlike "Brentford", which
+        // also appears in the always-visible header/matchup and so
+        // wouldn't actually prove the tab switched). Overview's own
+        // "Match" section disappearing confirms the switch actually
+        // replaced the content rather than just adding to it.
+        composeTestRule.onAllNodesWithText("Top scorers").onFirst().assertExists()
+        composeTestRule.onNodeWithText("Match").assertDoesNotExist()
     }
 }
