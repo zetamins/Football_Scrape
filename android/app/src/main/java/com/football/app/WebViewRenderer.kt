@@ -6,7 +6,6 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import com.football.app.coverage.ExcludedFromCoverage
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -68,7 +67,13 @@ import java.util.concurrent.atomic.AtomicLong
 class WebViewRenderer(
     private val context: Context,
 ) {
-    private var webView: WebView? = null
+    // internal, not private -- WebViewRendererTest reaches the real
+    // WebView instance via Robolectric's ShadowWebView to answer
+    // evaluateJavascript() calls directly (getLastEvaluatedJavascriptCallback()),
+    // simulating a real page's JS execution without needing Robolectric's
+    // shadow to actually run one.
+    internal var webView: WebView? = null
+        private set
     private val mainHandler = Handler(Looper.getMainLooper())
     private val resultCounter = AtomicLong(0)
 
@@ -92,7 +97,6 @@ class WebViewRenderer(
         // reasons. message is a lambda, not a plain String, so building
         // the log text is skipped entirely in release rather than just
         // its output being discarded.
-        @ExcludedFromCoverage
         private fun logd(
             tag: String,
             message: () -> String,
@@ -119,7 +123,6 @@ class WebViewRenderer(
             }
             wv.webViewClient =
                 object : WebViewClient() {
-                    @ExcludedFromCoverage
                     override fun onPageStarted(
                         view: WebView?,
                         url: String?,
@@ -129,7 +132,6 @@ class WebViewRenderer(
                         logd("WebViewRenderer") { "onPageStarted: $url" }
                     }
 
-                    @ExcludedFromCoverage
                     override fun onPageFinished(
                         view: WebView?,
                         finishedUrl: String?,
@@ -137,7 +139,6 @@ class WebViewRenderer(
                         logd("WebViewRenderer") { "onPageFinished: $finishedUrl" }
                     }
 
-                    @ExcludedFromCoverage
                     override fun onReceivedError(
                         view: WebView?,
                         request: android.webkit.WebResourceRequest?,
@@ -148,7 +149,6 @@ class WebViewRenderer(
                         }
                     }
 
-                    @ExcludedFromCoverage
                     override fun onReceivedHttpError(
                         view: WebView?,
                         request: android.webkit.WebResourceRequest?,
@@ -170,7 +170,6 @@ class WebViewRenderer(
      * calling thread for its (synchronous, native) callback result --
      * this part of evaluateJavascript's contract is reliable; it's only
      * addJavascriptInterface that wasn't (see class docstring). */
-    @ExcludedFromCoverage
     private fun evalOnMainThread(script: String): String? {
         val latch = CountDownLatch(1)
         val result = arrayOfNulls<String>(1)
@@ -199,7 +198,6 @@ class WebViewRenderer(
      * evaluateJavascript failure (null back, e.g. mid-navigation) reads
      * as "not ready yet" rather than an error -- the caller's poll loop
      * just tries again. */
-    @ExcludedFromCoverage
     private fun isContentReady(): Boolean {
         val state = evalOnMainThread("document.readyState")
         val title = evalOnMainThread("document.title")
@@ -273,7 +271,6 @@ class WebViewRenderer(
      * polling a plain object yields exactly {"ok":...,"value":...}
      * directly -- polling a JSON-string value would double-encode it
      * (JSON of a string wraps it in an extra pair of quotes). */
-    @ExcludedFromCoverage
     fun evaluate(
         functionScript: String,
         argJson: String?,

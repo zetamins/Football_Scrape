@@ -184,14 +184,16 @@ chaquopy {
 //   (compiler-generated Compose content holders tied to MainActivity's
 //   own Chaquopy-bound onCreate()) -- nothing to test, same as
 //   excluding R.java would be if Kover measured resource classes.
-// - Chaquopy/WebView-JS-execution: MainActivity.onCreate,
-//   SearchQueueService.onCreate, PythonBridge.runReport, and
-//   WebViewRenderer's JS-dependent methods, via the
+// - Chaquopy's native Python runtime: MainActivity.onCreate,
+//   SearchQueueService.onCreate, PythonBridge.runReport, via the
 //   @ExcludedFromCoverage annotation -- see that annotation's own doc
 //   comment (coverage/ExcludedFromCoverage.kt) for the full,
-//   evidence-based rationale per method, including which of these
-//   already has a real, working (just currently unrunnable in this
-//   environment) instrumented androidTest suite.
+//   evidence-based rationale per method. WebViewRenderer's own
+//   JS-dependent methods carried this same annotation earlier in this
+//   pass but no longer do -- Robolectric's ShadowWebView turned out to
+//   support answering evaluateJavascript() calls directly, so
+//   WebViewRendererTest.kt now drives them for real; see that
+//   annotation's doc comment for the full story.
 kover {
     reports {
         filters {
