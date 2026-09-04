@@ -72,6 +72,56 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `venue section renders match-level fields only when venueDetails is null`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview = MatchOverview(venueName = "Emirates Stadium", venueCity = "London"),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Venue").assertExists()
+        composeTestRule.onNodeWithText("Emirates Stadium, London").assertExists()
+        composeTestRule.onNodeWithText("Capacity").assertDoesNotExist()
+    }
+
+    @Test
+    fun `venue section omits every optional venueDetails line when all are null`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview = MatchOverview(venueCapacity = 60704),
+                venueDetails = VenueDetails(),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Venue").assertExists()
+        composeTestRule.onNodeWithText("60,704").assertExists()
+        composeTestRule.onNodeWithText("Location").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Address").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Built").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Architect").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Record attendance").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Shared by").assertDoesNotExist()
+    }
+
+    @Test
+    fun `venue section shows built when only renovated is known and skips clubs when only one club`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview = MatchOverview(),
+                venueDetails = VenueDetails(renovated = "2010", clubs = listOf("Arsenal")),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Venue").assertExists()
+        composeTestRule.onNodeWithText("renovated 2010").assertExists()
+        composeTestRule.onNodeWithText("Shared by").assertDoesNotExist()
+    }
+
+    @Test
     fun `weather section renders conditions and detail`() {
         composeTestRule.setContent {
             OverviewTab(
