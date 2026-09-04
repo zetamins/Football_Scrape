@@ -36,6 +36,72 @@ class SquadModelsTest {
 
         val seasonStats = assertNotNullAndReturn(squad[0].seasonStats)
         assertEquals(6.3, seasonStats.rating!!, 0.0)
+        assertEquals(1, seasonStats.appearances)
+        assertEquals(0, seasonStats.goals)
+        assertEquals(0, seasonStats.assists)
+        assertEquals(0, seasonStats.yellowCards)
+        assertEquals(0, seasonStats.redCards)
+        assertEquals(null, seasonStats.expectedGoals)
+    }
+
+    @Test
+    fun `decodes each squad member's own defensive stats and recent-usage pattern`() {
+        val profile = AppJson.decodeFromString(TeamProfileData.serializer(), loadProfileSample())
+        val squad = assertNotNullAndReturn(profile.squad)
+
+        val defensiveStats = assertNotNullAndReturn(squad[0].defensiveStats)
+        assertEquals(0, defensiveStats.tacklesMade)
+        assertEquals(0, defensiveStats.interceptions)
+        assertEquals(0, defensiveStats.ballRecoveries)
+        assertEquals(0, defensiveStats.clearances)
+        assertEquals(null, defensiveStats.groundDuelSuccessPct)
+        assertEquals(0, defensiveStats.chancesCreated)
+        assertEquals(0, defensiveStats.shots)
+        assertEquals(0, defensiveStats.shotsOnTarget)
+        assertEquals(0, defensiveStats.passesCompleted)
+        assertEquals(0, defensiveStats.foulsWon)
+        assertEquals(0, defensiveStats.aerialDuelsWon)
+        assertEquals(0, defensiveStats.goalsFromInsideBox)
+        assertEquals(0, defensiveStats.goalsFromOutsideBox)
+        assertEquals(null, defensiveStats.conversionRatePct)
+        assertEquals(0, defensiveStats.shotsOffTarget)
+        assertEquals(0, defensiveStats.passesAttempted)
+        assertEquals(null, defensiveStats.passingAccuracyPct)
+        assertEquals(0, defensiveStats.blockedShots)
+        assertEquals(0, defensiveStats.takeOnsCompleted)
+        assertEquals(0, defensiveStats.groundDuelsWon)
+
+        val recentUsage = assertNotNullAndReturn(squad[0].recentUsage)
+        assertEquals(20, recentUsage.matchesInSquad)
+        assertEquals(13, recentUsage.starts)
+        assertEquals(7, recentUsage.subAppearances)
+        assertEquals(0, recentUsage.unusedBench)
+        assertEquals(1130, recentUsage.totalMinutes)
+        assertEquals(8, recentUsage.totalGoals)
+        assertEquals(0, recentUsage.totalAssists)
+        assertEquals(7.1522, recentUsage.totalXg, 0.0001)
+        assertEquals(0.8743228999999999, recentUsage.totalXa, 0.0000001)
+        assertEquals(37, recentUsage.totalShots)
+        assertEquals(17, recentUsage.totalShotsOnTarget)
+        assertEquals(0, recentUsage.totalTackles)
+        assertEquals(0, recentUsage.totalInterceptions)
+        assertEquals(9, recentUsage.totalFouls)
+        assertEquals(10, recentUsage.totalKeyPasses)
+        assertEquals(19, recentUsage.appearancesWithStats)
+        assertEquals(6.69, recentUsage.avgRating!!, 0.0)
+        // The 5 "per 90" fields all need an explicit @SerialName -- real
+        // bug found while writing this test, fixed in SquadModels.kt: the
+        // automatic SnakeCase strategy produces "goals_per90" (no
+        // underscore before the digit), but this class's own real backend
+        // JSON uses "goals_per_90" (WITH an underscore) -- a different
+        // convention than RecentFormLeader's own goalsPer90, whose real
+        // JSON happens to already match the automatic form. Every one of
+        // these 5 fields silently decoded as null before the fix.
+        assertEquals(0.64, recentUsage.goalsPer90!!, 0.0)
+        assertEquals(0.0, recentUsage.assistsPer90!!, 0.0)
+        assertEquals(0.57, recentUsage.xgPer90!!, 0.0)
+        assertEquals(0.07, recentUsage.xaPer90!!, 0.0)
+        assertEquals(0.8, recentUsage.keyPassesPer90!!, 0.0)
     }
 
     @Test

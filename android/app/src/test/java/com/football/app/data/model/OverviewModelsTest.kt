@@ -154,6 +154,27 @@ class OverviewModelsTest {
     }
 
     @Test
+    fun `manager-vs-opposing-club records decode correctly`() {
+        // Not currently rendered by OverviewTab (a modeled-but-unused
+        // field), so unlike every other field on this class this had no
+        // UI-driven test path at all -- covered directly here instead.
+        val overview = AppJson.decodeFromString(MatchOverview.serializer(), loadSample())
+        val homeVsAway = assertNotNullAndReturn(overview.homeManagerVsAwayClub)
+        val awayVsHome = assertNotNullAndReturn(overview.awayManagerVsHomeClub)
+
+        assertEquals("Niko Kovač", homeVsAway.managerName)
+        assertEquals("Hamburger SV", homeVsAway.opponentClub)
+        assertEquals(1, homeVsAway.sampleSize)
+        assertEquals(1, homeVsAway.wins)
+        assertEquals(0, homeVsAway.draws)
+        assertEquals(0, homeVsAway.losses)
+
+        assertEquals("Merlin Polzin", awayVsHome.managerName)
+        assertEquals("Borussia Dortmund", awayVsHome.opponentClub)
+        assertEquals(1, awayVsHome.losses)
+    }
+
+    @Test
     fun `additional_notes list-of-objects decodes correctly`() {
         val overview = AppJson.decodeFromString(MatchOverview.serializer(), loadSample())
         val notes = assertNotNullAndReturn(overview.additionalNotes)

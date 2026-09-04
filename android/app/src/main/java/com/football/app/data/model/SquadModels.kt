@@ -1,5 +1,6 @@
 package com.football.app.data.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -56,11 +57,25 @@ data class PlayerUsagePattern(
     val totalKeyPasses: Int,
     val appearancesWithStats: Int,
     val avgRating: Double? = null,
-    val goalsPer90: Double? = null,
-    val assistsPer90: Double? = null,
-    val xgPer90: Double? = null,
-    val xaPer90: Double? = null,
-    val keyPassesPer90: Double? = null,
+    // Explicit @SerialName, not left to JsonNamingStrategy.SnakeCase's
+    // automatic conversion -- confirmed live (found via a test, not
+    // observed live in the app, since nothing renders these fields yet):
+    // this class's own real backend JSON uses "goals_per_90" (an
+    // underscore BEFORE the digit), but the automatic strategy produces
+    // "goals_per90" (no underscore -- it doesn't insert one at a
+    // letter-to-digit boundary), so every one of these 5 fields silently
+    // decoded as null against real data, always. A different class in
+    // this same file (RecentFormLeader) has the identical Kotlin property
+    // name and previously looked fine only because ITS OWN real backend
+    // JSON happens to already use the no-underscore form the automatic
+    // strategy produces -- two different backend naming conventions for
+    // the same "per 90 minutes" concept, in two different objects of the
+    // same real report.
+    @SerialName("goals_per_90") val goalsPer90: Double? = null,
+    @SerialName("assists_per_90") val assistsPer90: Double? = null,
+    @SerialName("xg_per_90") val xgPer90: Double? = null,
+    @SerialName("xa_per_90") val xaPer90: Double? = null,
+    @SerialName("key_passes_per_90") val keyPassesPer90: Double? = null,
 )
 
 // season_stats_source is always stripped from JSON (in

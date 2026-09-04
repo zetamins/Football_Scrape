@@ -175,7 +175,10 @@ class SearchQueueService : Service() {
         return finalState
     }
 
-    private fun buildNotification(
+    // internal, not private -- same reason as notificationManager/
+    // createNotificationChannel above: SearchQueueServiceTest builds and
+    // inspects notifications directly without going through onCreate().
+    internal fun buildNotification(
         title: String,
         text: String,
         ongoing: Boolean,
@@ -203,7 +206,8 @@ class SearchQueueService : Service() {
      * POST_NOTIFICATIONS (API 33+) -- the queue still runs and still
      * saves to History either way, so a missing notification is a
      * degraded-but-safe outcome, not a crash. */
-    private fun notify(
+    // internal, not private -- same reason as buildNotification above.
+    internal fun notify(
         notification: android.app.Notification,
         id: Int = NOTIFICATION_ID,
     ) {
@@ -230,7 +234,9 @@ class SearchQueueService : Service() {
     companion object {
         const val EXTRA_TEAM_NAMES = "team_names"
         internal const val CHANNEL_ID = "search_queue"
-        private const val NOTIFICATION_ID = 1001
+        // internal, not private -- SearchQueueServiceTest asserts against
+        // the real id rather than duplicating the literal.
+        internal const val NOTIFICATION_ID = 1001
         private const val COMPLETE_NOTIFICATION_ID = 1002
 
         private val _queueState = MutableStateFlow<QueueState>(QueueState.Idle)
