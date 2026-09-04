@@ -50,6 +50,21 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `match section omits kickoff when only round is known`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview = MatchOverview(round = 3),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Match").assertExists()
+        composeTestRule.onNodeWithText("Kickoff").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Round 3").assertExists()
+    }
+
+    @Test
     fun `venue section merges match-level and venueDetails fields`() {
         composeTestRule.setContent {
             OverviewTab(
@@ -140,6 +155,30 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `weather section detail line includes gusts, precip, and rain chance when all are known`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        weatherDetail =
+                            WeatherDetail(
+                                humidityPct = 73.0,
+                                windSpeedKmph = 13.0,
+                                windGustKmph = 25.0,
+                                precipMm = 2.4,
+                                chanceOfRainPct = 60.0,
+                            ),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Weather").assertExists()
+        composeTestRule.onNodeWithText("Conditions").assertDoesNotExist()
+    }
+
+    @Test
     fun `referee section renders discipline and elevated home-away bias`() {
         composeTestRule.setContent {
             OverviewTab(
@@ -165,6 +204,60 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `referee section renders the name alone when refereeStats is null`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview = MatchOverview(referee = "Michael Oliver"),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Michael Oliver").assertExists()
+        composeTestRule.onNodeWithText("Discipline").assertDoesNotExist()
+    }
+
+    @Test
+    fun `referee section omits fouls, penalties, and bias when only the required stats are known`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        referee = "Michael Oliver",
+                        refereeStats = RefereeStats(games = 200, yellowCardsPerGame = "3.6"),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("3.6 yellow/game, 200 games").assertExists()
+        composeTestRule.onNodeWithText("Home/away card bias").assertDoesNotExist()
+    }
+
+    @Test
+    fun `referee section shows no elevated color when away card rate is not higher`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        referee = "Michael Oliver",
+                        refereeStats =
+                            RefereeStats(
+                                games = 200,
+                                yellowCardsPerGame = "3.6",
+                                homeAwayBias = RefereeHomeAwayBias(sampleSize = 50, homeCardsPerGame = 3.0, awayCardsPerGame = 2.0),
+                            ),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Home/away card bias").assertExists()
+    }
+
+    @Test
     fun `managers section renders both managers, tenure, and a real head-to-head duel`() {
         composeTestRule.setContent {
             OverviewTab(
@@ -187,6 +280,25 @@ class OverviewTabTest {
         }
         composeTestRule.onNodeWithText("Managers").assertExists()
         composeTestRule.onNodeWithText("Head-to-head as managers").assertExists()
+    }
+
+    @Test
+    fun `managers section omits the head-to-head row when the two managers have never met`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        homeManager = ManagerInfo(name = "Mikel Arteta"),
+                        awayManager = ManagerInfo(name = "Enzo Maresca"),
+                        managerDuel = HeadToHeadSummary(homeWins = 0, awayWins = 0, draws = 0),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Managers").assertExists()
+        composeTestRule.onNodeWithText("Head-to-head as managers").assertDoesNotExist()
     }
 
     // A manager's personal record against the opposing club (across any
@@ -286,6 +398,38 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `standings section home-only and away-only rows omit the total when totalTeams is null`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        homeTeamStanding = TeamStanding(position = 1, played = 5, wins = 4, draws = 1, losses = 0, points = 13, goalDiff = "+8"),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("#1 (13pts, 4W-1D-0L, GD +8)").assertExists()
+    }
+
+    @Test
+    fun `standings section away-only row omits the total when totalTeams is null`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        awayTeamStanding = TeamStanding(position = 5, played = 5, wins = 3, draws = 0, losses = 2, points = 9, goalDiff = "+2"),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("#5 (9pts, 3W-0D-2L, GD +2)").assertExists()
+    }
+
+    @Test
     fun `head-to-head section renders the bar, streaks, and recent meetings`() {
         composeTestRule.setContent {
             OverviewTab(
@@ -316,6 +460,43 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `head-to-head section omits streaks and recent meetings when both are empty`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        headToHeadSummary = HeadToHeadSummary(homeWins = 7, awayWins = 2, draws = 1),
+                        headToHeadStreaks = emptyList(),
+                        recentMeetings = emptyList(),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Head-to-head").assertExists()
+        composeTestRule.onNodeWithText("Streaks").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Recent meetings").assertDoesNotExist()
+    }
+
+    @Test
+    fun `head-to-head section renders a meeting without formations, xG, or a date`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        headToHeadSummary = HeadToHeadSummary(homeWins = 7, awayWins = 2, draws = 1),
+                        recentMeetings = listOf(HeadToHeadMeeting(scoreline = "0-1", venue = "home")),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("? 0-1").assertExists()
+    }
+
+    @Test
     fun `odds section renders moneyline and over-under pills`() {
         composeTestRule.setContent {
             OverviewTab(
@@ -334,12 +515,46 @@ class OverviewTabTest {
     }
 
     @Test
+    fun `odds section renders nothing extra when bettingOdds has no individual prices`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview = MatchOverview(bettingOdds = BettingOdds()),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Betting odds").assertExists()
+        composeTestRule.onNodeWithText("Moneyline").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Over/under").assertDoesNotExist()
+    }
+
+    @Test
     fun `notes section renders the primary note and additional notes with dividers`() {
         composeTestRule.setContent {
             OverviewTab(
                 overview =
                     MatchOverview(
                         note = "Lineup predicted, not confirmed",
+                        additionalNotes = listOf(AdditionalNote("Kickoff moved for TV"), AdditionalNote("Behind closed doors")),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Notes").assertExists()
+        composeTestRule.onNodeWithText("Kickoff moved for TV").assertExists()
+        composeTestRule.onNodeWithText("Behind closed doors").assertExists()
+    }
+
+    @Test
+    fun `notes section has no divider before the first additional note when there is no primary note`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        note = null,
                         additionalNotes = listOf(AdditionalNote("Kickoff moved for TV"), AdditionalNote("Behind closed doors")),
                     ),
                 venueDetails = null,
