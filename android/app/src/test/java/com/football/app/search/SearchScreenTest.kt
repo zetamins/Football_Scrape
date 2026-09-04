@@ -1,5 +1,12 @@
 package com.football.app.search
 
+import android.app.Activity
+import android.app.Application
+import android.content.Context
+import android.os.PowerManager
+import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -8,8 +15,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ApplicationProvider
 import com.football.app.queue.QueueState
+import com.football.app.queue.SearchQueueService
 import com.football.app.report.ReportViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -17,23 +27,26 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 /**
- * "Search"/"Run queue" ARE clicked below, but confirmed (via a
- * throwaway diagnostic test, not kept) that the click itself only ever
- * reaches rememberStartQueue()'s own synchronous body -- setting
- * pendingTeams and launching the FIRST of two chained
- * rememberLauncherForActivityResult launchers (battery-optimization
- * settings, then notification permission). Neither launcher's
- * registered callback fires under Robolectric without explicitly
- * simulating the system dialog's result (not set up here), so the
- * chain never reaches SearchQueueService.start() itself -- verified
- * directly via shadowOf(application).nextStartedService staying null
- * after the click. That remainder (the launcher callbacks, and
- * everything SearchQueueService.start() leads to: onCreate()'s
- * Python.start(), the real queue run) stays an accepted gap, same
- * category as PythonBridge.kt -- but the click handlers' own dispatch
- * logic (previously entirely uncovered) is real, verified coverage.
+ * "Search"/"Run queue" ARE clicked below, and -- unlike an earlier pass
+ * over this file assumed -- the full battery-optimization ->
+ * notification-permission launcher chain CAN be driven to completion:
+ * AndroidX's Activity Result API bridges through the classic
+ * startActivityForResult/onActivityResult mechanism under the hood
+ * (confirmed directly, not assumed, via a throwaway diagnostic test),
+ * which Robolectric's ShadowActivity.receiveResult() supports. Delivering
+ * a result to each chained launcher in turn (see
+ * driveLauncherChainToServiceStart() below) genuinely reaches
+ * SearchQueueService.start() -- confirmed via
+ * shadowOf(application).nextStartedService actually showing the real
+ * service Intent with the typed team name(s) in its extras. What stays
+ * an accepted gap beyond that point is SearchQueueService.onCreate()
+ * itself (Python.start()) -- Robolectric records the startService()
+ * call rather than invoking onCreate() for it, the same
+ * already-established finding from SearchQueueServiceTest's own
+ * `start()` test.
  *
  * The progress-bar UI itself doesn't share that limitation, though:
  * SingleSearchProgress/StepProgressBar/QueueStatusCard/parseStepProgress
@@ -50,6 +63,15 @@ import org.robolectric.RobolectricTestRunner
 class SearchScreenTest {
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    // Some tests below set queueState directly (via setQueueStateForTest)
+    // to simulate a queue run completing -- same companion-StateFlow
+    // leak-across-test-methods concern as SearchQueueServiceTest's own
+    // @Before reset.
+    @org.junit.Before
+    fun resetQueueState() {
+        SearchQueueService.resetQueueStateForTest()
+    }
 
     @Test
     fun `renders the wordmark, search field, and disabled search button initially`() {
@@ -119,51 +141,91 @@ class SearchScreenTest {
     }
 
     @Test
-    fun `clicking Search marks a single run in progress and starts the battery-optimization launcher chain`() {
+    fun `clicking Search, not yet battery-exempted, drives the full chain to a real service start`() {
+        var registryOwner: ActivityResultRegistryOwner? = null
         composeTestRule.setContent {
+            registryOwner = LocalContext.current as? ActivityResultRegistryOwner
             SearchScreen(viewModel = ReportViewModel(), onReportReady = {}, onHistoryClick = {})
         }
         composeTestRule.onNodeWithText("Team name").performTextInput("Arsenal")
         composeTestRule.onNodeWithText("Search").performClick()
         composeTestRule.waitForIdle()
 
-        // The click doesn't crash and doesn't reach SearchQueueService's
-        // real onCreate() -- see this file's own doc comment for exactly
-        // where the chain stops and why. Confirms via the same shadow the
-        // real "start builds a foreground-service intent..." test in
-        // SearchQueueServiceTest uses that no service was ever actually
-        // started by this click.
-        val nextIntent =
-            org.robolectric.Shadows.shadowOf(
-                androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
-            ).nextStartedService
-        assertNull(nextIntent)
+        val serviceIntent = driveLauncherChainToServiceStart(registryOwner!!)
+        assertEquals(listOf("Arsenal"), serviceIntent.getStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES))
     }
 
     @Test
-    fun `clicking Run queue starts the same launcher chain for a batch queue`() {
+    fun `clicking Search, already battery-exempted, skips straight to the notification-permission step`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        shadowOf(powerManager).setIgnoringBatteryOptimizations(context.packageName, true)
+
+        var registryOwner: ActivityResultRegistryOwner? = null
         composeTestRule.setContent {
+            registryOwner = LocalContext.current as? ActivityResultRegistryOwner
+            SearchScreen(viewModel = ReportViewModel(), onReportReady = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Team name").performTextInput("Chelsea")
+        composeTestRule.onNodeWithText("Search").performClick()
+        composeTestRule.waitForIdle()
+
+        // Only ONE launcher fires here (the battery-optimization branch
+        // is skipped entirely, not just auto-resolved) -- deliver just
+        // the permission-request result directly.
+        val shadowActivity = shadowOf(registryOwner as ComponentActivity)
+        val pending = shadowActivity.peekNextStartedActivityForResult()
+        assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", pending!!.intent.action)
+        shadowActivity.receiveResult(pending.intent, Activity.RESULT_OK, null)
+        composeTestRule.waitForIdle()
+
+        val serviceIntent = shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStartedService
+        assertEquals(listOf("Chelsea"), serviceIntent!!.getStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES))
+    }
+
+    @Test
+    fun `clicking Run queue drives the same launcher chain for a batch queue`() {
+        var registryOwner: ActivityResultRegistryOwner? = null
+        composeTestRule.setContent {
+            registryOwner = LocalContext.current as? ActivityResultRegistryOwner
             SearchScreen(viewModel = ReportViewModel(), onReportReady = {}, onHistoryClick = {})
         }
         composeTestRule.onNodeWithText("Team name").performTextInput("Arsenal")
         composeTestRule.onNodeWithText("Add \"Arsenal\" to queue").performClick()
-        composeTestRule.onNodeWithText("Run queue (1)").performClick()
+        // performScrollTo() is required here: SearchScreen's own Column
+        // is vertically scrollable under Robolectric's narrow default
+        // test viewport (320x470px), and "Run queue (1)" lays out below
+        // the visible 470px height once the queued-team row is showing.
+        // Without it, performClick() synthesizes a touch at the node's
+        // true (off-screen) coordinates, which silently misses --
+        // confirmed live via a full semantics-tree dump showing the node
+        // positioned at t=521..b=573 against a 470px-tall viewport. Same
+        // root cause as ReportScreenTest's earlier tab-bar finding, just
+        // vertical scroll instead of horizontal.
+        composeTestRule.onNodeWithText("Run queue (1)").performScrollTo().performClick()
         composeTestRule.waitForIdle()
 
-        // Confirmed live: queuedTeams = emptyList() (the onClick
-        // lambda's own second line) does NOT run -- startQueue()'s
-        // rememberLauncherForActivityResult.launch() call apparently
-        // doesn't return synchronously under Robolectric, so control
-        // never reaches back to that line within this click. Matches
-        // the Search button test above: verify the click reaches
-        // startQueue() without crashing and doesn't reach
-        // SearchQueueService's real onCreate(), not that downstream
-        // local state changed.
-        val nextIntent =
-            org.robolectric.Shadows.shadowOf(
-                androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
-            ).nextStartedService
-        assertNull(nextIntent)
+        val serviceIntent = driveLauncherChainToServiceStart(registryOwner!!)
+        assertEquals(listOf("Arsenal"), serviceIntent.getStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES))
+    }
+
+    /** Delivers RESULT_OK to the battery-optimization launcher, then to
+     * the notification-permission launcher it chains to, and returns the
+     * resulting SearchQueueService start Intent. */
+    private fun driveLauncherChainToServiceStart(registryOwner: ActivityResultRegistryOwner): android.content.Intent {
+        val shadowActivity = shadowOf(registryOwner as ComponentActivity)
+        val batteryOptPending = shadowActivity.peekNextStartedActivityForResult()
+        assertEquals("android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", batteryOptPending!!.intent.action)
+        shadowActivity.receiveResult(batteryOptPending.intent, Activity.RESULT_OK, null)
+        composeTestRule.waitForIdle()
+
+        val permissionPending = shadowActivity.peekNextStartedActivityForResult()
+        assertEquals("android.content.pm.action.REQUEST_PERMISSIONS", permissionPending!!.intent.action)
+        shadowActivity.receiveResult(permissionPending.intent, Activity.RESULT_OK, null)
+        composeTestRule.waitForIdle()
+
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        return checkNotNull(shadowOf(app).nextStartedService) { "SearchQueueService was never started" }
     }
 
     @Test
@@ -235,5 +297,53 @@ class SearchScreenTest {
     fun `parseStepProgress returns null for a malformed or zero total prefix`() {
         assertNull(parseStepProgress("(2/0) Bad total"))
         assertNull(parseStepProgress("(x/5) Not a number"))
+    }
+
+    @Test
+    fun `a single search completing successfully loads the report and signals ready`() {
+        // isSingleSearchRun is set synchronously by the Search button's
+        // own onClick, before startQueue() -- true regardless of whether
+        // the battery/notification launcher chain ever completes, so
+        // this doesn't need driveLauncherChainToServiceStart() at all.
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val historyRepository =
+            com.football.app.data.history.HistoryRepository(java.io.File(context.filesDir, "history-${System.nanoTime()}"))
+        val rawJson =
+            checkNotNull(javaClass.classLoader?.getResourceAsStream("sample_full_report.json")) {
+                "sample_full_report.json missing from test resources"
+            }.bufferedReader().readText()
+        val report =
+            kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                .decodeFromString(com.football.app.data.model.ReportJson.serializer(), rawJson)
+        historyRepository.save(report, rawJson)
+
+        val viewModel = ReportViewModel(historyRepository = historyRepository)
+        var readySignaled = false
+        composeTestRule.setContent {
+            SearchScreen(viewModel = viewModel, onReportReady = { readySignaled = true }, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Team name").performTextInput("Brentford")
+        composeTestRule.onNodeWithText("Search").performClick()
+        composeTestRule.waitForIdle()
+
+        SearchQueueService.setQueueStateForTest(QueueState.Finished(succeeded = 1, failed = 0, lastError = null))
+        composeTestRule.waitForIdle()
+
+        assert(readySignaled) { "onReportReady was never called" }
+    }
+
+    @Test
+    fun `a single search completing with a failure shows the error message`() {
+        composeTestRule.setContent {
+            SearchScreen(viewModel = ReportViewModel(), onReportReady = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Team name").performTextInput("Xyz")
+        composeTestRule.onNodeWithText("Search").performClick()
+        composeTestRule.waitForIdle()
+
+        SearchQueueService.setQueueStateForTest(QueueState.Finished(succeeded = 0, failed = 1, lastError = "Could not find a team matching \"Xyz\""))
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Could not find a team matching \"Xyz\"").assertExists()
     }
 }

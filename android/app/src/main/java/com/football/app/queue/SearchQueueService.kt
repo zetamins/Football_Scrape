@@ -260,6 +260,14 @@ class SearchQueueService : Service() {
             _queueState.value = QueueState.Idle
         }
 
+        // Test-only: lets a test simulate a queue run completing (e.g.
+        // SearchScreenTest driving its own isSingleSearchRun-gated
+        // LaunchedEffect) without needing the real, Chaquopy-bound
+        // runQueue() to actually execute.
+        internal fun setQueueStateForTest(state: QueueState) {
+            _queueState.value = state
+        }
+
         fun start(
             context: Context,
             teamNames: List<String>,

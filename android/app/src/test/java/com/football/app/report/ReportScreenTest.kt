@@ -1,5 +1,11 @@
 package com.football.app.report
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -7,11 +13,15 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.core.app.ApplicationProvider
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class ReportScreenTest {
@@ -72,19 +82,65 @@ class ReportScreenTest {
         assert(historyClicked)
     }
 
-    /** Just needs to not crash -- rememberLauncherForActivityResult's own
-     * CreateDocument launch() is a real Android SAF picker intent, not
-     * something this JVM test can complete (no shadow wired for it), but
-     * onDownloadClick's own body (building the sanitized filename and
-     * calling launch()) is plain Kotlin, previously fully uncovered. */
+    /**
+     * The registered CreateDocument ActivityResultLauncher callback
+     * (saveReportToUri) was previously assumed unreachable -- no shadow
+     * wired for the Activity Result API. Verified directly (throwaway
+     * probe, not kept) that AndroidX's Activity Result API bridges
+     * through the classic startActivityForResult/onActivityResult
+     * mechanism under the hood, which Robolectric's
+     * ShadowActivity.receiveResult() DOES support: the launched intent
+     * is visible via peekNextStartedActivityForResult() with a real
+     * request code, and delivering a result through
+     * receiveResult(requestIntent, resultCode, resultIntent) genuinely
+     * invokes the registered callback.
+     */
     @Test
-    fun `download button builds a sanitized filename and launches without crashing`() {
+    fun `download button writes the raw json to the SAF-picked uri`() {
         val viewModel = ReportViewModel()
         viewModel.loadFromHistory(loadSampleReportJson())
+        var registryOwner: ActivityResultRegistryOwner? = null
         composeTestRule.setContent {
+            registryOwner = LocalContext.current as? ActivityResultRegistryOwner
             ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
         }
         composeTestRule.onNodeWithContentDescription("Download JSON").performClick()
+        composeTestRule.waitForIdle()
+
+        val shadowActivity = shadowOf(registryOwner as ComponentActivity)
+        val pending = shadowActivity.peekNextStartedActivityForResult()
+        assertNotNull("expected a CreateDocument intent to have been launched", pending)
+
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val outFile = File(context.cacheDir, "download_test_out.json")
+        outFile.delete()
+        shadowActivity.receiveResult(pending!!.intent, Activity.RESULT_OK, Intent().setData(Uri.fromFile(outFile)))
+        composeTestRule.waitForIdle()
+
+        assertEquals(loadSampleReportJson(), outFile.readText())
+    }
+
+    @Test
+    fun `download button does nothing when the SAF picker is cancelled`() {
+        // saveReportToUri()'s own null-uri branch (uri == null when the
+        // picker returns RESULT_CANCELED) -- distinct from the success
+        // path above.
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(loadSampleReportJson())
+        var registryOwner: ActivityResultRegistryOwner? = null
+        composeTestRule.setContent {
+            registryOwner = LocalContext.current as? ActivityResultRegistryOwner
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithContentDescription("Download JSON").performClick()
+        composeTestRule.waitForIdle()
+
+        val shadowActivity = shadowOf(registryOwner as ComponentActivity)
+        val pending = shadowActivity.peekNextStartedActivityForResult()
+        shadowActivity.receiveResult(pending!!.intent, Activity.RESULT_CANCELED, null)
+        composeTestRule.waitForIdle()
+        // No assertion needed beyond "doesn't crash" -- saveReportToUri's
+        // null-uri branch is a no-op by design.
     }
 
     @Test
