@@ -5,8 +5,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import com.football.app.R
 
 // Barlow (SIL Open Font License, bundled as 5 static-weight res/font/
@@ -62,16 +60,4 @@ val StatNumberStyle =
         fontFamily = Barlow,
         fontFeatureSettings = "tnum",
         fontWeight = FontWeight.SemiBold,
-    )
-
-/**
- * Large standalone figures (prediction hero %, big stat-tile numbers) --
- * negative tracking as size grows, per apple-design's size-specific
- * typography rule (large text reads too loose at zero tracking; a fixed
- * letter-spacing is wrong at some size).
- */
-val HeroNumberStyle =
-    StatNumberStyle.copy(
-        fontSize = 40.sp,
-        letterSpacing = (-0.02).em,
     )

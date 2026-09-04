@@ -7,6 +7,7 @@ import com.football.app.data.model.AdditionalNote
 import com.football.app.data.model.BettingOdds
 import com.football.app.data.model.HeadToHeadMeeting
 import com.football.app.data.model.HeadToHeadSummary
+import com.football.app.data.model.ManagerClubRecord
 import com.football.app.data.model.ManagerInfo
 import com.football.app.data.model.ManagerTenureRecord
 import com.football.app.data.model.MatchOverview
@@ -136,6 +137,48 @@ class OverviewTabTest {
         }
         composeTestRule.onNodeWithText("Managers").assertExists()
         composeTestRule.onNodeWithText("Head-to-head as managers").assertExists()
+    }
+
+    // A manager's personal record against the opposing club (across any
+    // club he's managed, not tied to managerDuel or recordAtClub above)
+    // -- was decoded but never rendered anywhere before this test.
+    @Test
+    fun `managers section renders each manager's personal record against the opposing club`() {
+        composeTestRule.setContent {
+            OverviewTab(
+                overview =
+                    MatchOverview(
+                        homeManager = ManagerInfo(name = "Mikel Arteta"),
+                        awayManager = ManagerInfo(name = "Enzo Maresca"),
+                        homeManagerVsAwayClub =
+                            ManagerClubRecord(
+                                managerName = "Mikel Arteta",
+                                opponentClub = "Chelsea",
+                                sampleSize = 6,
+                                wins = 3,
+                                draws = 2,
+                                losses = 1,
+                            ),
+                        awayManagerVsHomeClub =
+                            ManagerClubRecord(
+                                managerName = "Enzo Maresca",
+                                opponentClub = "Arsenal",
+                                sampleSize = 0,
+                                wins = 0,
+                                draws = 0,
+                                losses = 0,
+                            ),
+                    ),
+                venueDetails = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Mikel Arteta vs Chelsea").assertExists()
+        composeTestRule.onNodeWithText("3W-2D-1L (last 6)").assertExists()
+        // awayManagerVsHomeClub has sampleSize=0 -- gated out, matching
+        // format_markdown.py's own `if ... .sample_size` check.
+        composeTestRule.onNodeWithText("Enzo Maresca vs Arsenal").assertDoesNotExist()
     }
 
     @Test

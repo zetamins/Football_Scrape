@@ -1,5 +1,6 @@
 package com.football.app.data.model
 
+import com.football.app.data.AppJson
 import org.junit.Test
 
 /**
@@ -100,5 +101,34 @@ class SerializerCoverageTest {
         VenueSplitStats.serializer()
         WeatherDetail.serializer()
         WinProbabilities.serializer()
+    }
+
+    // The generated encode-side (write$Self) counterpart to the above --
+    // this app only ever decodes these model types (real backend JSON in,
+    // never re-serialized back out), so unlike deserialize() /
+    // Companion.serializer(), write$Self genuinely never runs anywhere
+    // else in the suite for these two types specifically (most other
+    // types' write$Self incidentally shares a debug line with their own
+    // covered constructor and so isn't flagged separately by Kover; these
+    // two apparently don't).
+    @Test
+    fun `RefereeHomeAwayBias and LosingStreakContextInfo round-trip through encode too`() {
+        val bias = RefereeHomeAwayBias(sampleSize = 50, homeCardsPerGame = 2.1, awayCardsPerGame = 3.4)
+        val decodedBias = AppJson.decodeFromString(RefereeHomeAwayBias.serializer(), AppJson.encodeToString(RefereeHomeAwayBias.serializer(), bias))
+        assert(bias == decodedBias)
+
+        val streak = LosingStreakContextInfo(streakCount = 3, xgDelta = 0.8, potentialTurnaround = true)
+        val decodedStreak =
+            AppJson.decodeFromString(LosingStreakContextInfo.serializer(), AppJson.encodeToString(LosingStreakContextInfo.serializer(), streak))
+        assert(streak == decodedStreak)
+    }
+
+    // Same "plain constructor never called directly, only via the
+    // generated decode path" gap as MatchSummaryTest -- WinProbabilities
+    // is always decoded (see PredictionHeroTest), never hand-constructed.
+    @Test
+    fun `WinProbabilities can be constructed directly`() {
+        val probs = WinProbabilities(homeWinPct = 45.0, drawPct = 27.0, awayWinPct = 28.0)
+        assert(probs.homeWinPct == 45.0)
     }
 }

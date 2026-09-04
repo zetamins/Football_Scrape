@@ -66,6 +66,28 @@ class ProfileTabTest {
     }
 
     @Test
+    fun `style radar omits the aerial and goalkeeping axes when only one side is known`() {
+        // aerialAxis()/goalkeepingAxis() both return null unless BOTH
+        // sides are present -- the style radar still renders (via the
+        // pass-accuracy axes below), just without those two, but that
+        // null-returning branch itself was never reached before.
+        composeTestRule.setContent {
+            ProfileTab(
+                insights =
+                    InsightsProfile(
+                        homePassingStyle = SeasonPassingStyleEstimate(10, 500, 420, 84.0, 40, 8.0),
+                        awayPassingStyle = SeasonPassingStyleEstimate(10, 480, 380, 79.2, 55, 11.5),
+                        homeAerialEstimate = SeasonAerialEstimate(10, 45, 30),
+                        homeGoalkeepingEstimate = SeasonGoalkeepingEstimate(10, 28, 35, 80.0, 7),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Style profile").assertExists()
+    }
+
+    @Test
     fun `defensive errors section renders bar comparison when both sides known`() {
         composeTestRule.setContent {
             ProfileTab(

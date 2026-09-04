@@ -13,6 +13,19 @@ class ThemeTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    // darkTheme's default value (isSystemInDarkTheme()) is never actually
+    // used by every other test in this file, which always passes it
+    // explicitly -- omitting it here exercises that default-arg branch.
+    @Test
+    fun `renders content using the system default theme`() {
+        composeTestRule.setContent {
+            FootballTheme {
+                Text("Hello")
+            }
+        }
+        composeTestRule.onNodeWithText("Hello").assertExists()
+    }
+
     @Test
     fun `renders content in light mode`() {
         composeTestRule.setContent {

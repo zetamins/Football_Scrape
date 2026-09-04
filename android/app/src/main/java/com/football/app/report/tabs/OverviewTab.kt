@@ -153,6 +153,32 @@ private fun ManagersSection(
                 InfoRow("Head-to-head as managers", "${duel.homeWins}W-${duel.draws}D-${duel.awayWins}L")
             }
         }
+        // A manager's own personal record against the OPPOSING club,
+        // across any club he's managed -- distinct from managerDuel above
+        // (which is these two specific managers' record against each
+        // other) and from recordAtClub above (his record at HIS OWN
+        // current club, any opponent). Matches format_markdown.py's own
+        // rendering exactly (source of truth for this field, since it was
+        // previously decoded here but never displayed -- confirmed via a
+        // direct grep of OverviewTab.kt finding no reference to either
+        // field at all, despite football/types.py defining them and every
+        // *.py site module populating -- or explicitly None-ing -- them).
+        overview.homeManagerVsAwayClub?.let { r ->
+            if (r.sampleSize > 0) {
+                InfoRow(
+                    "${r.managerName} vs ${r.opponentClub}",
+                    "${r.wins}W-${r.draws}D-${r.losses}L (last ${r.sampleSize})",
+                )
+            }
+        }
+        overview.awayManagerVsHomeClub?.let { r ->
+            if (r.sampleSize > 0) {
+                InfoRow(
+                    "${r.managerName} vs ${r.opponentClub}",
+                    "${r.wins}W-${r.draws}D-${r.losses}L (last ${r.sampleSize})",
+                )
+            }
+        }
     }
 }
 

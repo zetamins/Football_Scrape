@@ -88,6 +88,25 @@ class FormTabTest {
     }
 
     @Test
+    fun `a steady momentum trend renders the neutral else-branch color`() {
+        // momentumColor()'s else branch (neither "improving" nor
+        // "declining") was never reached by any fixture.
+        composeTestRule.setContent {
+            FormTab(
+                form =
+                    minimalForm().copy(
+                        currentStreak = StreakInfo(result = "W", count = 2),
+                        momentum = MomentumInfo(recentPpg = 1.5, priorPpg = 1.5, trend = "steady"),
+                    ),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("1.5 ppg (last 3) vs 1.5 ppg (prior 3) -- steady").assertExists()
+    }
+
+    @Test
     fun `rates section renders a segmented bar and win-draw-loss line`() {
         composeTestRule.setContent {
             FormTab(

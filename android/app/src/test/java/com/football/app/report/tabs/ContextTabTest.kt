@@ -76,6 +76,25 @@ class ContextTabTest {
     }
 
     @Test
+    fun `rotation row spells out a loss or draw preceding result too`() {
+        // "W" is covered above; resultWord()'s "L"/"D" branches were
+        // never reached by any fixture.
+        composeTestRule.setContent {
+            ContextTab(
+                insights =
+                    InsightsContext(
+                        homeRotation = RotationInfo(changedPlayers = 2, startingXiSize = 11, precedingResult = "L"),
+                        awayRotation = RotationInfo(changedPlayers = 3, startingXiSize = 11, precedingResult = "D"),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("2 changed (after a loss)", substring = true).assertExists()
+        composeTestRule.onNodeWithText("3 changed (after a draw)", substring = true).assertExists()
+    }
+
+    @Test
     fun `streaks section renders stability losing-streak and resilience rows`() {
         composeTestRule.setContent {
             ContextTab(
@@ -110,6 +129,22 @@ class ContextTabTest {
         }
         composeTestRule.onNodeWithText("Experience").assertExists()
         composeTestRule.onNodeWithText("Average age").assertExists()
+    }
+
+    @Test
+    fun `experience section falls back to plain text when only one side's age is known`() {
+        // NumericComparisonRow (shared with RestSection above, already
+        // covered there for the both-known case) falls back to a plain
+        // InfoRow when either value is null -- never exercised before.
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(experienceComparison = ExperienceComparison(ownAverageAge = 25.4)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Average age").assertExists()
+        composeTestRule.onNodeWithText("Arsenal 25.4 vs Chelsea n/a").assertExists()
     }
 
     @Test
@@ -180,6 +215,21 @@ class ContextTabTest {
         }
         composeTestRule.onNodeWithText("Availability").assertExists()
         composeTestRule.onNodeWithText("Colwill").assertExists()
+    }
+
+    @Test
+    fun `bench row falls back to plain text when a value is missing`() {
+        // BenchRow's bar-comparison branch needs both values known and
+        // positive -- never exercised the plain-text fallback before.
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(homeBenchInfo = BenchInfo(benchSize = 9, benchTotalMarketValue = null, startingTotalMarketValue = null)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Arsenal bench").assertExists()
+        composeTestRule.onNodeWithText("9 named, n/a combined value vs starting XI's n/a", substring = true).assertExists()
     }
 
     @Test
