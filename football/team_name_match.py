@@ -66,3 +66,22 @@ def name_query_variants(team_name: str) -> list[str]:
     if no_suffix and no_suffix not in variants:
         variants.append(no_suffix)
     return variants
+
+
+def normalize_for_match(s: str) -> str:
+    """Diacritics-stripped, lowercased, punctuation-collapsed-to-spaces
+    form used for loose team/venue/referee-name comparison across sites.
+    Was copy-pasted verbatim into 9 site modules (each already importing
+    strip_diacritics from here) before being consolidated -- every one of
+    those 9 imports it under its original local name via `as _normalize`
+    so their many internal call sites needed no changes."""
+    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
+
+
+def slugify_for_match(s: str) -> str:
+    """Lowercase, hyphen-joined slug used for building/matching site-local
+    match/team slugs (e.g. soccerdesk's/three65scores' URL-shaped match
+    ids). Was copy-pasted verbatim into 2 site modules before being
+    consolidated -- both import it under its original local name via
+    `as _slugify`."""
+    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))

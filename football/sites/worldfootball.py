@@ -17,7 +17,6 @@ just resolves to no data rather than guessing at a URL.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
 from ..browser import launch_browser
 from ..http import USER_AGENT
 from ..retry import retry_with_backoff
-from ..team_name_match import strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
 
 _COMPETITION_PATHS: dict[str, str] = {
     "Premier League": "co91/england-premier-league",
@@ -37,10 +36,6 @@ _COMPETITION_PATHS: dict[str, str] = {
     "Bundesliga": "co12/germany-bundesliga",
     "Ligue 1": "co71/france-ligue-1",
 }
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 @dataclass

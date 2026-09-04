@@ -1,5 +1,7 @@
 from football.team_name_match import (
     name_query_variants,
+    normalize_for_match,
+    slugify_for_match,
     strip_diacritics,
     strip_generic_club_tokens,
 )
@@ -34,3 +36,20 @@ def test_name_query_variants_suffix_only():
 def test_name_query_variants_both():
     # A hypothetical name combining both mismatch shapes.
     assert name_query_variants("Málaga CF") == ["Málaga CF", "Malaga CF", "Malaga"]
+
+
+def test_normalize_for_match():
+    # Consolidated from 9 site modules that previously copy-pasted this
+    # verbatim -- see team_name_match.py's own docstring on the function.
+    assert normalize_for_match("Almería") == "almeria"
+    assert normalize_for_match("Girona FC") == "girona fc"
+    assert normalize_for_match("St. Pauli") == "st pauli"
+    assert normalize_for_match("  Liverpool  ") == "liverpool"
+
+
+def test_slugify_for_match():
+    # Consolidated from 2 site modules that previously copy-pasted this
+    # verbatim -- see team_name_match.py's own docstring on the function.
+    assert slugify_for_match("Real Madrid") == "real-madrid"
+    assert slugify_for_match("St. Pauli") == "st-pauli"
+    assert slugify_for_match("-Leading and trailing-") == "leading-and-trailing"

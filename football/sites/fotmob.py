@@ -17,8 +17,8 @@ from typing import Any
 from .._jsmath import js_round_to
 from ..data_dir import data_dir
 from ..http import fetch_text
-from ..team_aliases import known_aliases_for
-from ..team_name_match import strip_diacritics
+from ..team_aliases import find_best_slug_match
+from ..team_name_match import normalize_for_match as _normalize
 from ..types import (
     HeadToHeadMeeting,
     LineupPlayer,
@@ -77,10 +77,6 @@ async def _load_teams_index() -> list[_TeamIndexEntry]:
         return entries
 
 
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
-
-
 # Fotmob-specific slug overrides: normalized team name -> the exact slug
 # to search for instead, checked BEFORE the alias loop below (which would
 # otherwise reach the wrong exact match first and return immediately).
@@ -109,65 +105,28 @@ _FOTMOB_SLUG_OVERRIDE: dict[str, str] = {
 
 
 def _find_best_team_match(entries: list[_TeamIndexEntry], team_name: str) -> _TeamIndexEntry | None:
-    # Still REQUIRED even after the general exact-match-across-all-aliases
-    # fix below -- confirmed live by removing it and re-testing: Fotmob's
-    # Uruguayan club is stored under the literal slug "liverpool-fc" (a
-    # genuine exact match, not a substring false-positive), and
-    # known_aliases_for() tries the canonical alias ("liverpool fc")
-    # before the shorter alias ("liverpool") that would reach the real
-    # English club -- so even a full exact-match pass across every alias
-    # hits the wrong team's real, exact slug first. This is a different
-    # failure mode than the substring-collision bug the general fix below
+    # Still REQUIRED even after find_best_slug_match's own general
+    # exact-match-across-all-aliases pass below -- confirmed live by
+    # removing it and re-testing: Fotmob's Uruguayan club is stored under
+    # the literal slug "liverpool-fc" (a genuine exact match, not a
+    # substring false-positive), and known_aliases_for() tries the
+    # canonical alias ("liverpool fc") before the shorter alias
+    # ("liverpool") that would reach the real English club -- so even a
+    # full exact-match pass across every alias hits the wrong team's
+    # real, exact slug first. This is a different failure mode than the
+    # substring-collision bug find_best_slug_match's own algorithm
     # addresses (see goal.py, where the equivalent override turned out to
     # be genuinely redundant and was removed after the same live test).
+    # See find_best_slug_match's own docstring (team_aliases.py) for the
+    # full 3-pass algorithm this delegates to -- was duplicated verbatim
+    # here before being consolidated.
     override_slug = _FOTMOB_SLUG_OVERRIDE.get(_normalize(team_name))
     if override_slug:
         exact = next((e for e in entries if e.slug == override_slug), None)
         if exact:
             return exact
 
-    # Exact-match pass across EVERY known alias (team_aliases.py) before
-    # ANY substring fallback for ANY alias -- trying each alias
-    # sequentially (exact-match THEN substring-fallback, returning on the
-    # first alias that yields anything) is unsafe: the canonical alias is
-    # usually tried first, and if ITS substring fallback happens to match
-    # a longer, wrong same-club-family entity (a women's/reserve/youth
-    # side), that wrong match returns before a later, more specific alias
-    # ever gets a chance at its own exact match -- confirmed live as
-    # exactly the mechanism behind the Liverpool/Uruguay collision this
-    # override exists for (see the comment above _FOTMOB_SLUG_OVERRIDE).
-    # soccerdesk.py/three65scores.py already use this safer
-    # exact-match-across-everything-first pattern; this brings fotmob.py
-    # in line with it instead of relying only on a per-team override list
-    # that has to be extended by hand for every future collision found.
-    known = known_aliases_for(team_name)
-    for target in known:
-        target_slug = target.replace(" ", "-")
-        exact = next((e for e in entries if e.slug == target_slug), None)
-        if exact:
-            return exact
-
-    # No exact match for any alias -- pool substring candidates across
-    # EVERY alias (not just the first one that had any hits) before
-    # picking, same principle as the exact-match pass above.
-    candidates = []
-    for target in known:
-        candidates.extend(e for e in entries if target in _normalize(e.slug))
-    if candidates:
-        # Prefer the shortest slug (main senior club page over "-u21"/"-women"/"-fc" variants).
-        candidates.sort(key=lambda e: len(e.slug))
-        return candidates[0]
-
-    # Reverse direction: Sofascore's official name is sometimes longer than
-    # this source's short slug ("Girona FC" vs slug "girona") -- a 4-char
-    # floor (same convention as stadiumdb.py) keeps this from letting a
-    # generic short slug false-match an unrelated longer query.
-    target = _normalize(team_name)
-    reverse_candidates = [e for e in entries if len(_normalize(e.slug)) >= 4 and _normalize(e.slug) in target]
-    if not reverse_candidates:
-        return None
-    reverse_candidates.sort(key=lambda e: len(e.slug), reverse=True)
-    return reverse_candidates[0]
+    return find_best_slug_match(entries, team_name)
 
 
 _NEXT_DATA_MARKER = "__NEXT_DATA__"

@@ -28,17 +28,9 @@ sources. Both the canonical key and every alias are stored pre-normalized
 
 from __future__ import annotations
 
-import re
+from typing import Protocol, TypeVar
 
-from .team_name_match import strip_diacritics
-
-
-def normalize(name: str) -> str:
-    """Same normalization convention already used by football-data.py's
-    (now-removed) local helper and by clubelo.py's alias table: strip
-    diacritics, lowercase, collapse anything non-alphanumeric to a single
-    space. Shared here so every caller produces identical keys."""
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(name).lower()).strip()
+from .team_name_match import normalize_for_match as normalize
 
 
 # canonical (normalized) -> [aliases (each already normalized)]
@@ -385,3 +377,62 @@ def known_aliases_for(name: str) -> list[str]:
     belongs to, or just [normalize(name)] if it isn't in the table."""
     canonical = canonical_for(name)
     return [canonical, *TEAM_ALIASES.get(canonical, [])]
+
+
+class SlugIndexed(Protocol):
+    slug: str
+
+
+_E = TypeVar("_E", bound=SlugIndexed)
+
+
+def find_best_slug_match(entries: list[_E], team_name: str) -> _E | None:
+    """Match `team_name` against a slug-indexed team list (a sitemap/search
+    index entry from any site with a `.slug` field), via 3 passes:
+
+    1. Exact-match across EVERY known alias (see known_aliases_for above)
+       before ANY substring fallback for ANY alias. Trying each alias
+       sequentially (exact-match THEN substring-fallback, returning on
+       the first alias with any hit) is unsafe: the canonical alias is
+       usually tried first, and if ITS substring fallback happens to
+       match a longer, wrong same-club-family entity (a women's/reserve/
+       youth side), that wrong match returns before a later, more
+       specific alias ever gets a chance at its own exact match --
+       confirmed live as exactly the mechanism behind a real
+       Liverpool/Liverpool-Women collision on goal.com.
+    2. No exact match for any alias -- pool substring candidates across
+       EVERY alias (not just the first one that had any hits), then
+       prefer the shortest slug (the main senior club page over a
+       "-u21"/"-women" variant), same principle as pass 1.
+    3. Reverse direction: a source's official name is sometimes longer
+       than another source's short slug ("Girona FC" vs slug "girona")
+       -- a 4-char floor keeps a generic short slug from false-matching
+       an unrelated longer query.
+
+    Was duplicated verbatim (~20 lines) between goal.py and fotmob.py
+    before being consolidated here; each site still layers its own extra
+    pre-check on top where its own source has a collision this general
+    algorithm alone doesn't resolve (e.g. fotmob.py's per-slug override
+    for a case where the wrong team's exact slug is reached before the
+    right one, a different failure mode than the substring collision
+    this function's own pass 1 already handles)."""
+    known = known_aliases_for(team_name)
+    for target in known:
+        target_slug = target.replace(" ", "-")
+        exact = next((e for e in entries if e.slug == target_slug), None)
+        if exact:
+            return exact
+
+    candidates: list[_E] = []
+    for target in known:
+        candidates.extend(e for e in entries if target in normalize(e.slug))
+    if candidates:
+        candidates.sort(key=lambda e: len(e.slug))
+        return candidates[0]
+
+    target = normalize(team_name)
+    reverse_candidates = [e for e in entries if len(normalize(e.slug)) >= 4 and normalize(e.slug) in target]
+    if not reverse_candidates:
+        return None
+    reverse_candidates.sort(key=lambda e: len(e.slug), reverse=True)
+    return reverse_candidates[0]

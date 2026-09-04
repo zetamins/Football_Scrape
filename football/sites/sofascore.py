@@ -35,7 +35,7 @@ from ..browser import launch_browser
 from ..retry import retry_with_backoff
 from ..team_aliases import canonical_for
 from ..team_aliases import normalize as _normalize_alias
-from ..team_name_match import strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
 from ..types import (
     HeadToHeadSummary,
     LineupPlayer,
@@ -104,12 +104,6 @@ def _to_iso_z(dt: datetime) -> str:
     entirely when microsecond == 0, which every other source's date
     strings (and any downstream string-prefix comparison) don't expect."""
     return dt.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
-def _normalize(s: str) -> str:
-    import re
-
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 @dataclass

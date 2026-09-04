@@ -12,7 +12,6 @@ has no /api/-style disallow either, and even explicitly allows team pages.
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import quote
@@ -20,7 +19,7 @@ from urllib.parse import quote
 from .._jsmath import js_number_or, js_number_to_string, js_round, js_round_to
 from ..http import fetch_json
 from ..team_aliases import known_aliases_for
-from ..team_name_match import name_query_variants, strip_diacritics
+from ..team_name_match import name_query_variants, slugify_for_match as _slugify, strip_diacritics
 from ..types import (
     LineupPlayer,
     MatchDetails,
@@ -147,10 +146,6 @@ async def _find_team(team_name: str) -> _Competitor | None:
     targets = [strip_diacritics(v).lower().strip() for v in [team_name, *known_aliases_for(team_name)]]
 
     return _reverse_match(targets, competitors) or _forward_match(targets, competitors) or _shortest({c["id"]: c for c in competitors})
-
-
-def _slugify(s: str) -> str:
-    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
 
 
 @dataclass

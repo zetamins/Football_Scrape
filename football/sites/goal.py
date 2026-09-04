@@ -15,8 +15,7 @@ import httpx
 
 from ..data_dir import data_dir
 from ..http import fetch_text
-from ..team_aliases import known_aliases_for
-from ..team_name_match import strip_diacritics
+from ..team_aliases import find_best_slug_match
 from ..types import (
     HeadToHeadSummary,
     LineupPlayer,
@@ -70,62 +69,19 @@ async def _load_teams_index() -> list[_TeamIndexEntry]:
         return entries
 
 
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
-
-
 def _find_best_team_match(entries: list[_TeamIndexEntry], team_name: str) -> _TeamIndexEntry | None:
-    # Exact-match pass across EVERY known alias (team_aliases.py) before
-    # ANY substring fallback for ANY alias -- trying each alias
-    # sequentially (exact-match THEN substring-fallback, returning on the
-    # first alias that yields anything) is unsafe: the canonical alias is
-    # usually tried first, and if ITS substring fallback happens to match
-    # a longer, wrong same-club-family entity (a women's/reserve/youth
-    # side), that wrong match returns before a later, more specific alias
-    # ever gets a chance at its own exact match. Confirmed live as exactly
-    # the mechanism behind get_goal_matches("Liverpool") previously
-    # returning 36 fixtures, ALL of them Liverpool FC Women's WSL/FA Cup
-    # matches: "liverpool fc" (the canonical alias, tried first) has no
-    # exact Goal.com slug, but IS a substring of "liverpool-fc-women"'s
-    # normalized form, so that wrong match returned before the shorter
-    # "liverpool" alias (which exact-matches the real men's club) was ever
-    # tried. A hardcoded per-team slug override previously patched this
-    # specific case; removed after confirming live that this general fix
-    # alone -- checked here, exact-match across every alias before any
-    # substring fallback -- already resolves it correctly without one
-    # (unlike fotmob.py, where the equivalent override is still required;
-    # see the comment there for why that case is genuinely different).
-    # soccerdesk.py/three65scores.py already use this safer
-    # exact-match-across-everything-first pattern; this brings goal.py in
-    # line with it instead of relying on a per-team override list that
-    # has to be extended by hand for every future collision found.
-    known = known_aliases_for(team_name)
-    for target in known:
-        target_slug = target.replace(" ", "-")
-        exact = next((e for e in entries if e.slug == target_slug), None)
-        if exact:
-            return exact
-
-    # No exact match for any alias -- pool substring candidates across
-    # EVERY alias (not just the first one that had any hits) before
-    # picking, same principle as the exact-match pass above.
-    candidates = []
-    for target in known:
-        candidates.extend(e for e in entries if target in _normalize(e.slug))
-    if candidates:
-        candidates.sort(key=lambda e: len(e.slug))
-        return candidates[0]
-
-    # Reverse direction: Sofascore's official name is sometimes longer than
-    # this source's short slug ("Girona FC" vs slug "girona") -- a 4-char
-    # floor (same convention as stadiumdb.py) keeps this from letting a
-    # generic short slug false-match an unrelated longer query.
-    target = _normalize(team_name)
-    reverse_candidates = [e for e in entries if len(_normalize(e.slug)) >= 4 and _normalize(e.slug) in target]
-    if not reverse_candidates:
-        return None
-    reverse_candidates.sort(key=lambda e: len(e.slug), reverse=True)
-    return reverse_candidates[0]
+    # A hardcoded per-team slug override previously patched a real
+    # collision (get_goal_matches("Liverpool") returning 36 fixtures, ALL
+    # of them Liverpool FC Women's WSL/FA Cup matches); removed after
+    # confirming live that find_best_slug_match's general exact-match-
+    # across-every-alias-before-any-substring-fallback algorithm already
+    # resolves it correctly without one (unlike fotmob.py, where the
+    # equivalent override is still required -- see the comment there for
+    # why that case is genuinely different). See find_best_slug_match's
+    # own docstring (team_aliases.py) for the full 3-pass algorithm this
+    # delegates to -- was duplicated verbatim here before being
+    # consolidated.
+    return find_best_slug_match(entries, team_name)
 
 
 def _match_status(finished: bool, status_raw: str | None) -> str | None:

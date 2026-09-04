@@ -13,14 +13,10 @@ import re
 
 from .._jsmath import js_number
 from ..http import fetch_text
-from ..team_name_match import strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
 
 _SLUG_RE = re.compile(r"referees/([a-z0-9-]+)")
 _TRAILING_ID_RE = re.compile(r"-\d+$")
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 def _slug_to_name(slug: str) -> str:

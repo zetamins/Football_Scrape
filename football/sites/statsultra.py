@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from ..http import fetch_text
 from ..team_aliases import known_aliases_for
-from ..team_name_match import strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
 from ..types import ClubStrengthRating
 
 _FULL_NAME_RE = re.compile(r'<span class="full-name">([^<]+)</span>')
@@ -29,10 +29,6 @@ _DEFENSE_RE = re.compile(r'<span class="profile-num def">([\d.]+)</span>')
 # classed <span>, not a bare <td>, so the first match is unambiguous.
 _RANK_RE = re.compile(r"<td>(\d+)</td>")
 _STRENGTH_CHANGE_RE = re.compile(r'data-strength-change="([+-]?[\d.]+)"')
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 @dataclass

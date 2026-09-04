@@ -11,7 +11,6 @@ crawling restrictions apply.
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -19,7 +18,12 @@ from urllib.parse import quote
 
 from ..http import USER_AGENT, new_client
 from ..team_aliases import known_aliases_for
-from ..team_name_match import name_query_variants, strip_diacritics
+from ..team_name_match import (
+    name_query_variants,
+    normalize_for_match as _normalize,
+    slugify_for_match as _slugify,
+    strip_diacritics,
+)
 from ..types import (
     HeadToHeadMeeting,
     HeadToHeadSummary,
@@ -58,10 +62,6 @@ async def _fetch_json(url: str, attempts: int = 3) -> Any:
                 await asyncio.sleep(1 * (i + 1))
     assert last_err is not None
     raise last_err
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 @dataclass
@@ -140,10 +140,6 @@ async def _find_team(team_name: str) -> _SoccerdeskTeam | None:
     candidates = [t for t in teams if target in strip_diacritics(t["name"]).lower()]
     pick = min(candidates, key=lambda t: len(t["name"])) if candidates else teams[0]
     return _SoccerdeskTeam(id=pick["id"], name=pick["name"], cname=pick.get("cname"))
-
-
-def _slugify(s: str) -> str:
-    return re.sub(r"(?:^-|-$)", "", re.sub(r"[^a-z0-9]+", "-", s.lower()))
 
 
 def _parse_timestamp(ts: int | None) -> str | None:

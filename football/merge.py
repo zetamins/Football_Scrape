@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
 from ._jsmath import js_round_to
-from .team_name_match import strip_diacritics
+from .team_name_match import normalize_for_match as normalize_team_name
 from .types import (
     DefensiveStats,
     MatchDetails,
@@ -31,12 +31,6 @@ SOURCE_ORDER: tuple[Source, ...] = ("sofascore", "fotmob", "soccerdesk", "goal",
 # search) -- it only ever fills the single `weather` field, as a post-merge
 # supplemental fetch, so field_sources needs to name it too.
 FieldSource = Literal["sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in"]
-
-
-def normalize_team_name(s: str) -> str:
-    import re
-
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 def is_empty(v: Any) -> bool:

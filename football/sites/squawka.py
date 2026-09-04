@@ -24,7 +24,6 @@ current list of labels confirmed to return real data.
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import fields
 from typing import TYPE_CHECKING
 
@@ -35,12 +34,8 @@ from ..browser import launch_browser
 from ..http import USER_AGENT
 from ..retry import retry_with_backoff
 from ..team_aliases import known_aliases_for
-from ..team_name_match import strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
 from ..types import DefensiveStats
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 _LOAD_PAGE_CONTEXT_JS = """

@@ -20,12 +20,8 @@ from dataclasses import dataclass
 from ..data_dir import data_dir
 from ..http import fetch_text
 from ..team_aliases import known_aliases_for
-from ..team_name_match import strip_diacritics
+from ..team_name_match import normalize_for_match as _normalize, strip_diacritics
 from ..types import VenueDetails
-
-
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", strip_diacritics(s).lower()).strip()
 
 
 @dataclass
