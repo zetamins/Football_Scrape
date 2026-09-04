@@ -1,6 +1,7 @@
 package com.football.app.data.bridge
 
 import com.chaquo.python.Python
+import com.football.app.coverage.ExcludedFromCoverage
 
 /**
  * Wraps the Chaquopy call into football.android_report.run_report() (see
@@ -28,6 +29,7 @@ object PythonBridge {
         fun onSourceStatus(statusJson: String)
     }
 
+    @ExcludedFromCoverage
     fun runReport(
         teamName: String,
         onProgress: ProgressListener,

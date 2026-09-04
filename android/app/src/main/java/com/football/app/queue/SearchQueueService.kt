@@ -15,6 +15,7 @@ import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import com.football.app.MainActivity
 import com.football.app.R
+import com.football.app.coverage.ExcludedFromCoverage
 import com.football.app.data.ReportRepository
 import com.football.app.data.history.HistoryRepository
 import com.football.app.report.SearchState
@@ -61,6 +62,7 @@ class SearchQueueService : Service() {
     // isolation.
     internal lateinit var notificationManager: NotificationManager
 
+    @ExcludedFromCoverage
     override fun onCreate() {
         super.onCreate()
         // Guards against a cold-process restart of just this service

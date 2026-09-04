@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import com.football.app.coverage.ExcludedFromCoverage
 import com.football.app.navigation.FootballNavHost
 import com.football.app.queue.SearchQueueService
 import com.football.app.ui.theme.FootballTheme
@@ -29,6 +30,7 @@ import com.football.app.ui.theme.FootballTheme
  * re-verifying in isolation from the UI.
  */
 class MainActivity : AppCompatActivity() {
+    @ExcludedFromCoverage
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

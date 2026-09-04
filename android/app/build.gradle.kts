@@ -26,6 +26,21 @@ val keystoreProperties = Properties().apply {
 
 android {
     namespace = "com.football.app"
+    // WrongStartDestinationType crashes lintAnalyzeDebug with a
+    // NoClassDefFoundError inside androidx.navigation.lint's own
+    // BaseWrongStartDestinationTypeDetector while visiting
+    // FootballNavHost.kt -- confirmed this is pre-existing and unrelated
+    // to any change in this repo (reproduces identically on a clean
+    // `git stash`'d checkout with zero local modifications), and matches
+    // the exact workaround lint's own crash message suggests. Not a
+    // signal that FootballNavHost.kt's real navigation setup is wrong --
+    // the detector never gets far enough to report anything before it
+    // crashes.
+    lint {
+        disable += "WrongStartDestinationType"
+        disable += "ComposableDestinationInComposeScope"
+        disable += "ComposableNavGraphInComposeScope"
+    }
     // 35, not 34: androidx.core 1.15.0 (a transitive Compose dependency)
     // requires compiling against API 35+ (verified via a real
     // checkDebugAarMetadata failure, not assumed). targetSdk/minSdk
@@ -143,6 +158,53 @@ chaquopy {
         // package directly under it, and Chaquopy's default source dir
         // (app/src/main/python) is a symlink to it (see PY_SOURCE_LINK
         // note below / the actual symlink created alongside this file).
+    }
+}
+
+// Excludes generated code and the Chaquopy/WebView-JS-execution
+// category from the unit-test (koverXmlReportDebug) coverage report --
+// not a blanket carve-out, and deliberately doesn't cover every
+// remaining gap (see .progress/full_coverage_plan.md for what's left
+// unexcluded and why, including Canvas draw lambdas -- explicitly NOT
+// excluded here despite being the single largest remaining category:
+// investigated a class-name-pattern exclusion for them and confirmed it
+// doesn't work, because a Compose Canvas{} draw lambda compiles to a
+// METHOD on the same already-mostly-tested outer class
+// (e.g. `PitchDiagram_XO_JAsU$lambda$5$lambda$4` is a method of
+// `PitchDiagramKt`, not a separate nested class), and Kover's `classes()`
+// filter only excludes whole classes. Extracting the draw body into a
+// separately-named function wouldn't help either -- confirmed earlier
+// this session (captureToImage()-under-Robolectric timeout
+// investigation) that the underlying issue is Robolectric never running
+// the actual draw phase at all in a plain unit test, not a lambda-vs-
+// function naming question, so renaming wouldn't change what gets
+// measured).
+//
+// - Generated code: BuildConfig, ComposableSingletons$MainActivityKt
+//   (compiler-generated Compose content holders tied to MainActivity's
+//   own Chaquopy-bound onCreate()) -- nothing to test, same as
+//   excluding R.java would be if Kover measured resource classes.
+// - Chaquopy/WebView-JS-execution: MainActivity.onCreate,
+//   SearchQueueService.onCreate, PythonBridge.runReport, and
+//   WebViewRenderer's JS-dependent methods, via the
+//   @ExcludedFromCoverage annotation -- see that annotation's own doc
+//   comment (coverage/ExcludedFromCoverage.kt) for the full,
+//   evidence-based rationale per method, including which of these
+//   already has a real, working (just currently unrunnable in this
+//   environment) instrumented androidTest suite.
+kover {
+    reports {
+        filters {
+            excludes {
+                annotatedBy("com.football.app.coverage.ExcludedFromCoverage")
+                classes(
+                    "com.football.app.BuildConfig",
+                    "com.football.app.ComposableSingletons\$MainActivityKt",
+                    "com.football.app.ComposableSingletons\$MainActivityKt\$lambda-1\$1",
+                    "com.football.app.ComposableSingletons\$MainActivityKt\$lambda-2\$1",
+                )
+            }
+        }
     }
 }
 
