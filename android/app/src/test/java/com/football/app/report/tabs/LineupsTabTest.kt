@@ -156,6 +156,69 @@ class LineupsTabTest {
     }
 
     @Test
+    fun `formations section shows Predicted when lineupConfirmed is explicitly false`() {
+        composeTestRule.setContent {
+            LineupsTab(
+                lineups = MatchLineups(homeFormation = "4-3-3", lineupConfirmed = false),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Predicted").assertExists()
+    }
+
+    @Test
+    fun `per-player stat line covers goals, assists, missing shirt number, and missing position`() {
+        composeTestRule.setContent {
+            LineupsTab(
+                lineups =
+                    MatchLineups(
+                        homeFormation = "4-3-3",
+                        homeLineup =
+                            listOf(
+                                LineupPlayer(name = "Saka", position = "F", shirtNumber = 7, minutesPlayed = 90, goals = 1, assists = 0, rating = "8.0"),
+                                LineupPlayer(name = "Sub Player", position = null, shirtNumber = null, minutesPlayed = null, goals = 0, assists = 1, rating = null),
+                            ),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        // Saka: shirt number present, goals>0 true, assists>0 false, rating present.
+        composeTestRule.onNodeWithText("#7 Saka (F)").assertExists()
+        // Sub Player: no shirt number, no position (falls back to "?"),
+        // goals>0 false, assists>0 true, minutesPlayed/rating both null.
+        composeTestRule.onNodeWithText("Sub Player (?)").assertExists()
+    }
+
+    @Test
+    fun `unavailable section renders missing players alone with no description`() {
+        composeTestRule.setContent {
+            LineupsTab(
+                lineups = MatchLineups(homeMissingPlayers = listOf(MissingPlayer(name = "Saliba", description = null))),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Suspended").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Missing").assertExists()
+        composeTestRule.onNodeWithText("Saliba").assertExists()
+    }
+
+    @Test
+    fun `match detail section renders player of the match without a rating`() {
+        composeTestRule.setContent {
+            LineupsTab(
+                lineups = MatchLineups(playerOfTheMatch = PlayerOfTheMatch(name = "Saka", rating = null)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Player of the match").assertExists()
+        composeTestRule.onNodeWithText("Saka").assertExists()
+    }
+
+    @Test
     fun `a fully populated lineups tab composes without throwing`() {
         composeTestRule.setContent {
             LineupsTab(

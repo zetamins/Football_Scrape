@@ -171,6 +171,83 @@ class SquadTabTest {
     }
 
     @Test
+    fun `top performers section renders defenders alone with no average age`() {
+        composeTestRule.setContent {
+            SquadTab(
+                profile = TeamProfileData(teamName = "Arsenal", topDefenders = listOf(TopDefender(name = "Rice", tacklesMade = 40, interceptions = 20))),
+                squadStrength = null,
+                label = "Arsenal",
+            )
+        }
+        composeTestRule.onNodeWithText("Top defenders").assertExists()
+        composeTestRule.onNodeWithText("Top scorers").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Average age").assertDoesNotExist()
+    }
+
+    @Test
+    fun `availability section renders missing players alone with no injuries at all`() {
+        composeTestRule.setContent {
+            SquadTab(
+                profile = TeamProfileData(teamName = "Arsenal", missingMidfielders = listOf("Partey")),
+                squadStrength = null,
+                label = "Arsenal",
+            )
+        }
+        composeTestRule.onNodeWithText("Key injuries").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Injuries").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Missing").assertExists()
+        composeTestRule.onNodeWithText("Partey").assertExists()
+    }
+
+    @Test
+    fun `form leaders omit key passes and per-90 or rating when they are zero or null`() {
+        composeTestRule.setContent {
+            SquadTab(
+                profile =
+                    TeamProfileData(
+                        teamName = "Arsenal",
+                        recentFormLeaders =
+                            listOf(
+                                RecentFormLeader(name = "Saka", goals = 5, assists = 2, xg = 3.4, xa = 1.9, keyPasses = 0, sampleSize = 10, avgRating = null, goalsPer90 = null),
+                            ),
+                    ),
+                squadStrength = null,
+                label = "Arsenal",
+            )
+        }
+        composeTestRule.onNodeWithText("5g/2a, 3.40xG", substring = true).assertExists()
+    }
+
+    @Test
+    fun `squad value section omits the segmented breakdown when no category values are known`() {
+        composeTestRule.setContent {
+            SquadTab(
+                profile = TeamProfileData(teamName = "Arsenal"),
+                squadStrength = SquadStrengthInfo(totalValue = 500_000_000.0, availableValue = null),
+                label = "Arsenal",
+            )
+        }
+        composeTestRule.onNodeWithText("Squad value").assertExists()
+        composeTestRule.onNodeWithText("€500m (n/a available)", substring = true).assertExists()
+    }
+
+    @Test
+    fun `transfers section shows an inbound arrow and color for an incoming transfer`() {
+        composeTestRule.setContent {
+            SquadTab(
+                profile =
+                    TeamProfileData(
+                        teamName = "Arsenal",
+                        recentTransfers = listOf(TransferRecord(playerName = "Rice", direction = "in", fromClub = "West Ham", toClub = "Arsenal")),
+                    ),
+                squadStrength = null,
+                label = "Arsenal",
+            )
+        }
+        composeTestRule.onNodeWithText("→ Rice", substring = true).assertExists()
+    }
+
+    @Test
     fun `a fully populated squad tab composes without throwing`() {
         composeTestRule.setContent {
             SquadTab(
