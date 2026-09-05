@@ -65,6 +65,30 @@ class RadarChartTest {
     }
 
     @Test
+    fun `drawRadarChart clamps a value exceeding its axis maximum`() {
+        // Every axis fraction in the test above stays within 0..1 --
+        // drawSeries' own `.coerceIn(0f, 1f)` upper-clamp branch (a value
+        // exceeding maxValue) was never reached.
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val textMeasurer = TextMeasurer(createFontFamilyResolver(context), Density(1f), LayoutDirection.Ltr)
+        runDrawScope {
+            drawRadarChart(
+                axes =
+                    listOf(
+                        RadarAxis("xG", 5f, 1.2f, maxValue = 3f),
+                        RadarAxis("Shots", 14f, 10f, maxValue = 20f),
+                        RadarAxis("Big chances", 3f, 2f, maxValue = 8f),
+                    ),
+                homeColor = Color.Blue,
+                awayColor = Color.Red,
+                textMeasurer = textMeasurer,
+                labelStyle = TextStyle(fontSize = 11.sp),
+                gridColor = Color.Gray.copy(alpha = 0.3f),
+            )
+        }
+    }
+
+    @Test
     fun `drawRadarChart runs without throwing`() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val textMeasurer = TextMeasurer(createFontFamilyResolver(context), Density(1f), LayoutDirection.Ltr)

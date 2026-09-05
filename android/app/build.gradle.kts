@@ -204,6 +204,17 @@ kover {
                     "com.football.app.ComposableSingletons\$MainActivityKt",
                     "com.football.app.ComposableSingletons\$MainActivityKt\$lambda-1\$1",
                     "com.football.app.ComposableSingletons\$MainActivityKt\$lambda-2\$1",
+                    // Same kotlinx.serialization codegen category as the
+                    // data/model/ package exclusion below, but this one
+                    // class lives in data/history/ alongside
+                    // HistoryRepository (real logic, deliberately NOT
+                    // excluded) -- a whole-package exclusion would have
+                    // hidden HistoryRepository's own branches too, so this
+                    // is a single-class exclusion instead. HistoryEntry's
+                    // real behavior (id/team/opponent/generatedAt field
+                    // mapping) is already covered by
+                    // HistoryRepositoryTest's save-then-list round-trip.
+                    "com.football.app.data.history.HistoryEntry",
                 )
                 // data/model/ is exclusively plain @Serializable data
                 // classes -- zero hand-written functions anywhere in the

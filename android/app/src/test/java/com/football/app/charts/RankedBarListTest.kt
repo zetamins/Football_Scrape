@@ -47,4 +47,13 @@ class RankedBarListTest {
             drawRankedBar(value = 8.0, maxValue = 12.0, barColor = Color.Green)
         }
     }
+
+    @Test
+    fun `drawRankedBar clamps a value exceeding maxValue`() {
+        // The fixture above stays within 0..1 -- coerceIn's upper-clamp
+        // branch (value > maxValue) was never reached.
+        runDrawScope {
+            drawRankedBar(value = 20.0, maxValue = 12.0, barColor = Color.Green)
+        }
+    }
 }
