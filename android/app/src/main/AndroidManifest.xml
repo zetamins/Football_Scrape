@@ -21,7 +21,8 @@
         android:usesCleartextTraffic="false"
         android:label="DeepXI"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@style/Theme.FootballApp">
+        android:theme="@style/Theme.FootballApp"
+        android:enableOnBackInvokedCallback="true">
         <activity
             android:name=".MainActivity"
             android:exported="true">
