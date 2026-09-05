@@ -252,6 +252,58 @@ class SearchQueueServiceTest {
     }
 
     @Test
+    fun `clearStaleNotificationIfIdle leaves the notification alone while a queue is running`() {
+        // The `if (_queueState.value == QueueState.Idle)` false branch --
+        // the only other test for this method leaves queueState at its
+        // default Idle.
+        SearchQueueService.setQueueStateForTest(QueueState.Running(currentTeam = "Arsenal", index = 0, total = 1, message = "Working"))
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(SearchQueueService.NOTIFICATION_ID, newService().buildNotification("Arsenal", "Working...", ongoing = true))
+
+        SearchQueueService.clearStaleNotificationIfIdle(context)
+
+        assertNotNull(org.robolectric.Shadows.shadowOf(notificationManager).getNotification(SearchQueueService.NOTIFICATION_ID))
+    }
+
+    @Test
+    fun `onStartCommand ignores a second call while a queue is already running`() {
+        // `runJob?.isActive != true` false branch -- every other
+        // onStartCommand test above starts from a fresh, non-running job.
+        val startedLatch = java.util.concurrent.CountDownLatch(1)
+        val releaseLatch = java.util.concurrent.CountDownLatch(1)
+        val runCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val sample = loadSampleReportJson()
+        val service =
+            newService(
+                repository =
+                    ReportRepository(runReport = { _, _, _ ->
+                        runCount.incrementAndGet()
+                        startedLatch.countDown()
+                        releaseLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                        sample
+                    }),
+            )
+        val before = SearchQueueService.queueState.value
+
+        val firstIntent = Intent().putStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES, arrayListOf("Brentford"))
+        service.onStartCommand(firstIntent, 0, 1)
+        assertTrue("first run never actually started", startedLatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
+
+        val secondIntent = Intent().putStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES, arrayListOf("Chelsea"))
+        val secondResult = service.onStartCommand(secondIntent, 0, 2)
+        assertEquals(Service.START_NOT_STICKY, secondResult)
+
+        releaseLatch.countDown()
+        val finished = awaitFinished(before)
+
+        // Only the first team ever actually ran -- the second
+        // onStartCommand call was a no-op, not a second queue.
+        assertEquals(1, runCount.get())
+        assertEquals(1, finished.succeeded)
+    }
+
+    @Test
     fun `start builds a foreground-service intent carrying the team names`() {
         // Doesn't actually run the service (Robolectric records the
         // startForegroundService() call rather than invoking onCreate()/
