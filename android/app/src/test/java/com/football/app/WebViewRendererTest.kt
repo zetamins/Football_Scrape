@@ -271,6 +271,36 @@ class WebViewRendererTest {
     }
 
     @Test
+    fun `evaluate succeeds when passed a non-null argJson`() {
+        // Every other evaluate() test above passes argJson = null --
+        // the `if (argJson != null) "($functionScript)($argJson)" else
+        // "($functionScript)()"` branch that actually appends the arg
+        // was never taken. (The inject call itself uses a null callback,
+        // so its exact text isn't observable through driveAndAnswer's
+        // poll-answering mechanism -- this only proves the non-null
+        // branch runs the pipeline through to a correct result.)
+        val renderer = newRenderer()
+        runOnBackgroundAndDrain { renderer.open("") }
+
+        val result =
+            driveAndAnswer(
+                timeoutMs = 5_000,
+                answer = { script ->
+                    when {
+                        script == "document.readyState" -> "\"complete\""
+                        script == "document.title" -> "\"Real Page\""
+                        script.contains("window['") -> """{"ok":true,"value":42}"""
+                        else -> "null"
+                    }
+                },
+            ) { renderer.evaluate("(x) => x + 1", """{"x":41}""", 3_000) }
+
+        val parsed = JSONObject(result)
+        assertTrue(parsed.getBoolean("ok"))
+        assertEquals(42, parsed.getInt("value"))
+    }
+
+    @Test
     fun `evaluate retries and eventually times out when the result never appears`() {
         // Distinct from the "page never becomes ready" case below --
         // here isContentReady() succeeds immediately, but the injected

@@ -126,6 +126,38 @@ class PerformanceTabTest {
     }
 
     @Test
+    fun `season estimates section skips every bar when only one side of each pair is known`() {
+        // Every nested homeX?.let { awayX?.let { ... } } pair was always
+        // either both-present or both-absent before -- never one side
+        // alone, which is the actual false-branch case for the inner let.
+        composeTestRule.setContent {
+            PerformanceTab(
+                insights = InsightsPerformance(homeXgEstimate = SeasonXGEstimate(10, 1.8, 1.1, 9, 6)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Season estimates").assertExists()
+        composeTestRule.onNodeWithText("xG for").assertDoesNotExist()
+    }
+
+    @Test
+    fun `advanced stats section highlights errors that led directly to a goal`() {
+        composeTestRule.setContent {
+            PerformanceTab(
+                insights =
+                    InsightsPerformance(
+                        homeAdvancedStats = fakeAdvancedStats().copy(errorsLeadToGoalFor = 1),
+                        awayAdvancedStats = fakeAdvancedStats(),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Arsenal errors -> shot/goal").assertExists()
+    }
+
+    @Test
     fun `a fully populated performance tab composes without throwing`() {
         composeTestRule.setContent {
             PerformanceTab(
