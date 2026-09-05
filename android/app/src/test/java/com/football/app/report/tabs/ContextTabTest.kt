@@ -233,6 +233,79 @@ class ContextTabTest {
     }
 
     @Test
+    fun `rest section renders when only rest-performance is known and restComparison is null`() {
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(homeRestPerformance = RestPerformanceInfo(shortRestPpg = 1.0, shortRestSampleSize = 3, longRestPpg = 2.0, longRestSampleSize = 3)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Rest").assertExists()
+        composeTestRule.onNodeWithText("Days since last match").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Arsenal performance by rest").assertExists()
+    }
+
+    @Test
+    fun `fatigue pill row is skipped when only rotation is known`() {
+        // The inner fatigue-flag if() is a distinct branch from the
+        // section-level hasFatigue||hasRotation early return -- never
+        // exercised false while the section itself still renders.
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(homeRotation = RotationInfo(changedPlayers = 2, startingXiSize = 11, formationChanged = false)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Fatigue & rotation").assertExists()
+        composeTestRule.onNodeWithText("Arsenal: elevated").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Arsenal: normal").assertDoesNotExist()
+        composeTestRule.onNodeWithText("2 changed, shape unchanged", substring = true).assertExists()
+    }
+
+    @Test
+    fun `experience h2h alignment renders n-slash-a when aligned is null`() {
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(experienceH2h = ExperienceH2HNote(aligned = null)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Experience/H2H alignment").assertExists()
+        composeTestRule.onNodeWithText("n/a").assertExists()
+    }
+
+    @Test
+    fun `travel section renders when the home team is traveling with unknown distance and no tz diff`() {
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(travelInfo = TravelInfo(homeTraveling = true)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Arsenal traveling (~?km)").assertExists()
+    }
+
+    @Test
+    fun `bench row falls back to plain text when both values are known but zero`() {
+        // Distinct from the null-values fallback case above -- both
+        // values are non-null here, so only the (benchValue > 0 ||
+        // startingValue > 0) half of the guard is false.
+        composeTestRule.setContent {
+            ContextTab(
+                insights = InsightsContext(homeBenchInfo = BenchInfo(benchSize = 0, benchTotalMarketValue = 0.0, startingTotalMarketValue = 0.0)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Arsenal bench").assertExists()
+        composeTestRule.onNodeWithText("0 named, €0m combined value vs starting XI's €0m", substring = true).assertExists()
+    }
+
+    @Test
     fun `a fully populated context tab composes without throwing`() {
         composeTestRule.setContent {
             ContextTab(

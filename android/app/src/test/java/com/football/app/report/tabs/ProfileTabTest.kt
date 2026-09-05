@@ -172,6 +172,55 @@ class ProfileTabTest {
     }
 
     @Test
+    fun `aerial and goalkeeping section renders goalkeeping rows alone when aerial estimates are missing`() {
+        // The section-level (ha==null||aa==null) with hasGk still true is
+        // a distinct path from the empty-insights early return above --
+        // the bar comparison's own ha-and-aa-non-null guard was always
+        // true or fully absent before, never false while the section
+        // itself still renders.
+        composeTestRule.setContent {
+            ProfileTab(
+                insights = InsightsProfile(homeGoalkeepingEstimate = SeasonGoalkeepingEstimate(10, 28, 35, 80.0, 7)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Aerial & goalkeeping").assertExists()
+        composeTestRule.onNodeWithText("Arsenal", substring = true).assertExists()
+    }
+
+    @Test
+    fun `passing section falls back to an away-only row when only away has passing data`() {
+        composeTestRule.setContent {
+            ProfileTab(
+                insights = InsightsProfile(awayPassingStyle = SeasonPassingStyleEstimate(10, 480, 380, 79.2, 55, 11.5)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Passing").assertExists()
+        composeTestRule.onNodeWithText("79.2% accuracy, 11.5% long balls", substring = true).assertExists()
+    }
+
+    @Test
+    fun `risk section skips pill groups for a present but empty vulnerability list`() {
+        composeTestRule.setContent {
+            ProfileTab(
+                insights =
+                    InsightsProfile(
+                        homeDuelVulnerabilities = emptyList(),
+                        awayFullbackExposure = listOf(FullbackExposureInfo(name = "Chilwell", chancesCreated = 3, groundDuelSuccessPct = 40.0)),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Risk").assertExists()
+        composeTestRule.onNodeWithText("Arsenal duel risk").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Chelsea exposed fullbacks").assertExists()
+    }
+
+    @Test
     fun `a fully populated profile tab composes without throwing`() {
         composeTestRule.setContent {
             ProfileTab(
