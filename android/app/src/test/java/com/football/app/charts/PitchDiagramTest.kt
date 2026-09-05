@@ -67,4 +67,14 @@ class PitchDiagramTest {
     fun `empty player list produces no rows`() {
         assertEquals(emptyList<List<LineupPlayer>>(), buildRows("4-4-2", emptyList()))
     }
+
+    @Test
+    fun `a goalkeeper-only list produces no rows`() {
+        // Distinct from the "empty player list" case above: `players`
+        // itself is non-empty here, so `players.isEmpty()` is false --
+        // it's the separate `defenders/midfielders/forwards all empty`
+        // guard that returns emptyList(), never reached by any other
+        // test (every other fixture has at least one outfield player).
+        assertEquals(emptyList<List<LineupPlayer>>(), buildRows("4-4-2", listOf(player("GK", "G"))))
+    }
 }

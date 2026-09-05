@@ -94,4 +94,33 @@ class PitchDiagramComposeTest {
             drawPitchDiagram(rows = rows, teamColor = Color.Blue, style = style)
         }
     }
+
+    @Test
+    fun `drawPitchDiagram falls back to a dash for a player with no shirt number, and handles a single row`() {
+        // eleven() above always supplies a shirt number, and always
+        // produces 4 rows -- neither the `?: "-"` fallback nor the
+        // `(rowCount - 1).coerceAtLeast(1)` single-row guard (rowCount
+        // == 1, which would otherwise divide by zero) was ever reached
+        // by the measured runDrawScope path.
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val textMeasurer =
+            androidx.compose.ui.text.TextMeasurer(
+                defaultFontFamilyResolver = createFontFamilyResolver(context),
+                defaultDensity = androidx.compose.ui.unit.Density(1f),
+                defaultLayoutDirection = androidx.compose.ui.unit.LayoutDirection.Ltr,
+            )
+        val rows = listOf(listOf(player("Sub", "M", shirtNumber = null)))
+        val style =
+            PitchDiagramStyle(
+                textMeasurer = textMeasurer,
+                shirtNumberStyle = TextStyle(fontSize = 12.sp),
+                playerNameStyle = TextStyle(fontSize = 9.sp),
+                pitchGreenDark = Color(0xFF1E5E2E),
+                pitchGreenLight = Color(0xFF247A3A),
+                lineColor = Color.White.copy(alpha = 0.55f),
+            )
+        runDrawScope(widthPx = 300f, heightPx = 420f) {
+            drawPitchDiagram(rows = rows, teamColor = Color.Blue, style = style)
+        }
+    }
 }
