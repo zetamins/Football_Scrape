@@ -170,6 +170,64 @@ class DisciplineTabTest {
     }
 
     @Test
+    fun `cards section omits the elevated-risk row when neither team is flagged`() {
+        composeTestRule.setContent {
+            DisciplineTab(
+                insights =
+                    InsightsDiscipline(
+                        homeCardDiscipline = CardDisciplineInfo(yellowPerGame = 2.1, redPerGame = 0.1, elevatedRisk = false),
+                        awayCardDiscipline = CardDisciplineInfo(yellowPerGame = 1.4, redPerGame = 0.0, elevatedRisk = false),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Elevated card risk").assertDoesNotExist()
+    }
+
+    @Test
+    fun `fouls and corners section omits corners rows when neither corners estimate is known`() {
+        composeTestRule.setContent {
+            DisciplineTab(
+                insights = InsightsDiscipline(homeFoulsEstimate = SeasonFoulsEstimate(10, 120, 100), awayFoulsEstimate = SeasonFoulsEstimate(10, 100, 130)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Fouls (last 10)").assertExists()
+        composeTestRule.onNodeWithText("Arsenal corners for/against").assertDoesNotExist()
+    }
+
+    @Test
+    fun `matched sample section highlights a team that had a penalty awarded against it`() {
+        composeTestRule.setContent {
+            DisciplineTab(
+                insights =
+                    InsightsDiscipline(
+                        homeAdvancedStats = fakeAdvancedStats(yellowCardsFor = 30).copy(penaltiesAwardedAgainst = 2),
+                        awayAdvancedStats = fakeAdvancedStats(yellowCardsFor = 25),
+                    ),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Arsenal penalties conceded").assertExists()
+    }
+
+    @Test
+    fun `referee note section renders the neutral color when the referee is not elevated`() {
+        composeTestRule.setContent {
+            DisciplineTab(
+                insights = InsightsDiscipline(refereeCardRiskNote = RefereeCardRiskNote(refereeName = "Anthony Taylor", yellowCardsPerGame = 2.5, elevatedCardReferee = false)),
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Referee Anthony Taylor").assertExists()
+        composeTestRule.onNodeWithText("Flagged players").assertDoesNotExist()
+    }
+
+    @Test
     fun `a fully populated discipline tab composes without throwing`() {
         composeTestRule.setContent {
             DisciplineTab(

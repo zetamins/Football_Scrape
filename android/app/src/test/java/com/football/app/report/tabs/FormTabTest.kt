@@ -230,6 +230,105 @@ class FormTabTest {
     }
 
     @Test
+    fun `clean-sheet and scoreless streaks below the 2-game threshold render nothing`() {
+        // `!= null && >= 2` -- every other fixture leaves these null
+        // (false via the first operand) or >= 2 (true); a non-null value
+        // that fails the threshold (false via the second operand) was
+        // never reached before.
+        composeTestRule.setContent {
+            FormTab(
+                form = minimalForm().copy(currentStreak = StreakInfo(result = "W", count = 1), cleanSheetStreak = 1, scorelessStreak = 1),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Clean sheets").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Scoreless").assertDoesNotExist()
+    }
+
+    @Test
+    fun `rates section renders the win-rate-only fallback lines when only home-away splits and shares are known`() {
+        // hasRates can be true (winRatePct alone) while the segmented-bar
+        // guard (all three of win/draw/loss) is false, and the
+        // homeWinRatePct/narrowWinSharePct/scoringDrawSharePct/
+        // bttsSharePct optional lines were never reached by any fixture.
+        composeTestRule.setContent {
+            FormTab(
+                form =
+                    minimalForm().copy(
+                        winRatePct = 55.0,
+                        homeWinRatePct = 70.0,
+                        awayWinRatePct = 40.0,
+                        narrowWinSharePct = 25.0,
+                        scoringDrawSharePct = 33.0,
+                        bttsSharePct = 45.0,
+                    ),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Rates (last 10)").assertExists()
+        composeTestRule.onNodeWithText("Win rate").assertExists()
+        composeTestRule.onNodeWithText("home 70.0% / away 40.0%").assertExists()
+        composeTestRule.onNodeWithText("Narrow wins").assertExists()
+        composeTestRule.onNodeWithText("Scoring draws").assertExists()
+        composeTestRule.onNodeWithText("BTTS rate").assertExists()
+    }
+
+    @Test
+    fun `over-under and clean-sheet lines are each skipped when only one side of their pair is known`() {
+        composeTestRule.setContent {
+            FormTab(
+                form = minimalForm().copy(over25SharePct = 55.0, cleanSheetSharePct = 35.0),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Over/under & clean sheets").assertExists()
+        composeTestRule.onNodeWithText("Over/under (last 10)").assertDoesNotExist()
+        composeTestRule.onNodeWithText("CS% / FTS%").assertDoesNotExist()
+    }
+
+    @Test
+    fun `venue split section omits the neutral row when there are no neutral-venue matches`() {
+        composeTestRule.setContent {
+            FormTab(
+                form =
+                    minimalForm().copy(
+                        venueSplitForm =
+                            VenueSplitForm(
+                                homeSampleSize = 5, homeWins = 4, homeDraws = 1, homeLosses = 0, homeGoalsFor = 12, homeGoalsAgainst = 3,
+                                awaySampleSize = 5, awayWins = 2, awayDraws = 1, awayLosses = 2, awayGoalsFor = 7, awayGoalsAgainst = 6,
+                                neutralSampleSize = 0,
+                            ),
+                        detailedVenueSplit = DetailedVenueSplitForm(home = fakeVenueSplitStats(sampleSize = 0), away = fakeVenueSplitStats(), neutral = fakeVenueSplitStats(sampleSize = 0)),
+                    ),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Neutral").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Home detail").assertExists()
+    }
+
+    @Test
+    fun `upcoming fixtures section renders a fixture with no date`() {
+        composeTestRule.setContent {
+            FormTab(
+                form = minimalForm().copy(next5WithGaps = listOf(FixtureGap(opponent = "Newcastle", date = null))),
+                opponentForm = minimalForm(),
+                teamLabel = "Arsenal",
+                opponentLabel = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Newcastle").assertExists()
+    }
+
+    @Test
     fun `a fully populated form tab composes without throwing`() {
         composeTestRule.setContent {
             FormTab(
