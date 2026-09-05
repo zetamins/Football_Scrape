@@ -297,6 +297,10 @@ class SearchScreenTest {
     fun `parseStepProgress returns null for a malformed or zero total prefix`() {
         assertNull(parseStepProgress("(2/0) Bad total"))
         assertNull(parseStepProgress("(x/5) Not a number"))
+        // The "step parses, total doesn't" direction of the same
+        // toIntOrNull() pair -- distinct from "(x/5)" above, which fails
+        // on the step half instead.
+        assertNull(parseStepProgress("(2/x) Not a number"))
     }
 
     @Test
@@ -345,5 +349,23 @@ class SearchScreenTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithText("Could not find a team matching \"Xyz\"").assertExists()
+    }
+
+    @Test
+    fun `a single search failure with no lastError falls back to a generic message`() {
+        // Every other failure test above supplies a real lastError --
+        // the `finished.lastError ?: "Search failed."` null branch was
+        // never taken.
+        composeTestRule.setContent {
+            SearchScreen(viewModel = ReportViewModel(), onReportReady = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Team name").performTextInput("Xyz")
+        composeTestRule.onNodeWithText("Search").performClick()
+        composeTestRule.waitForIdle()
+
+        SearchQueueService.setQueueStateForTest(QueueState.Finished(succeeded = 0, failed = 1, lastError = null))
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Search failed.").assertExists()
     }
 }

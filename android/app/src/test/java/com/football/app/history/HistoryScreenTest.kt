@@ -60,6 +60,20 @@ class HistoryScreenTest {
         return HistoryViewModel(repository, ioDispatcher = Dispatchers.Unconfined)
     }
 
+    /** Seeds a history entry with no match section, so
+     * HistoryRepository.opponentOf() returns null -- every other test in
+     * this suite uses sample_full_report.json, which always has a real
+     * opponent, so HistoryRow's `entry.opponent != null` false branch
+     * (single-team title, no "vs" badge) was never reached before. */
+    private fun newHistoryViewModelWithOpponentlessEntry(): HistoryViewModel {
+        val dir = File.createTempFile("history", "").apply { delete(); mkdirs() }
+        val repository = HistoryRepository(dir)
+        val rawJson = """{"team": "Brentford", "generatedAt": "2026-08-31T02:21:23.778Z"}"""
+        val report = AppJsonTopLevel.decodeFromString(ReportJson.serializer(), rawJson)
+        repository.save(report, rawJson)
+        return HistoryViewModel(repository, ioDispatcher = Dispatchers.Unconfined)
+    }
+
     @Test
     fun `shows an empty-state message when there are no saved searches`() {
         composeTestRule.setContent {
@@ -108,6 +122,36 @@ class HistoryScreenTest {
         composeTestRule.onNodeWithContentDescription("Delete").performClick()
         composeTestRule.onNodeWithText("Delete").performClick()
         composeTestRule.onNodeWithText("No searches yet.").assertExists()
+    }
+
+    @Test
+    fun `renders a single-team row with no opponent badge when the entry has no opponent`() {
+        composeTestRule.setContent {
+            HistoryScreen(historyViewModel = newHistoryViewModelWithOpponentlessEntry(), reportViewModel = ReportViewModel(), onBack = {}, onReportReady = {})
+        }
+        composeTestRule.onNodeWithText("Brentford").assertExists()
+        composeTestRule.onNodeWithText("vs", substring = false).assertDoesNotExist()
+    }
+
+    @Test
+    fun `an already-successful report state on entry does not trigger onReportReady`() {
+        // The doc comment's own scenario: reportViewModel can already be
+        // Success when this screen opens (user came from a live report
+        // and tapped History) -- isOpening is false in that case, unlike
+        // the click-driven case below, so onReportReady must NOT fire.
+        val reportViewModel = ReportViewModel()
+        reportViewModel.loadFromHistory(loadSampleReportJson())
+        var reportReadyCalls = 0
+        composeTestRule.setContent {
+            HistoryScreen(
+                historyViewModel = newHistoryViewModel(),
+                reportViewModel = reportViewModel,
+                onBack = {},
+                onReportReady = { reportReadyCalls++ },
+            )
+        }
+        composeTestRule.waitForIdle()
+        assert(reportReadyCalls == 0)
     }
 
     @Test
