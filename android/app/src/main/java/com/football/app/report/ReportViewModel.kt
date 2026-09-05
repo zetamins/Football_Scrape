@@ -1,12 +1,16 @@
 package com.football.app.report
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.football.app.data.AppJsonTopLevel
 import com.football.app.data.history.HistoryRepository
 import com.football.app.data.model.ReportJson
+import com.football.app.queue.QueueState
+import com.football.app.queue.SearchQueueService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerializationException
 
 /**
@@ -34,6 +38,54 @@ class ReportViewModel(
 ) : ViewModel() {
     private val _state = MutableStateFlow<SearchState>(SearchState.Idle)
     val state: StateFlow<SearchState> = _state.asStateFlow()
+
+    // isSingleSearchRun/singleSearchError and the queue-completion watcher
+    // in init{} below used to be SearchScreen-local `remember` state, with
+    // the watcher a SearchScreen-local LaunchedEffect(queueState). Moved
+    // here after confirming live that they broke exactly when a single
+    // search was still Running and the user navigated away from
+    // SearchScreen (e.g. opening a saved report from History): NavHost
+    // disposes SearchScreen's composition on navigation, which cancelled
+    // that LaunchedEffect and lost isSingleSearchRun's value entirely.
+    // SearchQueueService.queueState itself kept running fine (it's
+    // process-wide, not tied to any screen), but nothing was left to
+    // notice it finish -- the completed search saved to History
+    // correctly, but never got promoted into a visible report, and
+    // returning to SearchScreen later found isSingleSearchRun reset to
+    // false, permanently ignoring that queue-of-one's result. viewModelScope
+    // survives navigation across the whole nav graph (only cleared when
+    // the hosting Activity itself is destroyed), unlike a screen's own
+    // composition, so anchoring the watcher here fixes it for every
+    // screen, not just SearchScreen.
+    private val _isSingleSearchRun = MutableStateFlow(false)
+    val isSingleSearchRun: StateFlow<Boolean> = _isSingleSearchRun.asStateFlow()
+
+    private val _singleSearchError = MutableStateFlow<String?>(null)
+    val singleSearchError: StateFlow<String?> = _singleSearchError.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            SearchQueueService.queueState.collect { queueState ->
+                val finished = queueState as? QueueState.Finished ?: return@collect
+                if (!_isSingleSearchRun.value) return@collect
+                _isSingleSearchRun.value = false
+                if (finished.succeeded > 0) {
+                    loadMostRecentFromHistory()
+                } else {
+                    _singleSearchError.value = finished.lastError ?: "Search failed."
+                }
+            }
+        }
+    }
+
+    /** Called when the user starts a single (queue-of-one) search --
+     * arms the completion watcher above so it promotes this search's
+     * result once the queue reports Finished, no matter which screen is
+     * showing when that happens. */
+    fun markSingleSearchStarted() {
+        _singleSearchError.value = null
+        _isSingleSearchRun.value = true
+    }
 
     /** Called after a single search completes via SearchQueueService
      * (queue-of-one) rather than a direct search() call. The service

@@ -1,6 +1,10 @@
 package com.football.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -10,10 +14,13 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.football.app.MainActivity
 import com.football.app.data.history.HistoryRepository
 import com.football.app.history.HistoryScreen
 import com.football.app.onboarding.OnboardingPrefs
 import com.football.app.onboarding.OnboardingScreen
+import com.football.app.queue.QueueState
+import com.football.app.queue.SearchQueueService
 import com.football.app.report.HistoryViewModel
 import com.football.app.report.ReportScreen
 import com.football.app.report.ReportViewModel
@@ -57,6 +64,30 @@ fun FootballNavHost(navController: NavHostController = rememberNavController()) 
         )
 
     val startDestination = if (onboardingPrefs.hasSeenOnboarding) Destinations.SEARCH else Destinations.ONBOARDING
+
+    // Keeps the Activity's window counted as visible/resumed for exactly
+    // the span SearchQueueService is actually Running (see
+    // MainActivity.setKeepVisibleDuringSearch's own doc for why that
+    // matters -- sofascore's WebView-backed scrape step freezes at 0% CPU
+    // otherwise once the device locks). Anchored here, not inside
+    // SearchScreen, because FootballNavHost's own composition spans the
+    // whole Activity lifetime -- only the inner `composable { }` content
+    // below is disposed on navigation. Confirmed live this placement
+    // matters, not just tidiness: SearchScreen's own DisposableEffect
+    // cleared this flag unconditionally the moment it left composition,
+    // even with the queue still Running underneath (e.g. opening a saved
+    // report from History mid-search) -- silently freezing that search
+    // the next time the screen locked, with no screen left to re-arm the
+    // flag. Tracking queueState here instead keeps it correct regardless
+    // of which destination is currently showing.
+    val activity = context as? MainActivity
+    val queueState by SearchQueueService.queueState.collectAsState()
+    LaunchedEffect(queueState) {
+        activity?.setKeepVisibleDuringSearch(queueState is QueueState.Running)
+    }
+    DisposableEffect(Unit) {
+        onDispose { activity?.setKeepVisibleDuringSearch(false) }
+    }
 
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Destinations.ONBOARDING) {

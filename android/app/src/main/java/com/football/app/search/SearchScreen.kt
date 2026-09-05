@@ -32,7 +32,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,7 +45,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import com.football.app.MainActivity
 import com.football.app.components.Logo
 import com.football.app.queue.QueueState
 import com.football.app.queue.SearchQueueService
@@ -64,7 +62,6 @@ fun SearchScreen(
     var teamName by remember { mutableStateOf("") }
     val context = LocalContext.current
     val queueState by SearchQueueService.queueState.collectAsState()
-    val activity = context as? MainActivity
 
     // Navigates as a side effect of state, not as part of a click handler
     // -- Success can be reached either via loadMostRecentFromHistory()
@@ -81,42 +78,22 @@ fun SearchScreen(
     // tied to the Activity's own coroutine had no foreground-service or
     // battery-optimization protection, and stalled once the app lost
     // visibility (switching to a different app -- a real backgrounding,
-    // distinct from the lock-screen case setKeepVisibleDuringSearch below
-    // handles). Routing through the same service the batch queue already
-    // used gives single search the identical protection, for free, rather
-    // than duplicating it.
-    var isSingleSearchRun by remember { mutableStateOf(false) }
-    var singleSearchError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(queueState) {
-        val finished = queueState as? QueueState.Finished ?: return@LaunchedEffect
-        if (!isSingleSearchRun) return@LaunchedEffect
-        isSingleSearchRun = false
-        if (finished.succeeded > 0) {
-            viewModel.loadMostRecentFromHistory()
-        } else {
-            singleSearchError = finished.lastError ?: "Search failed."
-        }
-    }
+    // distinct from the lock-screen case setKeepVisibleDuringSearch in
+    // FootballNavHost handles). Routing through the same service the
+    // batch queue already used gives single search the identical
+    // protection, for free, rather than duplicating it.
+    //
+    // isSingleSearchRun/singleSearchError and the watcher that promotes a
+    // finished queue-of-one into a visible report now live on
+    // viewModel (see ReportViewModel's own doc comment) rather than as
+    // remember{} state here -- confirmed live that this screen-local
+    // version silently broke whenever the user navigated away from
+    // SearchScreen (e.g. to History) while a search was still Running.
+    val isSingleSearchRun by viewModel.isSingleSearchRun.collectAsState()
+    val singleSearchError by viewModel.singleSearchError.collectAsState()
 
     val startQueue = rememberStartQueue(context)
     val isSearchRunning = queueState is QueueState.Running
-
-    // Confirmed live: sofascore's scrape (the only source that needs a
-    // real WebView -- see WebViewRenderer.kt) makes zero progress while
-    // the device is locked, resuming instantly the moment it's unlocked.
-    // Root cause: Chromium WebView throttles JS execution for an app
-    // with no visible/resumed window, which a locked keyguard causes
-    // regardless of process priority. setKeepVisibleDuringSearch (see
-    // MainActivity) keeps this Activity's window counted as visible even
-    // while the keyguard is drawn over it. Only for the actual span a
-    // search is running, not left on permanently -- covers single search
-    // and the batch queue identically now that both share queueState.
-    LaunchedEffect(isSearchRunning) {
-        activity?.setKeepVisibleDuringSearch(isSearchRunning)
-    }
-    DisposableEffect(Unit) {
-        onDispose { activity?.setKeepVisibleDuringSearch(false) }
-    }
 
     Column(
         // Scrollable -- without this, a queue of more than a few teams
@@ -158,8 +135,7 @@ fun SearchScreen(
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = {
-                singleSearchError = null
-                isSingleSearchRun = true
+                viewModel.markSingleSearchStarted()
                 startQueue(listOf(teamName))
             },
             enabled = teamName.isNotBlank() && !isSearchRunning,
