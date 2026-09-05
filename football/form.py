@@ -31,15 +31,38 @@ from .types import (
     VenueSplitStats,
 )
 
+# Statuses that unambiguously mean "hasn't kicked off yet" across every
+# source's own vocabulary (Sofascore: notstarted, Fotmob/Goal/SoccerDesk/
+# 365Scores: scheduled). Deliberately narrow -- "live"/"inprogress",
+# "postponed", "cancelled", "interrupted", "unknown", etc. are excluded.
+# Shared with insights.py's own completeness scoring (imported from
+# there as NOT_STARTED_STATUSES, not redefined) -- defined here since
+# next_match() below needs it and form.py has no dependency on
+# insights.py, only the reverse.
+NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
+
 
 def _parse_dt(iso: str) -> datetime:
     return datetime.fromisoformat(iso)
 
 
 def next_match(matches: list[MatchInfo]) -> MatchInfo | None:
+    """The soonest fixture that hasn't kicked off yet.
+
+    Filters on BOTH a future kickoff_utc AND status in
+    NOT_STARTED_STATUSES -- a future kickoff_utc alone isn't a reliable
+    enough signal on its own. Confirmed live: a postponed/interrupted/
+    live match can still carry a kickoff_utc value in the future (the
+    original scheduled time, simply never updated once the match was
+    postponed/interrupted), which let it silently outrank the genuinely
+    next scheduled fixture under a pure-timestamp sort -- e.g. a
+    postponed Everton vs Man Utd fixture outranking the real next
+    Tottenham vs Everton match. status is the correct signal for "has
+    this actually not started yet", independent of what its stored
+    kickoff_utc happens to say."""
     now = datetime.now(tz=UTC)
     upcoming = sorted(
-        (m for m in matches if m.kickoff_utc and _parse_dt(m.kickoff_utc) > now),
+        (m for m in matches if m.kickoff_utc and m.status in NOT_STARTED_STATUSES and _parse_dt(m.kickoff_utc) > now),
         key=lambda m: _parse_dt(m.kickoff_utc),
     )
     return upcoming[0] if upcoming else None

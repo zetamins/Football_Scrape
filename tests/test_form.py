@@ -101,8 +101,8 @@ def test_next_match_picks_earliest_future_fixture():
     future1 = (now + timedelta(days=10)).isoformat()
     future2 = (now + timedelta(days=3)).isoformat()
     past = (now - timedelta(days=1)).isoformat()
-    m1 = _match(kickoff_utc=future1)
-    m2 = _match(kickoff_utc=future2)
+    m1 = _match(kickoff_utc=future1, status="scheduled")
+    m2 = _match(kickoff_utc=future2, status="scheduled")
     m3 = _match(kickoff_utc=past)
     assert next_match([m1, m2, m3]) is m2
 
@@ -110,6 +110,51 @@ def test_next_match_picks_earliest_future_fixture():
 def test_next_match_none_without_future_fixtures():
     past = (datetime.now(tz=UTC) - timedelta(days=1)).isoformat()
     assert next_match([_match(kickoff_utc=past)]) is None
+
+
+# Confirmed live: a real reported bug for Everton -- next_match() picked
+# a postponed "Everton vs Man Utd" fixture over the genuinely next
+# scheduled "Tottenham vs Everton" one. Root cause: a postponed/
+# interrupted/live match can still carry its original, now-stale
+# kickoff_utc value (simply never updated once the match stopped being
+# on schedule), so a pure future-kickoff-time sort with no status check
+# let it silently outrank the real next fixture. See next_match's own
+# doc comment (football/form.py) and NOT_STARTED_STATUSES for the fix.
+
+
+def test_next_match_ignores_a_nearer_postponed_fixture_with_a_stale_future_kickoff():
+    now = datetime.now(tz=UTC)
+    nearer_but_postponed = _match(
+        home_team="Everton", away_team="Man Utd", kickoff_utc=(now + timedelta(days=1)).isoformat(), status="postponed",
+    )
+    genuinely_next = _match(
+        home_team="Tottenham", away_team="Everton", kickoff_utc=(now + timedelta(days=5)).isoformat(), status="scheduled",
+    )
+    assert next_match([nearer_but_postponed, genuinely_next]) is genuinely_next
+
+
+def test_next_match_ignores_a_nearer_interrupted_or_live_fixture_with_a_stale_future_kickoff():
+    now = datetime.now(tz=UTC)
+    interrupted = _match(kickoff_utc=(now + timedelta(hours=1)).isoformat(), status="interrupted")
+    live = _match(kickoff_utc=(now + timedelta(hours=2)).isoformat(), status="inprogress")
+    genuinely_next = _match(kickoff_utc=(now + timedelta(days=2)).isoformat(), status="scheduled")
+    assert next_match([interrupted, live, genuinely_next]) is genuinely_next
+
+
+def test_next_match_recognizes_sofascores_notstarted_status_too():
+    # Sofascore's own vocabulary uses "notstarted" where every other
+    # source in this codebase uses "scheduled" -- both must be
+    # recognized as genuinely upcoming.
+    future = (datetime.now(tz=UTC) + timedelta(days=3)).isoformat()
+    m = _match(kickoff_utc=future, status="notstarted")
+    assert next_match([m]) is m
+
+
+def test_next_match_none_when_every_future_looking_fixture_has_a_non_upcoming_status():
+    now = datetime.now(tz=UTC)
+    cancelled = _match(kickoff_utc=(now + timedelta(days=1)).isoformat(), status="cancelled")
+    unknown_status = _match(kickoff_utc=(now + timedelta(days=2)).isoformat(), status=None)
+    assert next_match([cancelled, unknown_status]) is None
 
 
 def test_format_when_formats_a_real_date():

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from ._jsmath import js_round, js_round_to
+from .form import NOT_STARTED_STATUSES as _NOT_STARTED_STATUSES
 from .form import day_diff, is_team_home, normalize_team_name, parse_leading_int
 from .geo import country_distance_km, country_timezone_diff_hours, travel_time_hours
 from .merge import (
@@ -1182,18 +1183,6 @@ _COMPLETENESS_EXCLUDE = {
     "home_score", "away_score", "home_score_ht", "away_score_ht", "venue", "note",
     "base_source", "field_sources", "additional_notes", "opponent_context_error",
 }
-
-# Statuses that unambiguously mean "hasn't kicked off yet" across every
-# source's own vocabulary (Sofascore: notstarted, Fotmob/Goal/SoccerDesk/
-# 365Scores: scheduled). Deliberately narrow -- "live"/"inprogress",
-# "postponed", "cancelled", "unknown", etc. are excluded because those
-# matches can genuinely have partial real data (a live score, published
-# lineups, an abandoned match's final stats), so only the two clearly
-# pre-kickoff values are treated as "definitely no match-outcome data
-# yet". Shared with report.py's own pruning of the same fields from the
-# JSON output -- defined here (not there) since report.py already
-# imports from this module, not the reverse.
-_NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
 
 # MatchDetails fields that can only be known during or after the match
 # itself -- never a pre-match fixture property, not even a prediction.

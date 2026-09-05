@@ -337,7 +337,7 @@ def test_scrape_all_sources_records_details_error_when_next_match_details_fails(
     from football.orchestrate import _scrape_all_sources
 
     async def one_match(_team_name):
-        return [_match(kickoff_utc=(datetime.now(tz=UTC) + timedelta(days=3)).isoformat())]
+        return [_match(kickoff_utc=(datetime.now(tz=UTC) + timedelta(days=3)).isoformat(), status="scheduled")]
 
     async def failing_details(_match):
         raise RuntimeError("details blocked")
