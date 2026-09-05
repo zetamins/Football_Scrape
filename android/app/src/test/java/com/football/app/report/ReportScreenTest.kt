@@ -255,6 +255,45 @@ class ReportScreenTest {
     }
 
     @Test
+    fun `an absent match section skips the collapsing header and falls back to Home-Away team names`() {
+        // `match != null` (CollapsingMatchHeader) and the `match?.homeTeam
+        // ?: "Home"` / `?: "Away"` fallbacks in ReportTabContent were
+        // never false/taken -- every other fixture in this suite includes
+        // a real "match" object.
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(
+            """{"team": "Brentford", "generatedAt": "2026-08-31T02:21:23.778Z",
+               "insights": {"home_rest_performance": {"short_rest_ppg": 1.0, "short_rest_sample_size": 3, "long_rest_ppg": 2.0, "long_rest_sample_size": 3}}}""",
+        )
+        composeTestRule.setContent {
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Context").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Home performance by rest").assertExists()
+    }
+
+    @Test
+    fun `a malformed insights section fails to decode and falls back to its placeholder`() {
+        // decodeOrNull()'s catch(SerializationException) branch -- every
+        // other fixture in this suite has either a well-formed section or
+        // an entirely absent (null) one; this one is present but the
+        // wrong JSON shape (a string where an object is expected).
+        val viewModel = ReportViewModel()
+        viewModel.loadFromHistory(
+            """{"team": "Brentford", "generatedAt": "2026-08-31T02:21:23.778Z",
+               "match": {"home_team": "Brentford", "away_team": "Sunderland"},
+               "insights": {"home_rest_performance": "not_an_object"}}""",
+        )
+        composeTestRule.setContent {
+            ReportScreen(viewModel = viewModel, onBack = {}, onHistoryClick = {})
+        }
+        composeTestRule.onNodeWithText("Context").performScrollTo().performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Context not yet implemented.").assertExists()
+    }
+
+    @Test
     fun `a tab whose own section decodes to null falls back to its placeholder`() {
         // PlaceholderTab was never rendered by any test -- every fixture
         // used elsewhere in this suite has real data for every tab.

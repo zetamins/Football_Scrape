@@ -152,6 +152,47 @@ class StandingsTabTest {
     }
 
     @Test
+    fun `strength section renders elo alone without a world rank when club strength is unknown`() {
+        composeTestRule.setContent {
+            StandingsTab(
+                insights = InsightsStandings(homeEloRating = EloRating(elo = 1920.0, rank = null, asOf = "2026-09-01"), awayEloRating = EloRating(elo = 1880.0, rank = null, asOf = "2026-09-01")),
+                standingsTable = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("Elo rating (clubelo.com)").assertExists()
+        composeTestRule.onNodeWithText("Overall strength (statsultra.com)").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Arsenal 1920.0").assertExists()
+    }
+
+    @Test
+    fun `table position section omits points-from-boundary when it is unknown`() {
+        composeTestRule.setContent {
+            StandingsTab(
+                insights = InsightsStandings(homeStandingsZone = StandingsZoneInfo(position = 1, totalTeams = 20, zone = "Title race", pointsFromBoundary = null)),
+                standingsTable = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("#1/20 (Title race)").assertExists()
+    }
+
+    @Test
+    fun `home advantage section falls back to n-slash-a when strength and rates are unknown`() {
+        composeTestRule.setContent {
+            StandingsTab(
+                insights = InsightsStandings(homeAdvantage = HomeAdvantageInfo(homeWinRatePct = null, awayWinRatePct = null, strength = null)),
+                standingsTable = null,
+                homeTeam = "Arsenal",
+                awayTeam = "Chelsea",
+            )
+        }
+        composeTestRule.onNodeWithText("n/a (home n/a% / away n/a%)").assertExists()
+    }
+
+    @Test
     fun `a fully populated standings tab composes without throwing`() {
         composeTestRule.setContent {
             StandingsTab(
