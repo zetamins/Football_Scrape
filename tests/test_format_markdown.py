@@ -531,22 +531,17 @@ def test_venue_details_markdown_includes_optional_fields():
     assert "Record attendance: 70,000 (1995)" in text
 
 
-def test_elo_str_includes_rank_when_present():
+def test_elo_str_never_mentions_a_world_rank():
+    """EloRating has no rank field -- this project's own Elo computation
+    has no cross-team network to rank against (see elo.py), unlike
+    ClubStrengthRating's separate, genuinely-populated StatsUltra rank."""
     from football.format_markdown import elo_str
     from football.types import EloRating
 
-    e = EloRating(elo=1650.5, rank=12, as_of="2026-01-01")
+    e = EloRating(elo=1650.5, as_of="2026-01-01")
     result = elo_str(e, "Home")
-    assert "world rank #12" in result
+    assert "world rank" not in result
     assert "1650.5" in result
-
-
-def test_elo_str_omits_rank_when_absent():
-    from football.format_markdown import elo_str
-    from football.types import EloRating
-
-    e = EloRating(elo=1500.0, rank=None, as_of="2026-01-01")
-    assert "world rank" not in elo_str(e, "Home")
 
 
 def test_club_strength_str_includes_positive_change():
@@ -1259,7 +1254,7 @@ def _insights_full(**overrides):
     standings_impact = StandingsImpactInfo(current_position=5, current_points=20, scenarios=[StandingsScenario(outcome="win", new_points=23, new_position=3)])
     advanced = _advanced_stats()
     bench_info = BenchInfo(bench_size=7, bench_total_market_value=25_000_000.0, starting_total_market_value=450_000_000.0)
-    elo = EloRating(elo=1650.5, rank=12, as_of="2026-01-01")
+    elo = EloRating(elo=1650.5, as_of="2026-01-01")
     squad_strength = SquadStrengthInfo(total_value=500_000_000.0, attack_value=200_000_000.0, midfield_value=150_000_000.0, defense_value=100_000_000.0, goalkeeper_value=50_000_000.0, available_value=480_000_000.0)
     club_strength = ClubStrengthRating(overall=85.2, attack=80.0, defense=75.0, rank=3, strength_change=1.2)
     travel = TravelInfo(venue_country="England", home_team_country="England", away_team_country="Spain", home_traveling=False, away_traveling=True, home_travel_distance_km=None, away_travel_distance_km=1200.0, home_timezone_diff_hours=None, away_timezone_diff_hours=1.0, home_travel_time_hours=None, away_travel_time_hours=2.5)

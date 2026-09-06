@@ -37,8 +37,8 @@ class StandingsTabTest {
             StandingsTab(
                 insights =
                     InsightsStandings(
-                        homeEloRating = EloRating(elo = 1920.0, rank = 5, asOf = "2026-09-01"),
-                        awayEloRating = EloRating(elo = 1880.0, rank = 8, asOf = "2026-09-01"),
+                        homeEloRating = EloRating(elo = 1920.0, asOf = "2026-09-01"),
+                        awayEloRating = EloRating(elo = 1880.0, asOf = "2026-09-01"),
                         homeClubStrength = ClubStrengthRating(overall = 90.3, attack = 85.6, defense = 93.4, rank = 1),
                         awayClubStrength = ClubStrengthRating(overall = 84.5, attack = 86.5, defense = 82.2, rank = 7),
                     ),
@@ -48,7 +48,7 @@ class StandingsTabTest {
             )
         }
         composeTestRule.onNodeWithText("Strength ratings").assertExists()
-        composeTestRule.onNodeWithText("Elo rating (clubelo.com)").assertExists()
+        composeTestRule.onNodeWithText("Elo rating (computed from recent form)").assertExists()
         composeTestRule.onNodeWithText("Attack rating").assertExists()
     }
 
@@ -152,16 +152,16 @@ class StandingsTabTest {
     }
 
     @Test
-    fun `strength section renders elo alone without a world rank when club strength is unknown`() {
+    fun `strength section renders elo alone when club strength is unknown`() {
         composeTestRule.setContent {
             StandingsTab(
-                insights = InsightsStandings(homeEloRating = EloRating(elo = 1920.0, rank = null, asOf = "2026-09-01"), awayEloRating = EloRating(elo = 1880.0, rank = null, asOf = "2026-09-01")),
+                insights = InsightsStandings(homeEloRating = EloRating(elo = 1920.0, asOf = "2026-09-01"), awayEloRating = EloRating(elo = 1880.0, asOf = "2026-09-01")),
                 standingsTable = null,
                 homeTeam = "Arsenal",
                 awayTeam = "Chelsea",
             )
         }
-        composeTestRule.onNodeWithText("Elo rating (clubelo.com)").assertExists()
+        composeTestRule.onNodeWithText("Elo rating (computed from recent form)").assertExists()
         composeTestRule.onNodeWithText("Overall strength (statsultra.com)").assertDoesNotExist()
         composeTestRule.onNodeWithText("Arsenal 1920.0").assertExists()
     }
@@ -198,8 +198,8 @@ class StandingsTabTest {
             StandingsTab(
                 insights =
                     InsightsStandings(
-                        homeEloRating = EloRating(1920.0, 5, "2026-09-01"),
-                        awayEloRating = EloRating(1880.0, 8, "2026-09-01"),
+                        homeEloRating = EloRating(1920.0, "2026-09-01"),
+                        awayEloRating = EloRating(1880.0, "2026-09-01"),
                         homeStandingsZone = StandingsZoneInfo(1, 20, "Title race"),
                         homeAdvantage = HomeAdvantageInfo(homeWinRatePct = 65.0),
                         homeOpponentRankRecord = OpponentRankRecord(10, 3, 4, 3),

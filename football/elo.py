@@ -77,4 +77,4 @@ def compute_elo_rating(results: list[FormResult]) -> EloRating | None:
         margin_multiplier = 1.0 + min(r.margin, 4) * 0.1
         rating += _K_FACTOR * margin_multiplier * (actual - expected)
     as_of = datetime.now(tz=UTC).strftime("%Y-%m-%d")
-    return EloRating(elo=round(rating, 1), rank=None, as_of=as_of)
+    return EloRating(elo=round(rating, 1), as_of=as_of)

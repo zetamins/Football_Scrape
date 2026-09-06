@@ -395,7 +395,7 @@ def test_completeness_counts_a_real_dataclass_valued_insights_field():
     from football.types import EloRating
 
     merged = _all_none(MatchDetails, status="finished")
-    insights_with = _all_none(MatchInsights, home_elo_rating=EloRating(elo=1500.0, rank=None, as_of="2026-01-01"))
+    insights_with = _all_none(MatchInsights, home_elo_rating=EloRating(elo=1500.0, as_of="2026-01-01"))
     insights_without = _all_none(MatchInsights, home_elo_rating=None)
     result_with = compute_data_completeness(merged, insights_with)
     result_without = compute_data_completeness(merged, insights_without)

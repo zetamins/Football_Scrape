@@ -519,8 +519,7 @@ def merged_profile_markdown(p, lines: list[str]) -> None:
 
 
 def elo_str(e: EloRating, label: str) -> str:
-    rank = f", world rank #{e.rank}" if e.rank is not None else ""
-    return f"{label} Elo: {e.elo}{rank} (computed from recent form, as of {e.as_of})"
+    return f"{label} Elo: {e.elo} (computed from recent form, as of {e.as_of})"
 
 
 def club_strength_str(s: ClubStrengthRating, label: str) -> str:

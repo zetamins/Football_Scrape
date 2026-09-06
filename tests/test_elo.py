@@ -49,11 +49,6 @@ def test_bigger_margin_wins_move_rating_more():
     assert big_margin.elo > small_margin.elo
 
 
-def test_rank_is_always_none():
-    rating = compute_elo_rating([_result("W")])
-    assert rating.rank is None
-
-
 def test_friendlies_are_excluded_from_the_rating():
     # Confirmed live this matters a lot: a real team's last20_overall
     # window can be roughly a third preseason "Club Friendly Games"

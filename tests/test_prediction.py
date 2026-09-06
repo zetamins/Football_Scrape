@@ -3,7 +3,7 @@ from football.types import BettingOdds, EloRating, SeasonXGEstimate, SquadStreng
 
 
 def _elo(value: float) -> EloRating:
-    return EloRating(elo=value, rank=None, as_of="2026-01-01")
+    return EloRating(elo=value, as_of="2026-01-01")
 
 
 def _odds(home_pct, draw_pct, away_pct) -> BettingOdds:

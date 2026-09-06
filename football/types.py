@@ -1008,12 +1008,12 @@ class SquadStrengthInfo:
 
 @dataclass
 class EloRating:
-    elo: float
     # Only ClubElo's global-network calibration could ever produce a real
-    # world rank -- this project's own computation (elo.py) has no such
-    # network to rank against, so this stays None from that path. Left
-    # here (rather than dropped) in case a future source populates it.
-    rank: int | None
+    # world rank -- this project's own computation below has no such
+    # network to rank against, and never will (the API dependency was
+    # removed for being persistently unreachable, see elo.py's own
+    # docstring). No `rank` field here -- it would only ever be None.
+    elo: float
     as_of: str
 
 

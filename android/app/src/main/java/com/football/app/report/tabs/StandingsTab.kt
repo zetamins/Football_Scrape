@@ -52,13 +52,13 @@ private fun StrengthSection(
     SectionCard("Strength ratings") {
         if (he != null && ae != null) {
             BarComparison(
-                "Elo rating (clubelo.com)",
+                "Elo rating (computed from recent form)",
                 he.elo.toFloat(),
                 ae.elo.toFloat(),
                 AppTheme.colors.homeSeries,
                 AppTheme.colors.awaySeries,
-                "$homeTeam ${he.elo}${he.rank?.let { " (#$it world)" } ?: ""}",
-                "$awayTeam ${ae.elo}${ae.rank?.let { " (#$it world)" } ?: ""}",
+                "$homeTeam ${he.elo}",
+                "$awayTeam ${ae.elo}",
             )
             Spacer(Modifier.height(8.dp))
         }

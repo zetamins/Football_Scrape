@@ -3,7 +3,6 @@ package com.football.app.data.model
 import com.football.app.data.AppJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -27,12 +26,11 @@ class StandingsModelsTest {
         }.bufferedReader().readText()
 
     @Test
-    fun `decodes elo rating and club strength, including a null rank`() {
+    fun `decodes elo rating and club strength`() {
         val s = AppJson.decodeFromString(InsightsStandings.serializer(), loadInsightsSample())
 
         val elo = assertNotNullAndReturn(s.homeEloRating)
         assertEquals(1510.9, elo.elo, 0.0)
-        assertNull(elo.rank)
         assertEquals("2026-08-29", elo.asOf)
 
         val strength = assertNotNullAndReturn(s.homeClubStrength)

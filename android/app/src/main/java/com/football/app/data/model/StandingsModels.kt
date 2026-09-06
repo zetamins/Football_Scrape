@@ -5,7 +5,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class EloRating(
     val elo: Double,
-    val rank: Int? = null,
     val asOf: String,
 )
 
