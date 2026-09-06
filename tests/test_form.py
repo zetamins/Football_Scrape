@@ -603,6 +603,67 @@ def test_enrich_form_with_venue_classification_falls_back_on_details_failure(mon
     assert enriched.form.last20_overall[0] is result
 
 
+def test_enrich_form_with_venue_classification_also_reenriches_last5_and_last10_overall(monkeypatch):
+    """Regression test for a real bug: last5_overall/last10_overall/
+    last5_home/last5_away are separate list slices taken from
+    all_results in compute_form_summary, BEFORE this function runs --
+    only last20_overall was ever re-pointed at the enriched results,
+    so every one of these other windows kept serving the original,
+    unenriched FormResult objects (ht_scoreline/xg_for/xg_against
+    always None) even for a match that WAS successfully enriched."""
+    from football import orchestrate
+
+    raw_match = _match(home_team="Home FC", away_team="Away FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _match_details_for_enrichment()
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    # Same match (identified by date+opponent), appearing -- as it
+    # genuinely would -- in last5_overall, last10_overall, last20_overall,
+    # and last5_home all at once, since they're overlapping windows over
+    # the same match history.
+    result = _result(opponent="Away FC", date="2026-01-01T15:00:00.000Z", venue="home", scoreline="2-1", result="W")
+    form = _form_summary_for_enrichment(
+        last5_overall=[result], last10_overall=[result], last20_overall=[result], last5_home=[result], last5_away=[],
+    )
+
+    enriched = asyncio.run(enrich_form_with_venue_classification([raw_match], form, "sofascore"))
+
+    for window in (enriched.form.last5_overall, enriched.form.last10_overall, enriched.form.last20_overall, enriched.form.last5_home):
+        assert window[0].ht_scoreline == "1-0"
+        assert window[0].xg_for == 1.8
+        assert window[0].xg_against == 0.9
+
+
+def test_enrich_form_with_venue_classification_leaves_out_of_window_entries_alone(monkeypatch):
+    """An entry in last5_home/last5_away that falls outside the bounded
+    last20_overall enrichment scan (e.g. a team's 5 most recent home
+    games reach further back than its last 20 overall) has no enriched
+    counterpart to match against -- it must stay exactly as it was,
+    not be dropped or crash the lookup."""
+    from football import orchestrate
+
+    raw_match = _match(home_team="Home FC", away_team="Away FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _match_details_for_enrichment()
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    in_window = _result(opponent="Away FC", date="2026-01-01T15:00:00.000Z", venue="home")
+    out_of_window = _result(opponent="Older Opp", date="2020-01-01T00:00:00.000Z", venue="home")
+    form = _form_summary_for_enrichment(last20_overall=[in_window], last5_home=[out_of_window])
+
+    enriched = asyncio.run(enrich_form_with_venue_classification([raw_match], form, "sofascore"))
+    assert enriched.form.last5_home[0] is out_of_window
+
+
 def _form_summary_for_enrichment(**overrides):
     from football.types import FormSummary
 

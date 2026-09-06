@@ -1016,7 +1016,34 @@ async def enrich_form_with_venue_classification(
     advanced_stats = _compute_advanced_stats(stat_totals, acc, source)
     finalized_usage = _finalize_usage(usage_by_player)
 
+    # last5/10_overall and last5_home/away are separate list slices taken
+    # from all_results in compute_form_summary, BEFORE this enrichment
+    # runs -- replacing last20_overall alone left every other window
+    # holding the original bare FormResult objects (ht_scoreline/xg_for/
+    # xg_against always None), even for entries that fall inside the very
+    # same last-20 window that was just enriched. Confirmed live: every
+    # entry across last5/10/20_overall came back null for these three
+    # fields. Re-pointing each window at its enriched counterpart (keyed
+    # by date+opponent, since that's what identifies the same match)
+    # fixes all of them; a window entry outside the bounded 20-match
+    # enrichment scan (possible for last5_home/away on a team with a long
+    # run of one-sided fixtures) falls back to its original, unenriched
+    # object rather than being dropped.
+    enriched_by_key = {(r.date, r.opponent): r for r in enriched}
+
+    def _reenrich(results: list[FormResult]) -> list[FormResult]:
+        return [enriched_by_key.get((r.date, r.opponent), r) for r in results]
+
     new_form = FormSummary(
-        **{**form.__dict__, "last20_overall": enriched, "venue_split_form": venue_split_form, "detailed_venue_split": detailed_venue_split}
+        **{
+            **form.__dict__,
+            "last5_overall": _reenrich(form.last5_overall),
+            "last10_overall": _reenrich(form.last10_overall),
+            "last20_overall": enriched,
+            "last5_home": _reenrich(form.last5_home),
+            "last5_away": _reenrich(form.last5_away),
+            "venue_split_form": venue_split_form,
+            "detailed_venue_split": detailed_venue_split,
+        }
     )
     return VenueEnrichmentResult(form=new_form, advanced_stats=advanced_stats, usage_by_player=finalized_usage)
