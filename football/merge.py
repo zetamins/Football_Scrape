@@ -69,6 +69,26 @@ _MATCH_MERGE_FIELDS = [
 _PROFILE_MERGE_FIELDS = ["squad", "average_age", "injuries", "key_injuries", "recent_transfers"]
 
 
+def _deduplicate_transfers(transfers: list | None) -> list | None:
+    """De-duplicate transfer records that appear in multiple sources.
+    Matches by (player_name, direction, date) -- same player, same
+    direction, same date is a duplicate. Also handles reversals (same
+    player appearing as both 'in' and 'out' from different sources)
+    by keeping the more recent entry."""
+    if not transfers:
+        return transfers
+    from .types import TransferRecord
+
+    seen: dict[tuple, TransferRecord] = {}
+    for t in transfers:
+        if not isinstance(t, TransferRecord):
+            continue
+        key = (normalize_team_name(t.player_name), t.direction, t.date)
+        if key not in seen:
+            seen[key] = t
+    return list(seen.values()) if seen else transfers
+
+
 @dataclass
 class AdditionalNote:
     source: Source
@@ -128,6 +148,11 @@ def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
         for src, d in by_source.items()
         if src != base_source and d.note
     ]
+
+    # Validate lineup positions against formation to catch scraping
+    # bugs where position tags don't match the stated formation.
+    merged["home_lineup"] = _validate_lineup_positions(merged.get("home_lineup"), merged.get("home_formation"))
+    merged["away_lineup"] = _validate_lineup_positions(merged.get("away_lineup"), merged.get("away_formation"))
 
     return MergedMatch(
         **merged,
@@ -324,6 +349,7 @@ class TopDefender:
     name: str
     tackles_made: int
     interceptions: int
+    source: Source | None = None
 
 
 def compute_top_defenders(squad: list[SquadMember] | None, count: int = 3) -> list[TopDefender]:
@@ -347,6 +373,7 @@ def compute_top_defenders(squad: list[SquadMember] | None, count: int = 3) -> li
             name=m.name,
             tackles_made=m.defensive_stats.tackles_made or 0,
             interceptions=m.defensive_stats.interceptions or 0,
+            source="squawka",
         )
         for m in candidates[:count]
     ]
@@ -451,7 +478,8 @@ def compute_recent_form_leaders(squad: list[SquadMember] | None, count: int = 3)
     """Same "last 10 played, real per-match data" scope as everything else
     the venue-classification enrichment produces -- distinct from the
     season-wide totals top_performers already show, this is specifically
-    recent form."""
+    recent form. Uses recent_usage data (from the venue-enrichment
+    per-match fetch loop), not season_stats from any source."""
     if not squad:
         return []
     candidates = [m for m in squad if m.recent_usage and (m.recent_usage.total_goals + m.recent_usage.total_assists) > 0]
@@ -485,8 +513,93 @@ def merge_team_profile(by_source: dict[Source, TeamProfile]) -> MergedProfile:
     merged["missing_goalkeepers"] = compute_missing_by_role(merged.get("injuries"), is_goalkeeper_role)
     if merged.get("squad"):
         merged["squad"] = enrich_squad_with_season_stats(merged["squad"], by_source)
+    if merged.get("recent_transfers"):
+        merged["recent_transfers"] = _deduplicate_transfers(merged["recent_transfers"])
 
     return MergedProfile(**merged, base_source=base_source, field_sources=field_sources)
+
+
+def _fix_missing_or_duplicate_gk(result: list, formation: str | None) -> None:
+    """Extracted from _validate_lineup_positions to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged.
+
+    A valid XI must have exactly one GK. Mutates result in place."""
+    from dataclasses import replace as _replace
+
+    gk_indices = [i for i, p in enumerate(result) if p.position and p.position.upper() == "G"]
+    if len(gk_indices) == 0 and formation:
+        # No GK found -- reclassify the first player without a position
+        # (or the last outfield player if all have positions) as GK.
+        no_pos = [i for i, p in enumerate(result) if not p.position]
+        if no_pos:
+            result[no_pos[0]] = _replace(result[no_pos[0]], position="G")
+        elif len(result) >= 11:
+            # All players have positions but none is GK -- reclassify
+            # the first non-D non-M non-F player, or the last player.
+            outfield = [i for i, p in enumerate(result) if p.position and p.position.upper() not in ("D", "M", "F")]
+            if outfield:
+                result[outfield[0]] = _replace(result[outfield[0]], position="G")
+            else:
+                result[-1] = _replace(result[-1], position="G")
+    elif len(gk_indices) > 1:
+        # Multiple GKs -- keep the first, reclassify the rest as M.
+        for idx in gk_indices[1:]:
+            result[idx] = _replace(result[idx], position="M")
+
+
+def _fix_defender_count(result: list, expected_def: int) -> None:
+    """Extracted from _validate_lineup_positions to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged.
+
+    Mutates result in place."""
+    from dataclasses import replace as _replace
+
+    current_def = sum(1 for p in result if p.position and p.position.upper() == "D")
+    if current_def == expected_def:
+        return
+
+    if current_def > expected_def:
+        # Too many defenders -- reclassify the last excess defender as
+        # midfielder (the most common misclassification).
+        def_indices = [i for i, p in enumerate(result) if p.position and p.position.upper() == "D"]
+        for idx in def_indices[expected_def:]:
+            result[idx] = _replace(result[idx], position="M")
+    elif current_def < expected_def:
+        # Too few defenders -- reclassify the last excess midfielder as
+        # defender (the most common misclassification).
+        mid_indices = [i for i, p in enumerate(result) if p.position and p.position.upper() == "M"]
+        needed = expected_def - current_def
+        for idx in mid_indices[-needed:]:
+            result[idx] = _replace(result[idx], position="D")
+
+
+def _validate_lineup_positions(lineup: list | None, formation: str | None) -> list | None:
+    """Validate that the lineup has a goalkeeper and that the number of
+    outfield players marked as 'D' matches the formation's defender count.
+    When the formation is known but the lineup's position assignments
+    disagree (e.g. 4-2-3-1 formation but only 3 players marked 'D'), or
+    the lineup is missing a goalkeeper, reclassify the excess/deficit by
+    reassigning the most plausible player. This catches real scraping
+    bugs where sofascore's position tags don't match the formation."""
+    if not lineup:
+        return lineup
+
+    result = list(lineup)
+    _fix_missing_or_duplicate_gk(result, formation)
+
+    # --- Defender count check (requires formation) ---
+    if not formation:
+        return result
+    parts = formation.split("-")
+    if len(parts) < 2:
+        return result
+    try:
+        expected_def = int(parts[0])
+    except (ValueError, IndexError):
+        return result
+
+    _fix_defender_count(result, expected_def)
+    return result
 
 
 def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source: Source) -> None:

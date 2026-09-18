@@ -197,6 +197,16 @@ class BettingOdds:
     away_win_implied_pct: float | None
     over_2_5_odds: float | None
     under_2_5_odds: float | None
+    # Overround: the bookmaker's margin. Sum of raw implied probabilities
+    # (1/odds) before de-vig normalization. >100% means the bookmaker
+    # has embedded a margin. 100% = no margin (fair odds).
+    overround_pct: float | None = None
+    # De-vigged (fair) implied probabilities that sum to exactly 100%
+    # after removing the overround. These are the "true" probabilities
+    # the market is estimating, before bookmaker margin.
+    home_win_fair_pct: float | None = None
+    draw_fair_pct: float | None = None
+    away_win_fair_pct: float | None = None
 
 
 @dataclass
@@ -231,6 +241,18 @@ class RefereeStats:
     # table but isn't used here, since Sofascore's season total already
     # covers reds generally).
     second_yellow_cards: int | None = None
+    # Source labels: which source provided each non-base field, so a
+    # consumer knows where each number came from and can reconcile
+    # conflicts (e.g. games from sofascore vs referee_matches from
+    # refsradar).
+    penalties_source: str | None = None
+    home_away_bias_source: str | None = None
+    fouls_per_game_source: str | None = None
+    red_cards_per_game_source: str | None = None
+    referee_matches_source: str | None = None
+    penalties_per_game_source: str | None = None
+    cards_per_foul_source: str | None = None
+    avg_total_cards_source: str | None = None
 
 
 @dataclass
@@ -270,6 +292,10 @@ class HeadToHeadSummary:
     home_wins: int
     away_wins: int
     draws: int
+    # Total matches this summary is based on -- lets consumers know
+    # whether this is 3 meetings or 30. Null when the source doesn't
+    # publish a total count alongside the W/D/L breakdown.
+    sample_size: int | None = None
 
 
 @dataclass
@@ -409,6 +435,16 @@ class StandingsTableRow:
     team_name: str
     position: int
     points: int
+    # Extended standings fields -- not every source provides all of these.
+    # Null when the source doesn't publish that column.
+    played: int | None = None
+    wins: int | None = None
+    draws: int | None = None
+    losses: int | None = None
+    goals_for: int | None = None
+    goals_against: int | None = None
+    goal_difference: int | None = None
+    form: str | None = None
 
 
 @dataclass
@@ -677,6 +713,14 @@ class FormSummary:
     points_per_game: float | None
     goals_for_per_game: float | None
     goals_against_per_game: float | None
+    # Sample sizes for computed rate/per-game metrics -- lets consumers
+    # know how many matches each percentage/average is derived from.
+    home_win_rate_sample_size: int | None = None
+    away_win_rate_sample_size: int | None = None
+    win_rate_sample_size: int | None = None
+    points_per_game_sample_size: int | None = None
+    goals_for_per_game_sample_size: int | None = None
+    goals_against_per_game_sample_size: int | None = None
 
 
 @dataclass
@@ -985,7 +1029,12 @@ class RotationInfo:
     formation_changed: bool | None
     last_defender_count: int | None
     previous_defender_count: int | None
-    preceding_result: Literal["W", "D", "L"] | None
+    # Result of the match BEFORE last (not the most recent match) --
+    # renamed from "preceding_result" to avoid ambiguity with "the match
+    # that precedes" (which sounds like "the last match").
+    result_before_last: Literal["W", "D", "L"] | None = None
+    # Kept for backward compatibility with existing consumers.
+    preceding_result: Literal["W", "D", "L"] | None = None
 
 
 @dataclass
@@ -1069,6 +1118,13 @@ class MatchPrediction:
     market_implied: OutcomeProbabilities | None
     heuristic_blend: OutcomeProbabilities | None
     xg_model: OutcomeProbabilities | None = None
+    # Weighted average of all available methods, with confidence based
+    # on agreement. Market-implied gets highest weight (research shows
+    # it's the strongest standalone predictor), followed by xg_model,
+    # then heuristic_blend. confidence is 0-100: higher when methods
+    # agree, lower when they diverge significantly.
+    blended: OutcomeProbabilities | None = None
+    confidence: float | None = None
 
 
 @dataclass

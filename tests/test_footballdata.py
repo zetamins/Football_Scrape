@@ -92,13 +92,15 @@ def test_find_matching_row_skips_blank_lines():
 
 
 def test_implied_percentages_devig_sums_to_100():
-    home_pct, draw_pct, away_pct = _implied_percentages(2.0, 3.5, 4.0)
+    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = _implied_percentages(2.0, 3.5, 4.0)
     assert home_pct + draw_pct + away_pct == 100.0
+    assert overround is not None
+    assert overround > 100.0  # bookmaker margin
 
 
 def test_implied_percentages_none_when_any_odd_missing():
-    assert _implied_percentages(2.0, None, 4.0) == (None, None, None)
-    assert _implied_percentages(None, None, None) == (None, None, None)
+    assert _implied_percentages(2.0, None, 4.0) == (None, None, None, None, None, None, None)
+    assert _implied_percentages(None, None, None) == (None, None, None, None, None, None, None)
 
 
 # --- get_referee_home_away_bias (async) ----------------------------------------------------

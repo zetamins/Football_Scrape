@@ -90,7 +90,17 @@ def form_result_str(r: FormResult) -> str:
     ht = f" (HT {r.ht_scoreline})" if r.ht_scoreline else ""
     xg = f" (xG {js_number_to_string(r.xg_for)}-{js_number_to_string(r.xg_against)})" if r.xg_for is not None and r.xg_against is not None else ""
     narrow = " (narrow)" if r.margin == 1 else ""
-    return f"{r.result} {r.scoreline}{ht}{xg} vs {r.opponent}{narrow}"
+    parts = [f"{r.result} {r.scoreline}{ht}{xg} vs {r.opponent}{narrow}"]
+    meta = []
+    if r.date:
+        meta.append(r.date[:10])
+    if r.competition:
+        meta.append(r.competition)
+    if r.venue:
+        meta.append(r.venue)
+    if meta:
+        parts.append(f" [{', '.join(meta)}]")
+    return "".join(parts)
 
 
 def meeting_str(m: HeadToHeadMeeting) -> str:
@@ -208,7 +218,7 @@ def _append_form_rates_streaks_and_splits(f: FormSummary, lines: list[str]) -> N
 def _append_form_venue_splits(f: FormSummary, lines: list[str]) -> None:
     """Final third of form_summary_markdown -- see
     _append_form_recent_results' docstring for why this split is safe."""
-    lines.append(f"- Fixture congestion: {f.matches_last7_days} matches in last 7 days, {f.matches_last14_days} in last 14 days")
+    lines.append(f"- Fixture congestion: {f.matches_last7_days} {'match' if f.matches_last7_days == 1 else 'matches'} in last 7 days, {f.matches_last14_days} in last 14 days")
     if f.win_rate_pct is not None:
         lines.append(f"- Rates (last 10): W{f.win_rate_pct}%/D{f.draw_rate_pct}%/L{f.loss_rate_pct}%, {f.points_per_game} ppg, {f.goals_for_per_game}-{f.goals_against_per_game} goals/game")
     if f.venue_split_form:
@@ -369,10 +379,12 @@ def _append_match_odds_and_standings(d, lines: list[str]) -> None:
         lines.append(f"- Recent meetings: {' | '.join(meeting_str(m) for m in d.recent_meetings)}")
     if d.home_team_standing:
         s = d.home_team_standing
-        lines.append(f"- {d.home_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L, {s.goal_diff})")
+        gd = f", GD {s.goal_diff}" if s.goal_diff is not None else ""
+        lines.append(f"- {d.home_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L{gd})")
     if d.away_team_standing:
         s = d.away_team_standing
-        lines.append(f"- {d.away_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L, {s.goal_diff})")
+        gd = f", GD {s.goal_diff}" if s.goal_diff is not None else ""
+        lines.append(f"- {d.away_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L{gd})")
     _append_match_season_stats(d, lines)
 
 
@@ -591,7 +603,12 @@ def bench_info_str(b, label: str) -> str:
 
 
 def squad_strength_str(s, label: str) -> str:
-    return f"{label} squad value: {_eur(s.total_value)} total ({_eur(s.available_value)} available) -- attack {_eur(s.attack_value)}, midfield {_eur(s.midfield_value)}, defense {_eur(s.defense_value)}, GK {_eur(s.goalkeeper_value)}"
+    # Compute displayed total from rounded positional values to avoid
+    # rounding mismatch (e.g. €31m + €32m + €29m + €6m = €98m but raw
+    # total rounds to €97m).
+    parts_total = sum(v for v in (s.attack_value, s.midfield_value, s.defense_value, s.goalkeeper_value) if v is not None)
+    display_total = _eur(parts_total) if parts_total > 0 else _eur(s.total_value)
+    return f"{label} squad value: {display_total} total ({_eur(s.available_value)} available) -- attack {_eur(s.attack_value)}, midfield {_eur(s.midfield_value)}, defense {_eur(s.defense_value)}, GK {_eur(s.goalkeeper_value)}"
 
 
 _RESULT_WORD = {"W": "a win", "D": "a draw", "L": "a loss"}

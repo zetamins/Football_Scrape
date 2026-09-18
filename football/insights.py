@@ -310,27 +310,83 @@ def compute_bench_info(bench: list[LineupPlayer] | None, lineup: list[LineupPlay
     return BenchInfo(bench_size=len(bench), bench_total_market_value=total(bench), starting_total_market_value=(total(lineup) if lineup else None))
 
 
+_INJURY_NOTE_KEYWORDS = ("injured", "injury", "out with", "ruled out", "sidelined", "hamstring", "knee", "ankle", "muscle", "knock")
+
+
+def _injury_note_text(note_entry) -> str | None:
+    """Extracted from _note_injury_reasons to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged.
+
+    Returns the lowercased note text when note_entry is an
+    injury-relevant AdditionalNote, else None."""
+    from .merge import AdditionalNote
+
+    if not isinstance(note_entry, AdditionalNote) or not note_entry.note:
+        return None
+    note_lower = note_entry.note.lower()
+    if not any(kw in note_lower for kw in _INJURY_NOTE_KEYWORDS):
+        return None
+    return note_lower
+
+
+def _note_injury_reasons(
+    squad: list[SquadMember],
+    additional_notes: list | None,
+    already_known: set[str],
+) -> dict[str, str]:
+    """Extracted from compute_presence to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged.
+
+    Cross-reference additional_notes for injury mentions not already in
+    the profile's injuries list -- catches players whose injury was
+    reported by a non-base source but didn't make it into the merged
+    profile's injuries list (e.g. De Ligt/Heaton in notes but not in the
+    injury merge)."""
+    from .merge import normalize_team_name as _normalize
+
+    result: dict[str, str] = {}
+    for note_entry in (additional_notes or []):
+        note_lower = _injury_note_text(note_entry)
+        if note_lower is None:
+            continue
+        for m in squad:
+            norm = _normalize(m.name)
+            if m.name.lower() in note_lower and norm not in already_known:
+                result[norm] = note_entry.note
+    return result
+
+
 def compute_presence(
     squad: list[SquadMember] | None,
     lineup: list[LineupPlayer] | None,
     bench: list[LineupPlayer] | None,
     injuries: list[SquadMember] | None,
     suspended: list[str] | None,
+    additional_notes: list | None = None,
 ) -> list[PresenceEntry] | None:
     """Present = not on the injuries or suspensions list; Absent = either
     one. Doesn't distinguish "available but not selected" from "on the
     bench" -- none of our sources publish a separate bench list beyond
-    Sofascore's own."""
+    Sofascore's own.
+
+    additional_notes: list of AdditionalNote (from merge.py) -- cross-
+    referenced for injury mentions not already in the injuries list.
+    Player names found in note text mentioning 'injured'/'injury'/'out'
+    are marked absent with the note as reason."""
     if not squad:
         return None
-    lineup_names = {normalize_team_name(p.name) for p in (lineup or [])}
-    bench_names = {normalize_team_name(p.name) for p in bench} if bench is not None else None
-    injury_by_name = {normalize_team_name(p.name): p.injury for p in (injuries or [])}
-    suspended_names = {normalize_team_name(n) for n in (suspended or [])}
+    from .merge import normalize_team_name as _normalize
+
+    lineup_names = {_normalize(p.name) for p in (lineup or [])}
+    bench_names = {_normalize(p.name) for p in bench} if bench is not None else None
+    injury_by_name = {_normalize(p.name): p.injury for p in (injuries or [])}
+    suspended_names = {_normalize(n) for n in (suspended or [])}
+    note_injury_by_name = _note_injury_reasons(squad, additional_notes, set(injury_by_name))
+
     result = []
     for m in squad:
-        norm = normalize_team_name(m.name)
-        reason = injury_by_name.get(norm) or ("Suspended" if norm in suspended_names else None)
+        norm = _normalize(m.name)
+        reason = injury_by_name.get(norm) or note_injury_by_name.get(norm) or ("Suspended" if norm in suspended_names else None)
         result.append(
             PresenceEntry(
                 name=m.name, status=("A" if reason else "P"), starting=(norm in lineup_names),
@@ -387,6 +443,7 @@ def _build_rotation_info(
         last_formation=last_formation, previous_formation=previous_formation,
         formation_changed=(last_formation != previous_formation if last_formation and previous_formation else None),
         last_defender_count=_defender_count(last_formation), previous_defender_count=_defender_count(previous_formation),
+        result_before_last=preceding_result,
         preceding_result=preceding_result,
     )
 

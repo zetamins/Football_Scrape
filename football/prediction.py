@@ -210,6 +210,84 @@ def _expected_goal_rates(home_xg: SeasonXGEstimate, away_xg: SeasonXGEstimate) -
     return home_rate, away_rate
 
 
+def _market_implied_from_odds(betting_odds: BettingOdds | None) -> OutcomeProbabilities | None:
+    """Extracted from compute_match_prediction to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    if not (betting_odds and betting_odds.home_win_implied_pct is not None):
+        return None
+    return OutcomeProbabilities(
+        home_win_pct=betting_odds.home_win_implied_pct,
+        draw_pct=betting_odds.draw_implied_pct,
+        away_win_pct=betting_odds.away_win_implied_pct,
+    )
+
+
+def _heuristic_blend_from_elo(
+    home_elo: EloRating | None,
+    away_elo: EloRating | None,
+    home_rest_days: int | None,
+    away_rest_days: int | None,
+    home_squad_strength: SquadStrengthInfo | None,
+    away_squad_strength: SquadStrengthInfo | None,
+) -> OutcomeProbabilities | None:
+    """Extracted from compute_match_prediction to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    if not (home_elo and away_elo):
+        return None
+    adjusted_home = (
+        home_elo.elo
+        + _rest_elo_adjustment(home_rest_days, away_rest_days)
+        + _availability_elo_penalty(home_squad_strength)
+    )
+    adjusted_away = (
+        away_elo.elo
+        + _rest_elo_adjustment(away_rest_days, home_rest_days)
+        + _availability_elo_penalty(away_squad_strength)
+    )
+    return _davidson_probabilities(adjusted_home, adjusted_away)
+
+
+def _xg_model_from_estimates(home_xg: SeasonXGEstimate | None, away_xg: SeasonXGEstimate | None) -> OutcomeProbabilities | None:
+    """Extracted from compute_match_prediction to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    if not (home_xg and away_xg):
+        return None
+    rates = _expected_goal_rates(home_xg, away_xg)
+    if rates is None:
+        return None
+    return _poisson_outcome_probabilities(rates[0], rates[1])
+
+
+def _blend_predictions(available: list[OutcomeProbabilities], weights: list[float]) -> tuple[OutcomeProbabilities | None, float | None]:
+    """Extracted from compute_match_prediction to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged.
+
+    Weighted average of available methods (market-implied gets highest
+    weight -- strongest standalone predictor per research -- xg_model
+    second, heuristic_blend third). Confidence is 100 minus the max
+    disagreement across outcomes."""
+    if len(available) < 2:
+        return None, None
+    total_weight = sum(weights)
+    home_pct = sum(a.home_win_pct * w for a, w in zip(available, weights)) / total_weight
+    draw_pct = sum(a.draw_pct * w for a, w in zip(available, weights)) / total_weight
+    away_pct = sum(a.away_win_pct * w for a, w in zip(available, weights)) / total_weight
+    blended = OutcomeProbabilities(
+        home_win_pct=round(home_pct, 1),
+        draw_pct=round(draw_pct, 1),
+        away_win_pct=round(away_pct, 1),
+    )
+    # Confidence: 100 minus the max spread across the three outcomes
+    # between any two methods. Lower disagreement = higher confidence.
+    max_spreads = []
+    for attr in ("home_win_pct", "draw_pct", "away_win_pct"):
+        vals = [getattr(a, attr) for a in available]
+        max_spreads.append(max(vals) - min(vals))
+    max_disagreement = max(max_spreads)
+    confidence = round(max(0, 100 - max_disagreement), 1)
+    return blended, confidence
+
+
 def compute_match_prediction(
     betting_odds: BettingOdds | None,
     home_elo: EloRating | None,
@@ -221,34 +299,31 @@ def compute_match_prediction(
     home_xg: SeasonXGEstimate | None = None,
     away_xg: SeasonXGEstimate | None = None,
 ) -> MatchPrediction | None:
-    market_implied: OutcomeProbabilities | None = None
-    if betting_odds and betting_odds.home_win_implied_pct is not None:
-        market_implied = OutcomeProbabilities(
-            home_win_pct=betting_odds.home_win_implied_pct,
-            draw_pct=betting_odds.draw_implied_pct,
-            away_win_pct=betting_odds.away_win_implied_pct,
-        )
-
-    heuristic_blend: OutcomeProbabilities | None = None
-    if home_elo and away_elo:
-        adjusted_home = (
-            home_elo.elo
-            + _rest_elo_adjustment(home_rest_days, away_rest_days)
-            + _availability_elo_penalty(home_squad_strength)
-        )
-        adjusted_away = (
-            away_elo.elo
-            + _rest_elo_adjustment(away_rest_days, home_rest_days)
-            + _availability_elo_penalty(away_squad_strength)
-        )
-        heuristic_blend = _davidson_probabilities(adjusted_home, adjusted_away)
-
-    xg_model: OutcomeProbabilities | None = None
-    if home_xg and away_xg:
-        rates = _expected_goal_rates(home_xg, away_xg)
-        if rates is not None:
-            xg_model = _poisson_outcome_probabilities(rates[0], rates[1])
+    market_implied = _market_implied_from_odds(betting_odds)
+    heuristic_blend = _heuristic_blend_from_elo(
+        home_elo, away_elo, home_rest_days, away_rest_days, home_squad_strength, away_squad_strength
+    )
+    xg_model = _xg_model_from_estimates(home_xg, away_xg)
 
     if market_implied is None and heuristic_blend is None and xg_model is None:
         return None
-    return MatchPrediction(market_implied=market_implied, heuristic_blend=heuristic_blend, xg_model=xg_model)
+
+    # Market-implied gets highest weight (strongest standalone predictor
+    # per research), xg_model second, heuristic_blend third.
+    available = []
+    weights = []
+    if market_implied is not None:
+        available.append(market_implied)
+        weights.append(3.0)
+    if xg_model is not None:
+        available.append(xg_model)
+        weights.append(2.0)
+    if heuristic_blend is not None:
+        available.append(heuristic_blend)
+        weights.append(1.0)
+    blended, confidence = _blend_predictions(available, weights)
+
+    return MatchPrediction(
+        market_implied=market_implied, heuristic_blend=heuristic_blend,
+        xg_model=xg_model, blended=blended, confidence=confidence,
+    )

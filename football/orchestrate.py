@@ -373,12 +373,9 @@ async def _enrich_manager_tenure(manager, team_name: str):
     )
 
 
-async def _enrich_referee_stats(merged) -> None:
-    """Referee card/foul/penalty enrichment from 3 independent
-    third-party sources, each optional -- guarded on merged.referee_stats
-    already existing (from the base merge)."""
-    if not merged.referee_stats:
-        return
+async def _fetch_referee_source_stats(merged):
+    """Extracted from _enrich_referee_stats to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
     try:
         worldfootball_stats = await worldfootball.get_referee_worldfootball_stats(merged.competition, merged.referee)
     except Exception:  # noqa: BLE001
@@ -391,19 +388,68 @@ async def _enrich_referee_stats(merged) -> None:
         refsradar_kpis = await refsradar.get_referee_kpis(merged.referee)
     except Exception:  # noqa: BLE001
         refsradar_kpis = None
+    return worldfootball_stats, home_away_bias, refsradar_kpis
+
+
+def _worldfootball_referee_fields(worldfootball_stats) -> dict:
+    """Extracted from _referee_stat_replacements to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    if not worldfootball_stats:
+        return {"penalties_awarded": None, "second_yellow_cards": None, "penalties_source": None}
+    return {
+        "penalties_awarded": worldfootball_stats.penalties,
+        "second_yellow_cards": worldfootball_stats.second_yellow,
+        "penalties_source": "worldfootball",
+    }
+
+
+def _refsradar_referee_fields(refsradar_kpis) -> dict:
+    """Extracted from _referee_stat_replacements to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    if not refsradar_kpis:
+        return {
+            "fouls_per_game": None, "red_cards_per_game": None, "referee_matches": None,
+            "penalties_per_game": None, "cards_per_foul": None, "avg_total_cards": None,
+            "fouls_per_game_source": None, "red_cards_per_game_source": None,
+            "referee_matches_source": None, "penalties_per_game_source": None,
+            "cards_per_foul_source": None, "avg_total_cards_source": None,
+        }
+    return {
+        "fouls_per_game": refsradar_kpis.fouls_per_game,
+        "red_cards_per_game": refsradar_kpis.red_cards_per_game,
+        "referee_matches": refsradar_kpis.matches,
+        "penalties_per_game": refsradar_kpis.penalties_per_game,
+        "cards_per_foul": refsradar_kpis.cards_per_foul,
+        "avg_total_cards": refsradar_kpis.avg_total_cards,
+        "fouls_per_game_source": "refsradar", "red_cards_per_game_source": "refsradar",
+        "referee_matches_source": "refsradar", "penalties_per_game_source": "refsradar",
+        "cards_per_foul_source": "refsradar", "avg_total_cards_source": "refsradar",
+    }
+
+
+def _referee_stat_replacements(worldfootball_stats, home_away_bias, refsradar_kpis) -> dict:
+    """Extracted from _enrich_referee_stats to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    return {
+        **_worldfootball_referee_fields(worldfootball_stats),
+        "home_away_bias": home_away_bias,
+        "home_away_bias_source": ("football-data.co.uk" if home_away_bias else None),
+        **_refsradar_referee_fields(refsradar_kpis),
+    }
+
+
+async def _enrich_referee_stats(merged) -> None:
+    """Referee card/foul/penalty enrichment from 3 independent
+    third-party sources, each optional -- guarded on merged.referee_stats
+    already existing (from the base merge)."""
+    if not merged.referee_stats:
+        return
+    worldfootball_stats, home_away_bias, refsradar_kpis = await _fetch_referee_source_stats(merged)
     from dataclasses import replace as _replace
 
     merged.referee_stats = _replace(
         merged.referee_stats,
-        penalties_awarded=(worldfootball_stats.penalties if worldfootball_stats else None),
-        second_yellow_cards=(worldfootball_stats.second_yellow if worldfootball_stats else None),
-        home_away_bias=home_away_bias,
-        fouls_per_game=(refsradar_kpis.fouls_per_game if refsradar_kpis else None),
-        red_cards_per_game=(refsradar_kpis.red_cards_per_game if refsradar_kpis else None),
-        referee_matches=(refsradar_kpis.matches if refsradar_kpis else None),
-        penalties_per_game=(refsradar_kpis.penalties_per_game if refsradar_kpis else None),
-        cards_per_foul=(refsradar_kpis.cards_per_foul if refsradar_kpis else None),
-        avg_total_cards=(refsradar_kpis.avg_total_cards if refsradar_kpis else None),
+        **_referee_stat_replacements(worldfootball_stats, home_away_bias, refsradar_kpis),
     )
 
 
@@ -569,6 +615,7 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
         merged.home_bench if own_is_home else merged.away_bench,
         merged_profile.injuries if merged_profile else None,
         merged.home_suspended_players if own_is_home else merged.away_suspended_players,
+        additional_notes=merged.additional_notes if hasattr(merged, 'additional_notes') else None,
     )
     opponent_presence = ins.compute_presence(
         opponent_profile.squad if opponent_profile else None,
@@ -576,6 +623,7 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
         merged.away_bench if own_is_home else merged.home_bench,
         opponent_profile.injuries if opponent_profile else None,
         merged.away_suspended_players if own_is_home else merged.home_suspended_players,
+        additional_notes=merged.additional_notes if hasattr(merged, 'additional_notes') else None,
     )
     insights_result.home_presence, insights_result.away_presence = _home_away(own_is_home, own_presence, opponent_presence)
 
@@ -712,6 +760,53 @@ async def _enrich_weather(merged) -> None:
         merged.field_sources["weather"] = "wttr.in"
 
 
+async def _get_club_strength_ratings_safe(merged) -> dict:
+    """Extracted from _compute_match_context to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    try:
+        return await statsultra.get_club_strength_ratings(merged.home_team, merged.away_team)
+    except Exception:  # noqa: BLE001
+        return {"home": None, "away": None}
+
+
+async def _get_upcoming_match_odds_safe(merged):
+    """Extracted from _compute_match_context to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    try:
+        return await footballdata.get_upcoming_match_odds(merged.home_team, merged.away_team)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form) -> None:
+    """Extracted from _compute_match_context to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged.
+
+    Candidate names are each team's OWN recent competitions, not the
+    upcoming match's specific competition."""
+    from .merge import enrich_squad_with_defensive_stats
+
+    if merged_profile and merged_profile.squad:
+        merged_profile.squad = await enrich_squad_with_defensive_stats(merged_profile.squad, team_name, form.recent_competitions if form else [])
+    if opponent_profile and opponent_profile.squad:
+        opponent_profile.squad = await enrich_squad_with_defensive_stats(opponent_profile.squad, opponent_name, opponent_form.recent_competitions)
+
+
+def _reconcile_venue_capacity(merged, venue_details) -> None:
+    """Extracted from _compute_match_context to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged.
+
+    When both sofascore (venue_capacity) and StadiumDB
+    (venueDetails.capacity) provide a capacity value and they disagree,
+    prefer StadiumDB's value since it's a dedicated stadium database.
+    This resolves bug #75 (capacity mismatch)."""
+    if not (venue_details and venue_details.capacity and merged.venue_capacity):
+        return
+    if venue_details.capacity != merged.venue_capacity:
+        merged.venue_capacity = venue_details.capacity
+        merged.field_sources["venue_capacity"] = "stadiumdb"
+
+
 async def _compute_match_context(team_name, merged, merged_profile, form, form_source, matches_by_source, on_progress) -> _MatchContext:
     """Everything run_search does once an upcoming match (`merged`) is
     known -- opponent lookup, every insight/enrichment step, and the
@@ -742,10 +837,7 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     # than just changing text a caller has to notice on its own.
     on_progress(_step_message(2, f"Opponent found ({opponent_name}). Fetching venue, referee, and manager info..."))
 
-    try:
-        strength_ratings = await statsultra.get_club_strength_ratings(merged.home_team, merged.away_team)
-    except Exception:  # noqa: BLE001
-        strength_ratings = {"home": None, "away": None}
+    strength_ratings = await _get_club_strength_ratings_safe(merged)
     insights_result.home_club_strength = strength_ratings["home"]
     insights_result.away_club_strength = strength_ratings["away"]
 
@@ -761,19 +853,9 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
 
     opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result)
 
-    try:
-        merged.betting_odds = await footballdata.get_upcoming_match_odds(merged.home_team, merged.away_team)
-    except Exception:  # noqa: BLE001
-        merged.betting_odds = None
+    merged.betting_odds = await _get_upcoming_match_odds_safe(merged)
 
-    # Candidate names are each team's OWN recent competitions, not the
-    # upcoming match's specific competition.
-    from .merge import enrich_squad_with_defensive_stats
-
-    if merged_profile and merged_profile.squad:
-        merged_profile.squad = await enrich_squad_with_defensive_stats(merged_profile.squad, team_name, form.recent_competitions if form else [])
-    if opponent_profile and opponent_profile.squad:
-        opponent_profile.squad = await enrich_squad_with_defensive_stats(opponent_profile.squad, opponent_name, opponent_form.recent_competitions)
+    await _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form)
 
     on_progress(_step_message(5, "Computing squad strength and availability..."))
     _compute_squad_leaderboards((merged_profile, opponent_profile))
@@ -787,6 +869,8 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     )
 
     await _enrich_weather(merged)
+
+    _reconcile_venue_capacity(merged, venue_details)
 
     return _MatchContext(
         opponent_name=opponent_name,

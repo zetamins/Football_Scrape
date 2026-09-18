@@ -175,16 +175,23 @@ def _find_matching_row(lines: list[str], idx: dict[str, int], home_team: str, aw
 
 def _implied_percentages(
     home_odds: float | None, draw_odds: float | None, away_odds: float | None
-) -> tuple[float | None, float | None, float | None]:
+) -> tuple[float | None, float | None, float | None, float | None, float | None, float | None, float | None]:
     """Standard de-vig calculation (each outcome's 1/odds share
-    renormalized to sum to 100%) -- None for all three unless every odd
-    is present. Extracted from get_upcoming_match_odds to keep its own
-    cognitive complexity down (python:S3776); behavior unchanged."""
+    renormalized to sum to 100%) plus overround and fair probabilities.
+    Returns (home_pct, draw_pct, away_pct, overround_pct, home_fair,
+    draw_fair, away_fair) -- all None unless every odd is present.
+    Extracted from get_upcoming_match_odds to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
     if not (home_odds and draw_odds and away_odds):
-        return None, None, None
+        return None, None, None, None, None, None, None
     inv_h, inv_d, inv_a = 1 / home_odds, 1 / draw_odds, 1 / away_odds
     total = inv_h + inv_d + inv_a
+    overround = js_round_to(total * 100, 1)
     return (
+        js_round_to(100 * inv_h / total, 1),
+        js_round_to(100 * inv_d / total, 1),
+        js_round_to(100 * inv_a / total, 1),
+        overround,
         js_round_to(100 * inv_h / total, 1),
         js_round_to(100 * inv_d / total, 1),
         js_round_to(100 * inv_a / total, 1),
@@ -243,7 +250,7 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     draw_odds = cell_float("avg_d")
     away_odds = cell_float("avg_a")
 
-    home_pct, draw_pct, away_pct = _implied_percentages(home_odds, draw_odds, away_odds)
+    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = _implied_percentages(home_odds, draw_odds, away_odds)
 
     return BettingOdds(
         home_win_odds=home_odds,
@@ -254,4 +261,8 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
         away_win_implied_pct=away_pct,
         over_2_5_odds=cell_float("avg_over"),
         under_2_5_odds=cell_float("avg_under"),
+        overround_pct=overround,
+        home_win_fair_pct=home_fair,
+        draw_fair_pct=draw_fair,
+        away_win_fair_pct=away_fair,
     )

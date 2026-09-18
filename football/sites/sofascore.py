@@ -607,7 +607,13 @@ def _summary_from_duel(duel: dict[str, Any] | None) -> HeadToHeadSummary | None:
     have the same shape; behavior unchanged."""
     if not duel:
         return None
-    return HeadToHeadSummary(home_wins=duel.get("homeWins", 0), away_wins=duel.get("awayWins", 0), draws=duel.get("draws", 0))
+    home_wins = duel.get("homeWins", 0)
+    away_wins = duel.get("awayWins", 0)
+    draws = duel.get("draws", 0)
+    return HeadToHeadSummary(
+        home_wins=home_wins, away_wins=away_wins, draws=draws,
+        sample_size=home_wins + away_wins + draws,
+    )
 
 
 def _standings_table_from(standing_rows: list[dict[str, Any]] | None) -> list[StandingsTableRow] | None:
@@ -615,7 +621,22 @@ def _standings_table_from(standing_rows: list[dict[str, Any]] | None) -> list[St
     cognitive complexity down (python:S3776); behavior unchanged."""
     if not standing_rows:
         return None
-    return [StandingsTableRow(team_name=r["team"]["name"], position=r["position"], points=r["points"]) for r in standing_rows]
+    result = []
+    for r in standing_rows:
+        result.append(StandingsTableRow(
+            team_name=r["team"]["name"],
+            position=r["position"],
+            points=r["points"],
+            played=r.get("matches"),
+            wins=r.get("wins"),
+            draws=r.get("draws"),
+            losses=r.get("losses"),
+            goals_for=r.get("goalsFor"),
+            goals_against=r.get("goalsAgainst"),
+            goal_difference=r.get("goalDiff"),
+            form=r.get("form"),
+        ))
+    return result
 
 
 def _lineup_note(lineups: dict[str, Any] | None) -> str:

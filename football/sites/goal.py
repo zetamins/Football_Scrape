@@ -382,6 +382,9 @@ async def get_goal_match_details(match: MatchInfo, client: httpx.AsyncClient | N
                 home_wins=h2h_stats.get("teamAWins", 0),
                 away_wins=h2h_stats.get("teamBWins", 0),
                 draws=h2h_stats.get("draws", 0),
+                sample_size=(
+                    h2h_stats.get("teamAWins", 0) + h2h_stats.get("teamBWins", 0) + h2h_stats.get("draws", 0)
+                ),
             )
             if h2h_stats
             else None

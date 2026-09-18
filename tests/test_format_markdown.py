@@ -1164,7 +1164,7 @@ def test_form_summary_markdown_renders_every_optional_section():
     assert "Over/Under (last 10): O1.5 80.0%" in text
     assert "Clean sheet / failed-to-score rate" in text
     assert "Form by competition:" in text
-    assert "Fixture congestion: 1 matches in last 7 days, 2 in last 14 days" in text
+    assert "Fixture congestion: 1 match in last 7 days, 2 in last 14 days" in text
     assert "Rates (last 10): W55.0%" in text
     assert "Venue split (true venue not fixture label):" in text
     assert "Detailed venue split:" in text

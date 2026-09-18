@@ -232,9 +232,9 @@ def _compute_momentum(all_results: list[FormResult]) -> MomentumInfo | None:
     recent_ppg = js_round_to(sum(_points_for_result(r) for r in recent) / len(recent), 2)
     prior_ppg = js_round_to(sum(_points_for_result(r) for r in prior) / len(prior), 2)
     diff = recent_ppg - prior_ppg
-    if diff >= 0.5:
+    if diff >= 0.3:
         trend = "improving"
-    elif diff <= -0.5:
+    elif diff <= -0.3:
         trend = "declining"
     else:
         trend = "stable"
@@ -394,6 +394,13 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
     # interchangeable here even though they're both "recent matches".
     # dict.fromkeys preserves first-seen order the same way JS's Set does.
     recent_competitions = list(dict.fromkeys(m.competition for m in played[:10] if m.competition is not None))
+    # Also include competitions from upcoming fixtures so consumers know
+    # what's coming (e.g. a cup match in next5 that isn't in recent
+    # played results yet).
+    upcoming_competitions = [m.competition for m in matches if m.kickoff_utc and m.status in NOT_STARTED_STATUSES and m.competition]
+    for comp in upcoming_competitions:
+        if comp and comp not in recent_competitions:
+            recent_competitions.append(comp)
 
     current_streak = _compute_current_streak(all_results)
 
@@ -444,6 +451,12 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
         points_per_game=last10.points_per_game,
         goals_for_per_game=last10.goals_for_per_game,
         goals_against_per_game=last10.goals_against_per_game,
+        home_win_rate_sample_size=len(home_results),
+        away_win_rate_sample_size=len(away_results),
+        win_rate_sample_size=min(len(all_results), 10),
+        points_per_game_sample_size=min(len(all_results), 10),
+        goals_for_per_game_sample_size=min(len(all_results), 10),
+        goals_against_per_game_sample_size=min(len(all_results), 10),
     )
 
 
@@ -1034,6 +1047,19 @@ async def enrich_form_with_venue_classification(
     def _reenrich(results: list[FormResult]) -> list[FormResult]:
         return [enriched_by_key.get((r.date, r.opponent), r) for r in results]
 
+    # Recompute home/away win rates from the enriched venue_split_form
+    # to ensure consistency -- previously these were computed from the
+    # unenriched home_results/away_results which didn't account for
+    # neutral-venue reclassification, causing contradictions with
+    # venue_split_form's own win counts.
+    home_win_rate_pct = form.home_win_rate_pct
+    away_win_rate_pct = form.away_win_rate_pct
+    if venue_split_form:
+        if venue_split_form.home_sample_size:
+            home_win_rate_pct = js_round(venue_split_form.home_wins / venue_split_form.home_sample_size * 100)
+        if venue_split_form.away_sample_size:
+            away_win_rate_pct = js_round(venue_split_form.away_wins / venue_split_form.away_sample_size * 100)
+
     new_form = FormSummary(
         **{
             **form.__dict__,
@@ -1044,6 +1070,8 @@ async def enrich_form_with_venue_classification(
             "last5_away": _reenrich(form.last5_away),
             "venue_split_form": venue_split_form,
             "detailed_venue_split": detailed_venue_split,
+            "home_win_rate_pct": home_win_rate_pct,
+            "away_win_rate_pct": away_win_rate_pct,
         }
     )
     return VenueEnrichmentResult(form=new_form, advanced_stats=advanced_stats, usage_by_player=finalized_usage)

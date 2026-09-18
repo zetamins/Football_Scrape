@@ -372,7 +372,10 @@ async def _fetch_h2h(home_id: str, away_id: str) -> tuple[HeadToHeadSummary | No
             home_wins += 1
         else:
             away_wins += 1
-    return HeadToHeadSummary(home_wins=home_wins, away_wins=away_wins, draws=draws), matches
+    return HeadToHeadSummary(
+        home_wins=home_wins, away_wins=away_wins, draws=draws,
+        sample_size=home_wins + away_wins + draws,
+    ), matches
 
 
 def _extract_recent_meetings(h2h_matches: list[dict[str, Any]], own_team_name: str) -> list[HeadToHeadMeeting] | None:
