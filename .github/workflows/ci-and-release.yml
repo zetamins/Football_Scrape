@@ -61,6 +61,18 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Chaquopy's "buildPython" -- a build-MACHINE Python interpreter
+      # matching chaquopy.defaultConfig.version (3.13, see app/build.gradle.kts)
+      # that it shells out to for resolving/installing pip packages during
+      # the build. Distinct from the on-device Python runtime Chaquopy
+      # downloads separately -- confirmed live: the build failed with
+      # "Couldn't find Python 3.13" without this, since the runner has no
+      # python3.13 on PATH by default.
+      - name: Set up Python 3.13 (Chaquopy buildPython)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       # GitHub's ubuntu-latest runners ship with the Android SDK
       # pre-installed (ANDROID_HOME set, licenses pre-accepted) --
       # android-actions/setup-android@v3 was tried here first and failed
