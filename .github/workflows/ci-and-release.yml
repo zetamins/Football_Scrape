@@ -26,8 +26,17 @@ jobs:
         with:
           python-version: "3.13"
 
+      # --extra browser + a real Chromium install: one test
+      # (test_browser.py's end-to-end launch test) deliberately runs an
+      # unmocked Playwright browser launch to verify the real success
+      # path, not just the ImportError fallback -- confirmed by
+      # reproducing the exact `uv sync --group dev` (no extra) CI failure
+      # locally before this fix.
       - name: Install dependencies (from uv.lock)
-        run: uv sync --group dev
+        run: uv sync --group dev --extra browser
+
+      - name: Install Playwright Chromium
+        run: uv run playwright install --with-deps chromium
 
       - name: Run tests
         run: uv run pytest tests/ -q

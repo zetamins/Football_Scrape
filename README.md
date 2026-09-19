@@ -89,7 +89,7 @@ uv sync --group dev
 uv run pytest tests/
 ```
 
-The suite is fully offline — every external call is mocked, so it runs the same locally and in CI.
+Every scrape is mocked — no test hits a real site. One exception: a single test genuinely launches a headless Chromium via Playwright (no network calls, just verifying the browser-launch path itself works), so CI installs the `browser` extra and Chromium specifically to run it.
 
 ## CI / releases
 
