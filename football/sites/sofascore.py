@@ -32,11 +32,13 @@ if TYPE_CHECKING:
 
 from .._jsmath import js_round_to, js_to_fixed
 from ..browser import launch_browser
+from ..odds_math import fractional_to_decimal, implied_and_fair_percentages, implied_and_fair_percentages_2way
 from ..retry import retry_with_backoff
 from ..team_aliases import canonical_for
 from ..team_aliases import normalize as _normalize_alias
 from ..team_name_match import normalize_for_match as _normalize
 from ..types import (
+    BettingOdds,
     HeadToHeadSummary,
     LineupPlayer,
     ManagerClubRecord,
@@ -664,6 +666,63 @@ def _match_details_note(lineups: dict[str, Any] | None, stats: dict[str, Any] | 
     )
 
 
+def _find_odds_market(markets: list[dict[str, Any]], market_id: int, choice_group: str | None = None) -> dict[str, Any] | None:
+    for m in markets:
+        if m.get("marketId") != market_id:
+            continue
+        if choice_group is not None and m.get("choiceGroup") != choice_group:
+            continue
+        return m
+    return None
+
+
+def _odds_choice_decimal(market: dict[str, Any] | None, name: str) -> float | None:
+    if not market:
+        return None
+    for c in market.get("choices", []):
+        if c.get("name") == name:
+            fractional = c.get("fractionalValue")
+            return js_round_to(fractional_to_decimal(fractional), 2) if fractional else None
+    return None
+
+
+def _extract_betting_odds(odds: dict[str, Any] | None) -> BettingOdds | None:
+    """Sofascore's own single-bookmaker price (provider "1" -- whichever
+    book Sofascore's own site treats as the default), fractional-odds
+    format converted to decimal. A different methodology from
+    footballdata.py's cross-bookmaker average (BettingOdds.betting_odds),
+    so this is exposed as the separate sofascore_betting_odds field
+    rather than merged with it -- the two can legitimately disagree.
+    marketId 1 is the full-time 1X2 market ("1"/"X"/"2" choices);
+    marketId 9 with choiceGroup "2.5" is the Over/Under 2.5 goals market.
+    None if the core 1X2 market isn't present (odds not yet posted, or
+    the match has no bookmaker coverage)."""
+    markets = (odds or {}).get("markets") or []
+    full_time = _find_odds_market(markets, market_id=1)
+    home_odds = _odds_choice_decimal(full_time, "1")
+    draw_odds = _odds_choice_decimal(full_time, "X")
+    away_odds = _odds_choice_decimal(full_time, "2")
+    if not (home_odds and draw_odds and away_odds):
+        return None
+
+    over_under = _find_odds_market(markets, market_id=9, choice_group="2.5")
+    over_odds = _odds_choice_decimal(over_under, "Over")
+    under_odds = _odds_choice_decimal(over_under, "Under")
+
+    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = implied_and_fair_percentages(
+        home_odds, draw_odds, away_odds
+    )
+    over_pct, under_pct, ou_overround, over_fair, under_fair = implied_and_fair_percentages_2way(over_odds, under_odds)
+    return BettingOdds(
+        home_win_odds=home_odds, draw_odds=draw_odds, away_win_odds=away_odds,
+        home_win_implied_pct=home_pct, draw_implied_pct=draw_pct, away_win_implied_pct=away_pct,
+        over_2_5_odds=over_odds, under_2_5_odds=under_odds,
+        overround_pct=overround, home_win_fair_pct=home_fair, draw_fair_pct=draw_fair, away_win_fair_pct=away_fair,
+        over_2_5_implied_pct=over_pct, under_2_5_implied_pct=under_pct,
+        over_under_2_5_overround_pct=ou_overround, over_2_5_fair_pct=over_fair, under_2_5_fair_pct=under_fair,
+    )
+
+
 @dataclass
 class _SofascoreRawMatchData:
     """Everything get_sofascore_match_details fetches before building the
@@ -683,6 +742,7 @@ class _SofascoreRawMatchData:
     away_season_stats: dict[str, Any] | None
     home_manager_vs_away_club: ManagerClubRecord | None
     away_manager_vs_home_club: ManagerClubRecord | None
+    odds: dict[str, Any] | None
 
 
 def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _SofascoreRawMatchData) -> MatchDetails:
@@ -744,6 +804,7 @@ def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _So
         shotmap_stats=_extract_shotmap_stats(raw.shotmap),
         lineup_confirmed=(raw.lineups.get("confirmed", False) if raw.lineups else None),
         player_of_the_match=_extract_player_of_the_match(raw.best_players),
+        sofascore_betting_odds=_extract_betting_odds(raw.odds),
         note=_match_details_note(raw.lineups, raw.stats, raw.standing_rows),
     )
 
@@ -799,11 +860,14 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
         await _sleep(800)
         away_manager_vs_home_club = await _fetch_manager_club_record(page, e["awayTeam"].get("manager"), e["homeTeam"]["name"])
 
+        await _sleep(800)
+        odds = await _fetch_json_optional(page, f"https://www.sofascore.com/api/v1/event/{event_id}/odds/1/all")
+
         raw = _SofascoreRawMatchData(
             h2h=h2h, streaks=streaks, lineups=lineups, stats=stats, incidents=incidents, shotmap=shotmap,
             best_players=best_players, standing_rows=standing_rows, home_season_stats=home_season_stats,
             away_season_stats=away_season_stats, home_manager_vs_away_club=home_manager_vs_away_club,
-            away_manager_vs_home_club=away_manager_vs_home_club,
+            away_manager_vs_home_club=away_manager_vs_home_club, odds=odds,
         )
         return _build_sofascore_match_details(match, e, raw)
 

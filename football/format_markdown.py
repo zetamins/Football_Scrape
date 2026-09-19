@@ -361,15 +361,29 @@ def _append_match_header(d, lines: list[str]) -> None:
         lines.append(_weather_detail_line(d.weather_detail))
 
 
+def _append_match_odds(d, lines: list[str]) -> None:
+    """Extracted from _append_match_odds_and_standings to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    if d.betting_odds:
+        o = d.betting_odds
+        pct = f" ({o.home_win_implied_pct}%/{o.draw_implied_pct}%/{o.away_win_implied_pct}% implied)" if o.home_win_implied_pct is not None else ""
+        ou_fair = f" ({o.over_2_5_fair_pct}%/{o.under_2_5_fair_pct}% fair)" if o.over_2_5_fair_pct is not None else ""
+        ou = f", O/U 2.5: {o.over_2_5_odds}/{o.under_2_5_odds}{ou_fair}" if o.over_2_5_odds is not None else ""
+        lines.append(f"- Odds (football-data.co.uk avg): {d.home_team} {o.home_win_odds} / Draw {o.draw_odds} / {d.away_team} {o.away_win_odds}{pct}{ou}")
+    if d.sofascore_betting_odds:
+        o = d.sofascore_betting_odds
+        ou = f", O/U 2.5: {o.over_2_5_odds}/{o.under_2_5_odds}" if o.over_2_5_odds is not None else ""
+        # Single-bookmaker price, not a market average -- can legitimately
+        # differ from the line above; not labeled "implied"/"fair" here to
+        # avoid implying the same de-vig weight as an averaged market.
+        lines.append(f"- Odds (Sofascore, single book): {d.home_team} {o.home_win_odds} / Draw {o.draw_odds} / {d.away_team} {o.away_win_odds}{ou}")
+
+
 def _append_match_odds_and_standings(d, lines: list[str]) -> None:
     """Second part of merged_match_markdown, itself split in two -- see
     _append_match_header's docstring for why this split is safe, and
     _append_match_season_stats below for the rest."""
-    if d.betting_odds:
-        o = d.betting_odds
-        pct = f" ({o.home_win_implied_pct}%/{o.draw_implied_pct}%/{o.away_win_implied_pct}% implied)" if o.home_win_implied_pct is not None else ""
-        ou = f", O/U 2.5: {o.over_2_5_odds}/{o.under_2_5_odds}" if o.over_2_5_odds is not None else ""
-        lines.append(f"- Odds: {d.home_team} {o.home_win_odds} / Draw {o.draw_odds} / {d.away_team} {o.away_win_odds}{pct}{ou}")
+    _append_match_odds(d, lines)
     if d.head_to_head_summary:
         h = d.head_to_head_summary
         lines.append(f"- H2H: {d.home_team} {h.home_wins}W - {h.draws}D - {h.away_wins}W {d.away_team}")

@@ -432,6 +432,32 @@ def test_compute_form_summary_with_no_matches():
     assert summary.momentum is None
 
 
+def test_compute_form_summary_excludes_friendlies_from_form_but_not_scheduling():
+    now = datetime.now(tz=UTC)
+    played = [
+        # Most recent, but a friendly loss -- should NOT count toward form.
+        _match(home_team="Home FC", away_team="Opp1", home_score=0, away_score=2, competition="Club Friendly Games", kickoff_utc=(now - timedelta(days=1)).isoformat()),
+        # Older, a competitive win -- should be the only match form reflects.
+        _match(home_team="Home FC", away_team="Opp2", home_score=2, away_score=0, competition="Premier League", kickoff_utc=(now - timedelta(days=3)).isoformat()),
+    ]
+    summary = compute_form_summary("Home FC", played)
+    assert len(summary.last5_overall) == 1
+    assert summary.last5_overall[0].opponent == "Opp2"
+    assert summary.current_streak.result == "W"
+    assert summary.win_rate_pct == 100.0
+    # Scheduling/fitness stats still count the friendly.
+    assert summary.matches_last7_days == 2
+
+
+def test_compute_form_summary_falls_back_to_friendlies_when_thats_all_there_is():
+    now = datetime.now(tz=UTC)
+    played = [
+        _match(home_team="Home FC", away_team="Opp1", home_score=2, away_score=0, competition="Club Friendly Games", kickoff_utc=(now - timedelta(days=1)).isoformat()),
+    ]
+    summary = compute_form_summary("Home FC", played)
+    assert len(summary.last5_overall) == 1  # falls back rather than going empty
+
+
 # --- parse_leading_int / parse_leading_float / stat_for / stat_for_float ---------
 
 

@@ -17,6 +17,7 @@ import httpx
 
 from .._jsmath import js_number_or, js_round_to
 from ..http import USER_AGENT, new_client
+from ..odds_math import implied_and_fair_percentages, implied_and_fair_percentages_2way
 from ..team_aliases import canonical_for
 from ..types import BettingOdds, RefereeHomeAwayBias
 
@@ -173,31 +174,6 @@ def _find_matching_row(lines: list[str], idx: dict[str, int], home_team: str, aw
     return None
 
 
-def _implied_percentages(
-    home_odds: float | None, draw_odds: float | None, away_odds: float | None
-) -> tuple[float | None, float | None, float | None, float | None, float | None, float | None, float | None]:
-    """Standard de-vig calculation (each outcome's 1/odds share
-    renormalized to sum to 100%) plus overround and fair probabilities.
-    Returns (home_pct, draw_pct, away_pct, overround_pct, home_fair,
-    draw_fair, away_fair) -- all None unless every odd is present.
-    Extracted from get_upcoming_match_odds to keep its own cognitive
-    complexity down (python:S3776); behavior unchanged."""
-    if not (home_odds and draw_odds and away_odds):
-        return None, None, None, None, None, None, None
-    inv_h, inv_d, inv_a = 1 / home_odds, 1 / draw_odds, 1 / away_odds
-    total = inv_h + inv_d + inv_a
-    overround = js_round_to(total * 100, 1)
-    return (
-        js_round_to(100 * inv_h / total, 1),
-        js_round_to(100 * inv_d / total, 1),
-        js_round_to(100 * inv_a / total, 1),
-        overround,
-        js_round_to(100 * inv_h / total, 1),
-        js_round_to(100 * inv_d / total, 1),
-        js_round_to(100 * inv_a / total, 1),
-    )
-
-
 async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds | None:
     """One shared fetch (a single live all-leagues upcoming-fixtures file,
     distinct from the per-season results CSV get_referee_home_away_bias
@@ -205,9 +181,10 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     tracks -- no competition lookup needed, unlike the referee-bias path
     above. Uses each market's "Avg" column (the average across every
     bookmaker tracked for that match) as the representative odds, and
-    derives implied win/draw/loss percentages via the standard de-vig
-    calculation (each outcome's 1/odds share renormalized to sum to
-    100%). Best-effort: None if the match isn't found (fixture not yet
+    derives implied/fair/overround percentages for both the 1X2 market
+    and the Over/Under 2.5 market via the standard de-vig calculation
+    (each outcome's 1/odds share renormalized to sum to 100%).
+    Best-effort: None if the match isn't found (fixture not yet
     published, name-match miss, or the match isn't in a tracked league)."""
     try:
         csv = await _fetch_csv_or_none("https://www.football-data.co.uk/fixtures.csv")
@@ -249,8 +226,11 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     home_odds = cell_float("avg_h")
     draw_odds = cell_float("avg_d")
     away_odds = cell_float("avg_a")
+    over_odds = cell_float("avg_over")
+    under_odds = cell_float("avg_under")
 
-    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = _implied_percentages(home_odds, draw_odds, away_odds)
+    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = implied_and_fair_percentages(home_odds, draw_odds, away_odds)
+    over_pct, under_pct, ou_overround, over_fair, under_fair = implied_and_fair_percentages_2way(over_odds, under_odds)
 
     return BettingOdds(
         home_win_odds=home_odds,
@@ -259,10 +239,15 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
         home_win_implied_pct=home_pct,
         draw_implied_pct=draw_pct,
         away_win_implied_pct=away_pct,
-        over_2_5_odds=cell_float("avg_over"),
-        under_2_5_odds=cell_float("avg_under"),
+        over_2_5_odds=over_odds,
+        under_2_5_odds=under_odds,
         overround_pct=overround,
         home_win_fair_pct=home_fair,
         draw_fair_pct=draw_fair,
         away_win_fair_pct=away_fair,
+        over_2_5_implied_pct=over_pct,
+        under_2_5_implied_pct=under_pct,
+        over_under_2_5_overround_pct=ou_overround,
+        over_2_5_fair_pct=over_fair,
+        under_2_5_fair_pct=under_fair,
     )

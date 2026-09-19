@@ -212,13 +212,18 @@ def _expected_goal_rates(home_xg: SeasonXGEstimate, away_xg: SeasonXGEstimate) -
 
 def _market_implied_from_odds(betting_odds: BettingOdds | None) -> OutcomeProbabilities | None:
     """Extracted from compute_match_prediction to keep its own cognitive
-    complexity down (python:S3776); behavior unchanged."""
-    if not (betting_odds and betting_odds.home_win_implied_pct is not None):
+    complexity down (python:S3776).
+
+    Uses the de-vigged fair_pct fields, not the raw implied_pct fields --
+    implied_pct sums to the overround (>100%), which would bias every
+    blended outcome upward if fed directly into a weighted average
+    alongside xg_model/heuristic_blend (which do sum to 100%)."""
+    if not (betting_odds and betting_odds.home_win_fair_pct is not None):
         return None
     return OutcomeProbabilities(
-        home_win_pct=betting_odds.home_win_implied_pct,
-        draw_pct=betting_odds.draw_implied_pct,
-        away_win_pct=betting_odds.away_win_implied_pct,
+        home_win_pct=betting_odds.home_win_fair_pct,
+        draw_pct=betting_odds.draw_fair_pct,
+        away_win_pct=betting_odds.away_win_fair_pct,
     )
 
 

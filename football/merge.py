@@ -260,6 +260,22 @@ def _season_stats_by_surname(by_source: dict[Source, TeamProfile]) -> dict[str, 
     return stats_by_surname
 
 
+def _season_stats_by_full_name(by_source: dict[Source, TeamProfile]) -> dict[str, tuple[Any, Source]]:
+    """Same priority-fallback shape as _season_stats_by_surname, keyed by
+    full normalized name instead. Tried first in
+    enrich_squad_with_season_stats since it can't collide the way bare-
+    surname matching can (see surname()'s own docstring)."""
+    stats_by_name: dict[str, tuple[Any, Source]] = {}
+    for src in SOURCE_ORDER:
+        profile = by_source.get(src)
+        for member in (profile.squad if profile and profile.squad else []):
+            if member.season_stats:
+                key = normalize_team_name(member.name)
+                if key not in stats_by_name:
+                    stats_by_name[key] = (member.season_stats, src)
+    return stats_by_name
+
+
 def enrich_squad_with_season_stats(squad: list[SquadMember], by_source: dict[Source, TeamProfile]) -> list[SquadMember]:
     """Inherited bug, found and fixed here (confirmed it also exists in
     the original TS -- Map.set() there has the identical unconditional-
@@ -269,17 +285,34 @@ def enrich_squad_with_season_stats(squad: list[SquadMember], by_source: dict[Sou
     first/highest-priority one -- the opposite of the priority-fallback
     convention every other merge function in this file follows (see
     merge_match_details/merge_team_profile's own "first match wins,
-    then break" loops). Fixed by only setting a surname's entry once."""
+    then break" loops). Fixed by only setting a surname's entry once.
+
+    Full-name match is tried first; bare-surname match (surname()'s own
+    documented approximation, needed for Goal.com's abbreviated first
+    names) is used only as a fallback, and only when that surname is
+    unambiguous within THIS squad -- confirmed live: two same-surname
+    players in one squad (Everton's real starter "Jordan Pickford" and a
+    fringe/youth "George Pickford") previously collided under bare-
+    surname matching, silently attributing Jordan's real season stats to
+    George despite George showing 0 minutes/0 starts in recent_usage."""
+    stats_by_name = _season_stats_by_full_name(by_source)
     stats_by_surname = _season_stats_by_surname(by_source)
-    if not stats_by_surname:
+    if not stats_by_name and not stats_by_surname:
         return squad
+
+    surname_counts: dict[str, int] = {}
+    for m in squad:
+        key = surname(m.name)
+        surname_counts[key] = surname_counts.get(key, 0) + 1
 
     result = []
     for m in squad:
         if m.season_stats:
             result.append(m)
             continue
-        found = stats_by_surname.get(surname(m.name))
+        found = stats_by_name.get(normalize_team_name(m.name))
+        if not found and surname_counts[surname(m.name)] == 1:
+            found = stats_by_surname.get(surname(m.name))
         if found:
             stats, src = found
             result.append(_replace(m, season_stats=stats, season_stats_source=src))
@@ -565,11 +598,20 @@ def _fix_defender_count(result: list, expected_def: int) -> None:
         for idx in def_indices[expected_def:]:
             result[idx] = _replace(result[idx], position="M")
     elif current_def < expected_def:
-        # Too few defenders -- reclassify the last excess midfielder as
-        # defender (the most common misclassification).
+        # Too few defenders -- reclassify the midfielder(s) closest to the
+        # goalkeeper in list order as defender. Lineups are consistently
+        # listed GK -> defenders -> midfielders -> forwards, so an
+        # M-tagged player appearing right after the real defenders (i.e.
+        # earliest in the M-tagged group) is a much stronger signal of a
+        # mistagged defender than one deep in the attacking midfield --
+        # confirmed live (Everton vs Man Utd, 2026-09-06): a genuine
+        # fullback tagged "M" sat immediately after the goalkeeper while
+        # three real attacking midfielders followed later; picking from
+        # the end of the M list reclassified one of THOSE instead, the
+        # opposite of the intended fix.
         mid_indices = [i for i, p in enumerate(result) if p.position and p.position.upper() == "M"]
         needed = expected_def - current_def
-        for idx in mid_indices[-needed:]:
+        for idx in mid_indices[:needed]:
             result[idx] = _replace(result[idx], position="D")
 
 

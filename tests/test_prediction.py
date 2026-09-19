@@ -6,11 +6,14 @@ def _elo(value: float) -> EloRating:
     return EloRating(elo=value, as_of="2026-01-01")
 
 
-def _odds(home_pct, draw_pct, away_pct) -> BettingOdds:
+def _odds(home_fair_pct, draw_fair_pct, away_fair_pct) -> BettingOdds:
+    # compute_match_prediction reads the de-vigged fair_pct fields, not
+    # the raw implied_pct fields (which sum to the overround, not 100%).
     return BettingOdds(
         home_win_odds=None, draw_odds=None, away_win_odds=None,
-        home_win_implied_pct=home_pct, draw_implied_pct=draw_pct, away_win_implied_pct=away_pct,
+        home_win_implied_pct=None, draw_implied_pct=None, away_win_implied_pct=None,
         over_2_5_odds=None, under_2_5_odds=None,
+        home_win_fair_pct=home_fair_pct, draw_fair_pct=draw_fair_pct, away_win_fair_pct=away_fair_pct,
     )
 
 

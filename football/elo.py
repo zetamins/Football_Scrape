@@ -33,15 +33,20 @@ _AVERAGE_OPPONENT_RATING = 1500.0
 _K_FACTOR = 32.0
 
 
-def _is_friendly(competition: str | None) -> bool:
+def is_friendly_competition(competition: str | None) -> bool:
+    """Shared with form.py's friendly/preseason exclusion and
+    insights.py's classify_match_type -- kept as one definition so every
+    caller agrees on what counts as a friendly."""
     # "friendly" alone misses the plural -- "friendlies" doesn't contain
     # it as a substring ("...dly" vs "...dlies"), confirmed by testing
     # both real-world label shapes seen live ("Club Friendly Games") and
-    # the plural form other sources use ("Club Friendlies").
+    # the plural form other sources use ("Club Friendlies"). Pre-season
+    # tournaments are sometimes labeled that way instead of "friendly"
+    # (e.g. "Premier League Summer Series").
     if not competition:
         return False
     lowered = competition.lower()
-    return "friendly" in lowered or "friendlies" in lowered
+    return "friendly" in lowered or "friendlies" in lowered or "pre-season" in lowered or "preseason" in lowered
 
 
 def compute_elo_rating(results: list[FormResult]) -> EloRating | None:
@@ -60,7 +65,7 @@ def compute_elo_rating(results: list[FormResult]) -> EloRating | None:
     newly-promoted side) all came back within about 10 Elo points of each
     other before this fix. Falls back to the unfiltered list only if
     every single result is a friendly (better than returning nothing)."""
-    competitive = [r for r in results if not _is_friendly(r.competition)]
+    competitive = [r for r in results if not is_friendly_competition(r.competition)]
     if not competitive:
         competitive = results
     if not competitive:

@@ -330,6 +330,23 @@ def test_fetch_opponent_matches_error_when_every_source_fails(monkeypatch):
     assert error is not None
 
 
+def test_fetch_opponent_matches_error_falls_back_to_class_name_when_message_empty(monkeypatch):
+    """Regression: str(err) is "" for an exception raised with no
+    message, which previously leaked through as opponent_context_error
+    == "" (looking like "no error" while a real failure occurred)."""
+    from football.orchestrate import _fetch_opponent_matches
+
+    async def failing_run(_team_name):
+        raise RuntimeError
+
+    fake_scrapers = {source: _Scraper(run=failing_run, details=failing_run, profile=failing_run) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    _, _, error = asyncio.run(_fetch_opponent_matches(SOURCE_ORDER[0], "Opponent"))
+    assert error
+    assert "RuntimeError" in error
+
+
 # --- _scrape_all_sources: details() failure branch --------------------------------
 
 
@@ -381,6 +398,31 @@ def test_fetch_opponent_profiles_collects_per_source_profiles_and_errors(monkeyp
     assert "blocked" in error
 
 
+def test_fetch_opponent_context_error_is_never_empty_string(monkeypatch):
+    """Regression: opponent_context_error showed up as "" (not null) in
+    a real report -- traced to a profile-fetch exception with an empty
+    message combining with a successful matches-fetch via
+    `matches_error or profile_error`, which returns "" verbatim rather
+    than falling back to None. The class-name fallback above prevents
+    the empty message in the first place."""
+    from football.orchestrate import fetch_opponent_context
+    from football.types import TeamProfile
+
+    async def working_matches(_team_name):
+        return [_match(kickoff_utc=datetime.now(tz=UTC).isoformat())]
+
+    async def failing_profile(_team_name):
+        raise RuntimeError
+
+    fake_scrapers = {source: _Scraper(run=working_matches, details=None, profile=failing_profile) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    ctx = asyncio.run(fetch_opponent_context(SOURCE_ORDER[0], "Opponent"))
+    assert ctx.error != ""
+    assert ctx.error is not None
+    assert "RuntimeError" in ctx.error
+
+
 def test_fetch_opponent_context_merges_matches_rest_days_and_profile(monkeypatch):
     from football.orchestrate import fetch_opponent_context
     from football.types import TeamProfile
@@ -404,6 +446,31 @@ def test_fetch_opponent_context_merges_matches_rest_days_and_profile(monkeypatch
     assert ctx.average_age == 27.5
     assert ctx.merged_profile is not None
     assert ctx.error is None
+
+
+def test_fetch_opponent_context_rest_days_relative_to_as_of_not_wall_clock(monkeypatch):
+    """Regression: rest_days must be computed relative to the upcoming
+    match's own kickoff time when given, not whenever this happens to
+    run -- otherwise it silently disagrees with the searched team's own
+    rest days (computed relative to its next fixture's kickoff)."""
+    from football.orchestrate import fetch_opponent_context
+    from football.types import TeamProfile
+
+    now = datetime.now(tz=UTC)
+    played = _match(kickoff_utc=(now - timedelta(days=5)).isoformat())
+    match_kickoff = now + timedelta(days=2)  # the report is generated 2 days before kickoff
+
+    async def matches_run(_team_name):
+        return [played]
+
+    async def profile_run(_team_name):
+        return _all_none(TeamProfile, source="sofascore", team_name="Opp", squad=None, average_age=None)
+
+    fake_scrapers = {source: _Scraper(run=matches_run, details=None, profile=profile_run) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    ctx = asyncio.run(fetch_opponent_context(SOURCE_ORDER[0], "Opponent", as_of=match_kickoff))
+    assert ctx.rest_days == 7  # 5 days before "now" + 2 days until kickoff
 
 
 def test_fetch_opponent_context_none_profile_when_every_source_fails(monkeypatch):

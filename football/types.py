@@ -185,9 +185,12 @@ class BettingOdds:
     average across every bookmaker football-data.co.uk tracks for that
     match) rather than a single bookmaker, since the market average is a
     more representative consensus than any one bookmaker's line.
-    Implied_pct fields are the standard de-vig calculation (each
-    1/odds share renormalized so the three outcomes sum to 100%) --
-    a real, well-established calculation, not a guess."""
+    Implied_pct fields are the raw implied probability per outcome
+    (100/odds) -- these three do NOT sum to 100%, they sum to the
+    overround (see overround_pct below). Fair_pct fields are the
+    de-vigged version (each 1/odds share renormalized so the three
+    outcomes sum to exactly 100%) -- use those, not implied_pct, for
+    anything that needs a real probability distribution."""
 
     home_win_odds: float | None
     draw_odds: float | None
@@ -207,6 +210,16 @@ class BettingOdds:
     home_win_fair_pct: float | None = None
     draw_fair_pct: float | None = None
     away_win_fair_pct: float | None = None
+    # Same raw-implied/overround/fair treatment as the 1X2 market above,
+    # applied to the Over/Under 2.5 goals market -- over_2_5_implied_pct
+    # and under_2_5_implied_pct do NOT sum to 100% (they sum to
+    # over_under_2_5_overround_pct); use the _fair_pct pair for a real
+    # probability distribution.
+    over_2_5_implied_pct: float | None = None
+    under_2_5_implied_pct: float | None = None
+    over_under_2_5_overround_pct: float | None = None
+    over_2_5_fair_pct: float | None = None
+    under_2_5_fair_pct: float | None = None
 
 
 @dataclass
@@ -418,8 +431,19 @@ class MatchDetails(MatchInfo):
     # football-data.co.uk only, populated centrally in orchestrate.py
     # (not per-site like the fields above) since it's matched by team
     # name/date against a single shared all-leagues fixtures file, not
-    # tied to any one scraper's own match object.
+    # tied to any one scraper's own match object. This is a cross-
+    # bookmaker AVERAGE (football-data.co.uk's own "Avg" columns).
     betting_odds: BettingOdds | None = None
+    # Sofascore only, from the same event fetch as everything else above
+    # (one extra request, to its /odds/1/all endpoint) -- reuses the same
+    # BettingOdds shape as betting_odds above, but this is a SINGLE
+    # bookmaker's own price (Sofascore's odds provider "1"), not a
+    # cross-bookmaker average, so the two can legitimately disagree.
+    # Deliberately kept as a separate field rather than merged/blended
+    # into betting_odds: collapsing a single-book price and a market
+    # average into one number would hide which kind of price a consumer
+    # is looking at.
+    sofascore_betting_odds: BettingOdds | None = None
     note: str | None = None
     # Sofascore only, from the same event fetch as venue_name/venue_lat/
     # venue_lon above -- zero extra requests. A separate field from

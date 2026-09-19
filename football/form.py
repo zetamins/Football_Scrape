@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import NamedTuple
 
 from ._jsmath import js_round, js_round_to
+from .elo import is_friendly_competition
 from .merge import normalize_team_name
 from .team_aliases import canonical_for
 from .types import (
@@ -376,7 +377,21 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
         reverse=True,
     )
 
+    # Friendlies/preseason excluded from every form/goals/streak/rate
+    # computation below (same rationale as elo.py's own exclusion --
+    # weakened lineups and no real stakes make them a poor signal of true
+    # form) -- but NOT from next5_with_gaps, matches_last7/14_days, or
+    # gaps_between_last_three, which are genuine scheduling/fitness
+    # signals a friendly still counts toward. Falls back to the
+    # unfiltered list only if every result is a friendly (better than an
+    # empty form summary).
     all_results = [r for r in (_to_form_result(m, team_name) for m in played) if r is not None]
+    competitive_results = [r for r in all_results if not is_friendly_competition(r.competition)]
+    if competitive_results:
+        all_results = competitive_results
+    competitive_played = [m for m in played if not is_friendly_competition(m.competition)]
+    if not competitive_played:
+        competitive_played = played
 
     next5_with_gaps = _compute_next5_with_gaps(matches, now, team_name)
 
@@ -386,7 +401,7 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
         for i in range(len(last_three_played) - 1)
     ]
 
-    half_split = _compute_half_split(played, team_name)
+    half_split = _compute_half_split(competitive_played, team_name)
 
     # From `played` (raw MatchInfo, sorted desc, NOT `all_results`) --
     # `all_results` can be shorter than `played` when isTeamHome() returns

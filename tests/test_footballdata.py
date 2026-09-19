@@ -2,10 +2,10 @@ import asyncio
 
 import httpx
 
+from football.odds_math import implied_and_fair_percentages
 from football.sites import footballdata
 from football.sites.footballdata import (
     _find_matching_row,
-    _implied_percentages,
     _names_match,
     _parse_rows,
     _surname,
@@ -88,19 +88,27 @@ def test_find_matching_row_skips_blank_lines():
     assert _find_matching_row(lines, idx, "Arsenal", "Chelsea") == ["Arsenal", "Chelsea"]
 
 
-# --- _implied_percentages ---------------------------------------------------------------------
+# --- implied_and_fair_percentages ---------------------------------------------------------------
 
 
-def test_implied_percentages_devig_sums_to_100():
-    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = _implied_percentages(2.0, 3.5, 4.0)
-    assert home_pct + draw_pct + away_pct == 100.0
+def test_implied_percentages_raw_is_100_over_odds_not_devigged():
+    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = implied_and_fair_percentages(2.0, 3.5, 4.0)
+    assert home_pct == 50.0  # 100/2.0, NOT renormalized
+    assert draw_pct == 28.6  # 100/3.5
+    assert away_pct == 25.0  # 100/4.0
     assert overround is not None
     assert overround > 100.0  # bookmaker margin
+    assert home_pct + draw_pct + away_pct == overround
+
+
+def test_implied_percentages_fair_devig_sums_to_100():
+    *_, home_fair, draw_fair, away_fair = implied_and_fair_percentages(2.0, 3.5, 4.0)
+    assert home_fair + draw_fair + away_fair == 100.0
 
 
 def test_implied_percentages_none_when_any_odd_missing():
-    assert _implied_percentages(2.0, None, 4.0) == (None, None, None, None, None, None, None)
-    assert _implied_percentages(None, None, None) == (None, None, None, None, None, None, None)
+    assert implied_and_fair_percentages(2.0, None, 4.0) == (None, None, None, None, None, None, None)
+    assert implied_and_fair_percentages(None, None, None) == (None, None, None, None, None, None, None)
 
 
 # --- get_referee_home_away_bias (async) ----------------------------------------------------
@@ -221,6 +229,23 @@ def test_get_upcoming_match_odds_computes_odds_and_implied_pct(monkeypatch):
     assert result.over_2_5_odds == 1.9
     assert result.under_2_5_odds == 1.95
     assert result.home_win_implied_pct is not None
+
+
+def test_get_upcoming_match_odds_over_under_has_overround_and_fair_pct(monkeypatch):
+    # Regression: the Over/Under 2.5 market previously had no derived
+    # stats at all -- raw odds only, with implied percentages summing
+    # above 100% and no overround exposed anywhere.
+    csv = "Div,HomeTeam,AwayTeam,AvgH,AvgD,AvgA,Avg>2.5,Avg<2.5\nE0,Arsenal,Chelsea,2.0,3.5,4.0,1.67,2.12\n"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=csv)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    result = asyncio.run(get_upcoming_match_odds("Arsenal", "Chelsea"))
+    assert result.over_2_5_implied_pct == 59.9  # 100/1.67, raw
+    assert result.under_2_5_implied_pct == 47.2  # 100/2.12, raw
+    assert result.over_under_2_5_overround_pct > 100.0
+    assert result.over_2_5_fair_pct + result.under_2_5_fair_pct == 100.0
 
 
 def test_get_upcoming_match_odds_tolerates_transport_error(monkeypatch):

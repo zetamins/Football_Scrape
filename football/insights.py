@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from ._jsmath import js_round, js_round_to
+from .elo import is_friendly_competition
 from .form import NOT_STARTED_STATUSES as _NOT_STARTED_STATUSES
 from .form import day_diff, is_team_home, normalize_team_name, parse_leading_int
 from .geo import country_distance_km, country_timezone_diff_hours, travel_time_hours
@@ -121,11 +122,13 @@ def classify_standings_zone(
 
 def classify_match_type(competition: str | None) -> MatchType | None:
     """See MatchType's doc comment -- text classification, not a distinct
-    field any source publishes as a boolean."""
+    field any source publishes as a boolean. Delegates to
+    is_friendly_competition (elo.py) so this and form.py's own
+    friendly/preseason exclusion never drift apart on what counts as a
+    friendly."""
     if not competition:
         return None
-    c = competition.lower()
-    return "friendly" if ("friendly" in c or "pre-season" in c or "preseason" in c) else "competitive"
+    return "friendly" if is_friendly_competition(competition) else "competitive"
 
 
 def classify_card_discipline(stats, standing: TeamStanding | None) -> CardDisciplineInfo | None:

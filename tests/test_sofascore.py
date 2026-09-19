@@ -10,6 +10,7 @@ from football.sites.sofascore import (
     _empty_goal_counts,
     _empty_shotmap_side_stats,
     _extract_bench,
+    _extract_betting_odds,
     _extract_incidents,
     _extract_lineup,
     _extract_lineup_player,
@@ -445,6 +446,50 @@ def test_standings_table_from():
 def test_standings_table_from_none_without_rows():
     assert _standings_table_from(None) is None
     assert _standings_table_from([]) is None
+
+
+def _odds_market(market_id, choices, choice_group=None):
+    market = {"marketId": market_id, "choices": [{"name": name, "fractionalValue": frac} for name, frac in choices.items()]}
+    if choice_group is not None:
+        market["choiceGroup"] = choice_group
+    return market
+
+
+def test_extract_betting_odds_full_time_and_over_under():
+    odds = {
+        "markets": [
+            _odds_market(1, {"1": "91/100", "X": "13/5", "2": "29/10"}),
+            _odds_market(9, {"Over": "8/11", "Under": "11/10"}, choice_group="2.5"),
+        ]
+    }
+    result = _extract_betting_odds(odds)
+    assert result.home_win_odds == 1.91
+    assert result.draw_odds == 3.6
+    assert result.away_win_odds == 3.9
+    assert result.over_2_5_odds == 1.73
+    assert result.under_2_5_odds == 2.1
+    assert result.overround_pct > 100.0
+    assert result.home_win_implied_pct != result.home_win_fair_pct  # raw vs de-vigged
+    assert result.over_under_2_5_overround_pct > 100.0
+    assert result.over_2_5_fair_pct + result.under_2_5_fair_pct == 100.0
+
+
+def test_extract_betting_odds_works_without_over_under_market():
+    odds = {"markets": [_odds_market(1, {"1": "1/1", "X": "2/1", "2": "3/1"})]}
+    result = _extract_betting_odds(odds)
+    assert result.home_win_odds == 2.0
+    assert result.over_2_5_odds is None
+    assert result.under_2_5_odds is None
+
+
+def test_extract_betting_odds_none_without_full_time_market():
+    odds = {"markets": [_odds_market(9, {"Over": "8/11", "Under": "11/10"}, choice_group="2.5")]}
+    assert _extract_betting_odds(odds) is None
+
+
+def test_extract_betting_odds_none_without_odds_data():
+    assert _extract_betting_odds(None) is None
+    assert _extract_betting_odds({}) is None
 
 
 def test_lineup_note_confirmed_vs_predicted_vs_not_published():

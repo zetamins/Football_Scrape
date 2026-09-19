@@ -1,6 +1,9 @@
 import asyncio
 
 from football.merge import (
+    _fix_defender_count,
+    _fix_missing_or_duplicate_gk,
+    _validate_lineup_positions,
     apply_deep_recent_meetings,
     compute_bench_regulars,
     compute_missing_by_role,
@@ -20,12 +23,21 @@ from football.merge import (
 from football.types import (
     DefensiveStats,
     HeadToHeadMeeting,
+    LineupPlayer,
     MatchDetails,
     PlayerUsagePattern,
     SeasonPlayerStats,
     SquadMember,
     TeamProfile,
 )
+
+
+def _lineup_player(name, position):
+    return LineupPlayer(
+        name=name, position=position, substitute=False, minutes_played=90, goals=0, assists=0,
+        xg=None, xa=None, shots=None, shots_on_target=None, tackles=None, interceptions=None,
+        fouls=None, rating=None, key_passes=None, shirt_number=None, age=None,
+    )
 
 
 def _match_details(source, **overrides) -> MatchDetails:
@@ -420,3 +432,111 @@ def test_enrich_squad_with_defensive_stats_empty_result_returns_squad_unchanged(
     squad = [SquadMember(name="Mohamed Salah", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
     result = asyncio.run(enrich_squad_with_defensive_stats(squad, "Liverpool", ["Premier League"]))
     assert result == squad
+
+
+# --- _validate_lineup_positions / _fix_missing_or_duplicate_gk / _fix_defender_count --------
+
+
+def test_fix_defender_count_promotes_midfielder_closest_to_goalkeeper():
+    """Regression for the Everton vs Man Utd 2026-09-06 report: formation
+    4-2-3-1 needs 4 defenders but only 3 are tagged D, with the real
+    mistagged fullback (Röhl) sitting right after the GK and three
+    genuine attacking midfielders listed after him. The fix must promote
+    Röhl (first M in list order), not the last M in the list."""
+    lineup = [
+        _lineup_player("Pickford", "G"),
+        _lineup_player("Röhl", "M"),  # actually a fullback, mistagged
+        _lineup_player("Tarkowski", "D"),
+        _lineup_player("Branthwaite", "D"),
+        _lineup_player("Mykolenko", "D"),
+        _lineup_player("Armstrong", "M"),
+        _lineup_player("Garner", "M"),
+        _lineup_player("Johnson", "F"),
+        _lineup_player("Dewsbury-Hall", "M"),
+        _lineup_player("George", "F"),
+        _lineup_player("Barry", "F"),
+    ]
+    result = _validate_lineup_positions(lineup, "4-2-3-1")
+    by_name = {p.name: p.position for p in result}
+    assert by_name["Röhl"] == "D"
+    assert by_name["Dewsbury-Hall"] == "M"  # not the one reclassified
+
+
+def test_fix_defender_count_demotes_trailing_excess_defenders():
+    lineup = [
+        _lineup_player("GK", "G"),
+        _lineup_player("D1", "D"),
+        _lineup_player("D2", "D"),
+        _lineup_player("D3", "D"),
+        _lineup_player("D4", "D"),
+        _lineup_player("D5", "D"),  # excess -- should become M
+        _lineup_player("M1", "M"),
+    ]
+    fixed = _fix_defender_count(lineup, expected_def=4)
+    assert fixed is None  # mutates in place
+    by_name = {p.name: p.position for p in lineup}
+    assert by_name["D5"] == "M"
+    assert by_name["D4"] == "D"
+
+
+def test_fix_defender_count_noop_when_count_matches():
+    lineup = [_lineup_player("D1", "D"), _lineup_player("M1", "M")]
+    original = list(lineup)
+    _fix_defender_count(lineup, expected_def=1)
+    assert lineup == original
+
+
+def test_fix_missing_gk_reclassifies_unpositioned_player():
+    lineup = [_lineup_player("A", None), _lineup_player("B", "D")]
+    _fix_missing_or_duplicate_gk(lineup, formation="4-4-2")
+    assert lineup[0].position == "G"
+
+
+def test_fix_duplicate_gk_keeps_first_reclassifies_rest():
+    lineup = [_lineup_player("A", "G"), _lineup_player("B", "G")]
+    _fix_missing_or_duplicate_gk(lineup, formation="4-4-2")
+    assert lineup[0].position == "G"
+    assert lineup[1].position == "M"
+
+
+def test_validate_lineup_positions_none_lineup_passthrough():
+    assert _validate_lineup_positions(None, "4-4-2") is None
+    assert _validate_lineup_positions([], "4-4-2") == []
+
+
+def test_validate_lineup_positions_returns_unchanged_without_formation():
+    lineup = [_lineup_player("A", "M")]
+    result = _validate_lineup_positions(lineup, None)
+    assert result[0].position == "M"
+
+
+def test_enrich_squad_with_season_stats_avoids_surname_collision():
+    """Regression for Everton's Jordan Pickford / George Pickford
+    collision: two players in the TARGET squad share a surname, so the
+    bare-surname fallback must not fire for either -- only an exact
+    full-name match may attach season stats in that case."""
+    jordan_stats = SeasonPlayerStats(appearances=2, goals=0, assists=0, yellow_cards=0, red_cards=0, rating=7.75, expected_goals=None)
+    jordan_source = SquadMember(name="Jordan Pickford", role="G", injury=None, age=None, market_value=None, season_stats=jordan_stats, season_stats_source="fotmob", defensive_stats=None, recent_usage=None)
+
+    jordan_target = SquadMember(name="Jordan Pickford", role="G", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+    george_target = SquadMember(name="George Pickford", role="G", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+
+    by_source = {"fotmob": _team_profile("fotmob", squad=[jordan_source])}
+    result = enrich_squad_with_season_stats([jordan_target, george_target], by_source)
+    by_name = {m.name: m for m in result}
+
+    assert by_name["Jordan Pickford"].season_stats == jordan_stats  # exact full-name match
+    assert by_name["George Pickford"].season_stats is None  # surname alone must not attach it
+
+
+def test_enrich_squad_with_season_stats_surname_fallback_when_unambiguous():
+    stats = SeasonPlayerStats(appearances=10, goals=5, assists=1, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
+    # Goal.com abbreviates first names -- "A. Becker" can only be matched
+    # to "Alisson Becker" by surname.
+    source_member = SquadMember(name="A. Becker", role="G", injury=None, age=None, market_value=None, season_stats=stats, season_stats_source="goal", defensive_stats=None, recent_usage=None)
+    target_member = SquadMember(name="Alisson Becker", role="G", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+
+    by_source = {"goal": _team_profile("goal", squad=[source_member])}
+    result = enrich_squad_with_season_stats([target_member], by_source)
+    assert result[0].season_stats == stats
+    assert result[0].season_stats_source == "goal"

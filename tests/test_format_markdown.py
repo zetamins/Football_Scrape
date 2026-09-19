@@ -1037,6 +1037,7 @@ def test_merged_match_markdown_renders_every_optional_section():
     )
 
     odds = BettingOdds(home_win_odds=1.8, draw_odds=3.5, away_win_odds=4.2, home_win_implied_pct=50.0, draw_implied_pct=25.0, away_win_implied_pct=25.0, over_2_5_odds=1.9, under_2_5_odds=1.95)
+    sofascore_odds = BettingOdds(home_win_odds=1.91, draw_odds=3.6, away_win_odds=3.9, home_win_implied_pct=None, draw_implied_pct=None, away_win_implied_pct=None, over_2_5_odds=1.73, under_2_5_odds=2.1)
     h2h = HeadToHeadSummary(home_wins=3, away_wins=2, draws=1)
     standing = TeamStanding(position=4, played=20, wins=12, draws=4, losses=4, points=40, goal_diff=15, total_teams=20)
     season_stats = TeamSeasonStats(goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1, average_ball_possession=55.0)
@@ -1047,7 +1048,7 @@ def test_merged_match_markdown_renders_every_optional_section():
         MergedMatch, home_team="Home FC", away_team="Away FC", status="finished", kickoff_utc="2026-01-01T15:00:00.000Z",
         competition="Premier League", season="25/26", round=10, venue_name="Home Stadium", venue_city="Somewhere", venue_country="England",
         referee="Some Ref", referee_stats=None, attendance=45000, weather="Sunny, 15.0°C", weather_detail=weather_detail,
-        betting_odds=odds, head_to_head_summary=h2h, head_to_head_streaks=["Home FC unbeaten in last 5"],
+        betting_odds=odds, sofascore_betting_odds=sofascore_odds, head_to_head_summary=h2h, head_to_head_streaks=["Home FC unbeaten in last 5"],
         recent_meetings=[_meeting()], home_team_standing=standing, away_team_standing=standing,
         home_team_season_stats=season_stats, away_team_season_stats=season_stats,
         match_stats=[MatchStatItem(name="Possession", home="55", away="45")],
@@ -1064,7 +1065,8 @@ def test_merged_match_markdown_renders_every_optional_section():
     lines: list[str] = []
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
-    assert "Odds: Home FC 1.8" in text
+    assert "Odds (football-data.co.uk avg): Home FC 1.8" in text
+    assert "Odds (Sofascore, single book): Home FC 1.91" in text
     assert "H2H: Home FC 3W" in text
     assert "H2H streaks: Home FC unbeaten in last 5" in text
     assert "Recent meetings:" in text

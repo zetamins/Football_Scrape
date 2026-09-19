@@ -100,7 +100,12 @@ async def _fetch_opponent_matches(base_source: Source, opponent_name: str) -> tu
         try:
             candidate = await SCRAPERS[source].run(opponent_name)
         except Exception as err:  # noqa: BLE001 - mirrors TS's catch (err: any)
-            error = f"{error}; {err}" if error else str(err)
+            # str(err) is "" for an exception raised with no message --
+            # falling back to the class name keeps this a real signal
+            # instead of an empty string that later reads as "no error"
+            # (see fetch_opponent_context's error-combination logic).
+            msg = str(err) or type(err).__name__
+            error = f"{error}; {msg}" if error else msg
             continue
         if candidate:
             matches = candidate
@@ -132,11 +137,13 @@ async def _fetch_opponent_profiles(opponent_name: str) -> tuple[dict[Source, Tea
         try:
             profile_by_source[source] = await SCRAPERS[source].profile(opponent_name)
         except Exception as err:  # noqa: BLE001
-            error = f"{error}; {err}" if error else str(err)
+            # See _fetch_opponent_matches' identical fallback for why.
+            msg = str(err) or type(err).__name__
+            error = f"{error}; {msg}" if error else msg
     return profile_by_source, error
 
 
-async def fetch_opponent_context(base_source: Source, opponent_name: str) -> OpponentContext:
+async def fetch_opponent_context(base_source: Source, opponent_name: str, as_of: datetime | None = None) -> OpponentContext:
     """Matches try base_source first, then fall back through the rest of
     SOURCE_ORDER -- same "first source that actually has it wins" pattern
     already used for the searched team's own form_source (see run_search
@@ -148,10 +155,20 @@ async def fetch_opponent_context(base_source: Source, opponent_name: str) -> Opp
     -- went empty for the whole run, even though other sources often still
     had the opponent's fixture list. The profile already goes through the
     exact same multi-source fetch-then-merge as the searched team's own
-    profile -- up to 5 requests either way, same as the main team."""
-    now = datetime.now(tz=UTC)
+    profile -- up to 5 requests either way, same as the main team.
+
+    as_of: the reference point for rest_days ("days since the opponent's
+    last match"). Defaults to wall-clock now for callers that don't have
+    a specific match in mind, but run_search passes the upcoming match's
+    own kickoff time -- confirmed live: using wall-clock now instead made
+    the searched team's own rest days (computed relative to its next
+    fixture's kickoff, via next5_with_gaps) and the opponent's rest days
+    (previously always relative to whenever the report happened to run)
+    silently disagree by however long had elapsed since generation,
+    typically off by a day from the true kickoff-relative count."""
+    as_of = as_of or datetime.now(tz=UTC)
     matches, matches_source, matches_error = await _fetch_opponent_matches(base_source, opponent_name)
-    rest_days = _compute_rest_days(matches, now)
+    rest_days = _compute_rest_days(matches, as_of)
     opponent_profile_by_source, profile_error = await _fetch_opponent_profiles(opponent_name)
     # Same joined-string shape the original single-loop version produced
     # (both loops used to share one `error` accumulator sequentially).
@@ -821,7 +838,8 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     form, own_advanced_stats = await _apply_own_recent_meetings_and_form(merged, form_source, form, matches_by_source, opponent_name, merged_profile)
 
     on_progress(_step_message(1, f"Next match found: {merged.home_team} vs {merged.away_team}. Fetching opponent ({opponent_name})..."))
-    opponent_context = await fetch_opponent_context(merged.base_source, opponent_name)
+    match_kickoff = datetime.fromisoformat(merged.kickoff_utc.replace("Z", _UTC_OFFSET_SUFFIX)) if merged.kickoff_utc else None
+    opponent_context = await fetch_opponent_context(merged.base_source, opponent_name, as_of=match_kickoff)
     opponent_profile = opponent_context.merged_profile
 
     insights_result = ins.compute_insights(merged, merged_profile.average_age if merged_profile else None, own_rest_days, opponent_context)
