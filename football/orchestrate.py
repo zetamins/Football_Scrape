@@ -28,11 +28,14 @@ from .merge import (
     compute_role_form_breakdown,
     compute_top_defenders,
     compute_top_performers,
-    reconcile_missing_players,
+    is_attacker_role,
     is_defender_role,
+    is_goalkeeper_role,
     is_midfield_role,
     merge_match_details,
     merge_team_profile,
+    reconcile_missing_by_role,
+    reconcile_missing_players,
 )
 from .prediction import compute_match_prediction
 from .sites import (
@@ -856,6 +859,24 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     home_injuries, away_injuries = (own_injuries, opponent_injuries) if own_is_home else (opponent_injuries, own_injuries)
     merged.home_missing_players = reconcile_missing_players(merged.home_missing_players, home_injuries)
     merged.away_missing_players = reconcile_missing_players(merged.away_missing_players, away_injuries)
+
+    # Same reconciliation, one level down: teamProfile.missing_attackers/
+    # defenders/midfielders/goalkeepers were computed from `injuries`
+    # alone, before missing_players even existed in the pipeline -- so a
+    # player ruled out for a non-injury reason (Richarlison, "coach_
+    # decision") was absent from missing_attackers despite being a
+    # forward and genuinely unavailable. Confirmed live.
+    home_profile, away_profile = (merged_profile, opponent_profile) if own_is_home else (opponent_profile, merged_profile)
+    for profile, injuries, missing_players in (
+        (home_profile, home_injuries, merged.home_missing_players),
+        (away_profile, away_injuries, merged.away_missing_players),
+    ):
+        if not profile:
+            continue
+        profile.missing_midfielders = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_midfield_role)
+        profile.missing_attackers = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_attacker_role)
+        profile.missing_defenders = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_defender_role)
+        profile.missing_goalkeepers = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_goalkeeper_role)
 
     insights_result = ins.compute_insights(merged, merged_profile.average_age if merged_profile else None, own_rest_days, opponent_context)
     venue_details = await fetch_venue_details(merged, merged.venue_country)

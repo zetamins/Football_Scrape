@@ -19,6 +19,7 @@ from football.merge import (
     is_midfield_role,
     merge_match_details,
     merge_team_profile,
+    reconcile_missing_by_role,
     reconcile_missing_players,
 )
 from football.types import (
@@ -609,3 +610,38 @@ def test_reconcile_missing_players_keeps_match_list_when_no_profile_injuries():
     existing = [MissingPlayer(name="Player", description="Knock", expected_return=None)]
     result = reconcile_missing_players(existing, None)
     assert result == existing
+
+
+# --- reconcile_missing_by_role -----------------------------------------------------------
+
+
+def test_reconcile_missing_by_role_includes_missing_player_not_in_injuries():
+    """Regression: confirmed live -- Richarlison (ruled out for
+    "coach_decision", a forward) was absent from missing_attackers
+    despite being unavailable, since that field only ever looked at
+    `injuries`, never match-level missing_players."""
+    from football.merge import is_attacker_role
+
+    squad = [
+        SquadMember(name="Richarlison", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None),
+        SquadMember(name="Injured Mid", role="M", injury="Hamstring", age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None),
+    ]
+    injuries = [squad[1]]  # only the midfielder is in the injuries list
+    missing_players = [MissingPlayer(name="Richarlison", description="coach_decision", expected_return=None)]
+
+    attackers = reconcile_missing_by_role(squad, injuries, missing_players, is_attacker_role)
+    assert attackers == ["Richarlison"]
+
+
+def test_reconcile_missing_by_role_none_when_injuries_unavailable():
+    from football.merge import is_attacker_role
+
+    assert reconcile_missing_by_role([], None, [MissingPlayer(name="X", description="Y", expected_return=None)], is_attacker_role) is None
+
+
+def test_reconcile_missing_by_role_skips_missing_player_with_wrong_role():
+    from football.merge import is_attacker_role
+
+    squad = [SquadMember(name="A Defender", role="D", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    missing_players = [MissingPlayer(name="A Defender", description="Suspended", expected_return=None)]
+    assert reconcile_missing_by_role(squad, [], missing_players, is_attacker_role) == []

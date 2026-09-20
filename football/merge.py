@@ -234,6 +234,43 @@ def compute_missing_by_role(
     return [p.name for p in injuries if matches(p.role)]
 
 
+def reconcile_missing_by_role(
+    squad: list[SquadMember] | None,
+    injuries: list[SquadMember] | None,
+    missing_players: list[MissingPlayer] | None,
+    matches: Callable[[str | None], bool],
+) -> list[str] | None:
+    """Same shape as compute_missing_by_role, but also includes players
+    from the match-level missing_players list (reconcile_missing_players'
+    output) who aren't in `injuries` at all -- e.g. ruled out for a
+    non-injury reason. MissingPlayer has no role field of its own, so
+    it's looked up from `squad` by name.
+
+    Confirmed live: Richarlison correctly appeared in
+    match.away_missing_players (reason "coach_decision") but was absent
+    from teamProfile.missing_attackers despite being a forward, since
+    that field was computed from `injuries` alone, before
+    reconcile_missing_players even runs in the pipeline. Returns None
+    under the same condition compute_missing_by_role does (injuries is
+    None -- no profile injury tracking available at all for this team),
+    even if missing_players has entries, since squad/role data usually
+    comes from the same unavailable profile fetch."""
+    if injuries is None:
+        return None
+    result = [p.name for p in injuries if matches(p.role)]
+    known = {normalize_team_name(n) for n in result}
+    role_by_name = {normalize_team_name(m.name): m.role for m in (squad or [])}
+    for p in (missing_players or []):
+        norm = normalize_team_name(p.name)
+        if norm in known:
+            continue
+        role = role_by_name.get(norm)
+        if role and matches(role):
+            result.append(p.name)
+            known.add(norm)
+    return result
+
+
 def surname(name: str) -> str:
     """Only Goal.com's squad carries per-player season stats, and it
     abbreviates first names ("A. Becker"), so it can't be matched against

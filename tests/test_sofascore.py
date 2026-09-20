@@ -517,8 +517,18 @@ def test_extract_betting_odds_none_without_odds_data():
 
 def test_lineup_note_confirmed_vs_predicted_vs_not_published():
     assert _lineup_note({"confirmed": True}) == "lineup confirmed"
-    assert _lineup_note({"confirmed": False}) == "lineup predicted, not yet confirmed"
+    assert _lineup_note({"confirmed": False, "home": {"players": [{"name": "Some Player"}]}}) == "lineup predicted, not yet confirmed"
     assert _lineup_note(None) == "lineup not published yet"
+
+
+def test_lineup_note_not_published_when_confirmed_false_but_no_players_yet():
+    """Regression: confirmed live 20 days before kickoff -- Sofascore
+    publishes confirmed=false with home/away keys present but their
+    players list genuinely empty ([]), well before any predicted XI
+    exists. Previously this said "predicted, not yet confirmed",
+    promising a lineup that home_lineup/away_lineup never surfaced."""
+    assert _lineup_note({"confirmed": False, "home": {"players": []}, "away": {"players": []}}) == "lineup not published yet"
+    assert _lineup_note({"confirmed": False}) == "lineup not published yet"
 
 
 def test_match_details_note_combines_all_three_gaps():

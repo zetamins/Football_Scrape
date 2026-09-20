@@ -655,12 +655,24 @@ def _standings_table_from(standing_rows: list[dict[str, Any]] | None) -> list[St
 
 def _lineup_note(lineups: dict[str, Any] | None) -> str:
     """Extracted from get_sofascore_match_details to replace a nested
-    ternary (python:S3358); behavior unchanged."""
+    ternary (python:S3358).
+
+    Confirmed live (20 days before kickoff): Sofascore publishes a
+    lineups object with confirmed=false and populated missingPlayers
+    well before any actual predicted starting XI exists -- home/away
+    are present as keys but their players list is genuinely empty ([]),
+    not missing. Previously this said "predicted, not yet confirmed"
+    for that case too, promising a predicted lineup that
+    home_lineup/away_lineup never actually surfaced. Now checks for at
+    least one actual player before claiming "predicted"."""
     if not lineups:
         return "lineup not published yet"
+    has_predicted_players = bool((lineups.get("home") or {}).get("players")) or bool((lineups.get("away") or {}).get("players"))
     if lineups.get("confirmed"):
         return "lineup confirmed"
-    return "lineup predicted, not yet confirmed"
+    if has_predicted_players:
+        return "lineup predicted, not yet confirmed"
+    return "lineup not published yet"
 
 
 def _match_details_note(lineups: dict[str, Any] | None, stats: dict[str, Any] | None, standing_rows: list[dict[str, Any]] | None) -> str:
