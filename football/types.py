@@ -91,6 +91,15 @@ class TeamStanding:
     draws: int
     losses: int
     points: int
+    # Deliberately str, not int: Sofascore's own scoreDiffFormatted is
+    # already a signed string ("+8"/"-9"), and the Android app's
+    # TeamStanding.goalDiff (OverviewModels.kt) is declared String
+    # specifically to match this field exactly -- changing this to int
+    # would be a breaking cross-repo JSON contract change, not a pure
+    # Python-side fix. StandingsTableRow.goal_difference (the full-table
+    # equivalent, below) is parsed to int instead since it's a newer
+    # field with no existing consumer depending on a specific type; the
+    # two fields legitimately differ on purpose, not by oversight.
     goal_diff: str
     # Size of the full standings table this position came from -- lets us
     # classify "top of table"/"relegation zone" without guessing a fixed
@@ -339,7 +348,13 @@ class HeadToHeadMeeting:
     date: str | None
     competition: str | None
     scoreline: str
-    venue: Literal["home", "away"]
+    # "neutral" set only by the deep (Sofascore-based) recent-meetings
+    # path in insights.py, when both teams' own countries differ from
+    # the match venue's -- confirmed live: a cup final was previously
+    # forced into "home"/"away" with no way to represent the truth.
+    # Fallback sources (Fotmob/SoccerDesk) can't detect this and still
+    # only ever produce "home"/"away".
+    venue: Literal["home", "away", "neutral"]
     home_formation: str | None
     away_formation: str | None
     home_xg: float | None
@@ -452,6 +467,19 @@ class MatchDetails(MatchInfo):
     # page for the venue at all (confirmed live: several smaller grounds
     # this project has hit aren't in StadiumDB's country listings).
     venue_capacity: int | None = None
+    # Each team's OWN home venue coordinates -- distinct from venue_lat/
+    # venue_lon above (the CURRENT match's venue, normally the home
+    # team's own ground already). Needed to compute the away team's real
+    # travel distance instead of the country-level approximation
+    # compute_travel_info previously fell back to unconditionally --
+    # confirmed live that comparison alone reports 0km for every same-
+    # country match regardless of actual distance (Newcastle away at
+    # Coventry, ~250km, showed 0). One extra Sofascore fetch per team;
+    # None from every other source.
+    home_team_venue_lat: float | None = None
+    home_team_venue_lon: float | None = None
+    away_team_venue_lat: float | None = None
+    away_team_venue_lon: float | None = None
 
 
 @dataclass
@@ -467,6 +495,8 @@ class StandingsTableRow:
     losses: int | None = None
     goals_for: int | None = None
     goals_against: int | None = None
+    # int here, unlike TeamStanding.goal_diff's str -- see that field's
+    # own comment for why the two intentionally differ.
     goal_difference: int | None = None
     form: str | None = None
 
@@ -849,6 +879,18 @@ class SeasonFoulsEstimate:
 
 @dataclass
 class SeasonGoalkeepingEstimate:
+    """saves_for/shots_on_target_faced/save_pct come from the same
+    per-match "Keeper saves"/"Shots on target" stat entries; goals_conceded
+    comes from the match's final score instead (m.home_score/away_score),
+    a different data lineage. saves_for + goals_conceded does NOT always
+    equal shots_on_target_faced -- confirmed live on a real match (off by
+    3 one direction, 4 the other, on the two sides of the same fixture).
+    Own goals, defensive errors not classified as an opponent shot, and
+    provider-level per-match inconsistencies all break that identity
+    legitimately; no cleaner same-lineage "goals" stat exists to swap
+    goals_conceded for. Each field is independently correct for what it
+    measures -- don't assume they reconcile."""
+
     sample_size: int
     saves_for: int
     shots_on_target_faced: int

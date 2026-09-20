@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 from .._jsmath import js_round_to, js_to_fixed
 from ..browser import launch_browser
+from ..form import parse_leading_int
 from ..odds_math import fractional_to_decimal, implied_and_fair_percentages, implied_and_fair_percentages_2way
 from ..retry import retry_with_backoff
 from ..team_aliases import canonical_for
@@ -620,7 +621,18 @@ def _summary_from_duel(duel: dict[str, Any] | None) -> HeadToHeadSummary | None:
 
 def _standings_table_from(standing_rows: list[dict[str, Any]] | None) -> list[StandingsTableRow] | None:
     """Extracted from get_sofascore_match_details to keep its own
-    cognitive complexity down (python:S3776); behavior unchanged."""
+    cognitive complexity down (python:S3776).
+
+    goals_for/against/difference confirmed live against the raw
+    standings row shape: Sofascore's actual keys are scoresFor/
+    scoresAgainst/scoreDiffFormatted (the last pre-formatted as a
+    string, "+8"/"-9") -- goalsFor/goalsAgainst/goalDiff (the previous
+    lookup keys) don't exist in the payload at all, so these three were
+    always silently None regardless of how far into the season the
+    table was. _extract_standing (TeamStanding, above) already used the
+    correct scoreDiffFormatted key; this function just had the wrong
+    guesses. "form" isn't a bug -- confirmed absent from this endpoint's
+    response entirely, not available from Sofascore here."""
     if not standing_rows:
         return None
     result = []
@@ -633,9 +645,9 @@ def _standings_table_from(standing_rows: list[dict[str, Any]] | None) -> list[St
             wins=r.get("wins"),
             draws=r.get("draws"),
             losses=r.get("losses"),
-            goals_for=r.get("goalsFor"),
-            goals_against=r.get("goalsAgainst"),
-            goal_difference=r.get("goalDiff"),
+            goals_for=r.get("scoresFor"),
+            goals_against=r.get("scoresAgainst"),
+            goal_difference=parse_leading_int(r.get("scoreDiffFormatted")),
             form=r.get("form"),
         ))
     return result
@@ -743,6 +755,34 @@ class _SofascoreRawMatchData:
     home_manager_vs_away_club: ManagerClubRecord | None
     away_manager_vs_home_club: ManagerClubRecord | None
     odds: dict[str, Any] | None
+    home_team_venue: dict[str, Any] | None
+    away_team_venue: dict[str, Any] | None
+
+
+def _team_venue_coordinates(team_data: dict[str, Any] | None) -> tuple[float, float] | None:
+    """Extracts a team's own home-venue lat/lon from /api/v1/team/{id}'s
+    venue.venueCoordinates -- confirmed live (Newcastle -> St James' Park,
+    54.975469/-1.621874). Distinct from the match's own venue coordinates
+    (e["venue"]["venueCoordinates"], already used for venue_lat/venue_lon
+    elsewhere in this function)."""
+    coords = (((team_data or {}).get("team") or {}).get("venue") or {}).get("venueCoordinates") or {}
+    lat, lon = coords.get("latitude"), coords.get("longitude")
+    return (lat, lon) if lat is not None and lon is not None else None
+
+
+def _both_teams_venue_lat_lon(
+    home_team_venue: dict[str, Any] | None, away_team_venue: dict[str, Any] | None
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """(home_lat, home_lon, away_lat, away_lon) for MatchDetails'
+    home/away_team_venue_lat/lon fields. Extracted from
+    _build_sofascore_match_details to keep its own cognitive complexity
+    down (python:S3776); behavior unchanged."""
+    home = _team_venue_coordinates(home_team_venue)
+    away = _team_venue_coordinates(away_team_venue)
+    return (
+        home[0] if home else None, home[1] if home else None,
+        away[0] if away else None, away[1] if away else None,
+    )
 
 
 def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _SofascoreRawMatchData) -> MatchDetails:
@@ -759,6 +799,9 @@ def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _So
     h2h_manager_duel = (raw.h2h or {}).get("managerDuel")
     lineups_home = (raw.lineups or {}).get("home")
     lineups_away = (raw.lineups or {}).get("away")
+    home_venue_lat, home_venue_lon, away_venue_lat, away_venue_lon = _both_teams_venue_lat_lon(
+        raw.home_team_venue, raw.away_team_venue
+    )
 
     return MatchDetails(
         **{**asdict(match), "venue": venue.get("name")},
@@ -768,6 +811,10 @@ def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _So
         venue_lat=venue_coords.get("latitude"),
         venue_lon=venue_coords.get("longitude"),
         venue_capacity=venue.get("capacity"),
+        home_team_venue_lat=home_venue_lat,
+        home_team_venue_lon=home_venue_lon,
+        away_team_venue_lat=away_venue_lat,
+        away_team_venue_lon=away_venue_lon,
         referee=referee.get("name"),
         referee_stats=_extract_referee_stats(e.get("referee")),
         attendance=e.get("attendance"),
@@ -863,11 +910,25 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
         await _sleep(800)
         odds = await _fetch_json_optional(page, f"https://www.sofascore.com/api/v1/event/{event_id}/odds/1/all")
 
+        # Each team's OWN home venue -- distinct from the match's venue
+        # (already on `e["venue"]`, which is the home team's ground in
+        # the normal case). Needed to compute the AWAY team's real
+        # travel distance (see _extract_travel_coordinates/
+        # compute_travel_info): confirmed live that country-level
+        # comparison alone reports 0km for every same-country match
+        # regardless of actual distance (e.g. Newcastle away at
+        # Coventry, a genuine ~250km trip, previously showed 0).
+        await _sleep(800)
+        home_team_venue = await _fetch_json_optional(page, f"https://www.sofascore.com/api/v1/team/{e['homeTeam']['id']}")
+        await _sleep(800)
+        away_team_venue = await _fetch_json_optional(page, f"https://www.sofascore.com/api/v1/team/{e['awayTeam']['id']}")
+
         raw = _SofascoreRawMatchData(
             h2h=h2h, streaks=streaks, lineups=lineups, stats=stats, incidents=incidents, shotmap=shotmap,
             best_players=best_players, standing_rows=standing_rows, home_season_stats=home_season_stats,
             away_season_stats=away_season_stats, home_manager_vs_away_club=home_manager_vs_away_club,
             away_manager_vs_home_club=away_manager_vs_home_club, odds=odds,
+            home_team_venue=home_team_venue, away_team_venue=away_team_venue,
         )
         return _build_sofascore_match_details(match, e, raw)
 

@@ -141,8 +141,9 @@ def classify_card_discipline(stats, standing: TeamStanding | None) -> CardDiscip
 
 
 def _travel_km(traveling: bool | None, from_country: str | None, to_country: str) -> float | None:
-    """Extracted from compute_travel_info to keep its own cognitive
-    complexity down (python:S3776); behavior unchanged."""
+    """Country-level approximation, used only when a team's own exact
+    venue coordinates aren't available. Extracted from compute_travel_info
+    to keep its own cognitive complexity down (python:S3776)."""
     if traveling and from_country:
         return country_distance_km(from_country, to_country)
     if traveling is False:
@@ -150,17 +151,57 @@ def _travel_km(traveling: bool | None, from_country: str | None, to_country: str
     return None
 
 
+# Below this, two stadium coordinates are treated as "the same place" --
+# covers GPS/rounding noise and same-ground fixtures, not meant to
+# distinguish genuinely close-but-different grounds (e.g. two clubs a
+# few km apart in the same city still count as "traveling", correctly,
+# since that's real distance a team has to cover).
+_SAME_VENUE_THRESHOLD_KM = 2
+
+
+def _team_travel(
+    team_lat: float | None, team_lon: float | None, team_country: str | None,
+    venue_lat: float | None, venue_lon: float | None, venue_country: str,
+) -> tuple[bool | None, float | None]:
+    """One side (home or away) of compute_travel_info's travel/distance
+    determination, extracted to keep that function's own cognitive
+    complexity down (python:S3776).
+
+    Prefers exact venue-to-venue distance (this team's own home ground
+    vs the match venue, both from Sofascore) when both coordinates are
+    available; falls back to the country-level approximation otherwise.
+    Confirmed live that the country-only approximation reports 0km/not-
+    traveling for EVERY same-country match regardless of actual
+    distance (Newcastle away at Coventry, ~250km, showed 0) -- exact
+    coordinates fix this for same-country trips specifically, which is
+    most of this project's own match volume (English football)."""
+    if team_lat is not None and team_lon is not None and venue_lat is not None and venue_lon is not None:
+        from .geo import Coord, haversine_km
+
+        km = haversine_km(Coord(team_lat, team_lon), Coord(venue_lat, venue_lon))
+        return km > _SAME_VENUE_THRESHOLD_KM, km
+    if not team_country:
+        return None, None
+    traveling = team_country != venue_country
+    return traveling, _travel_km(traveling, team_country, venue_country)
+
+
 def compute_travel_info(merged: MatchDetails):
     """Sofascore-only fields (venue_country/home_team_country/
-    away_team_country) -- null from every other base source."""
+    away_team_country, and the exact venue coordinates _team_travel
+    prefers when available) -- null from every other base source."""
     from .types import TravelInfo
 
     if not merged.venue_country or (not merged.home_team_country and not merged.away_team_country):
         return None
-    home_traveling = (merged.home_team_country != merged.venue_country) if merged.home_team_country else None
-    away_traveling = (merged.away_team_country != merged.venue_country) if merged.away_team_country else None
-    home_km = _travel_km(home_traveling, merged.home_team_country, merged.venue_country)
-    away_km = _travel_km(away_traveling, merged.away_team_country, merged.venue_country)
+    home_traveling, home_km = _team_travel(
+        merged.home_team_venue_lat, merged.home_team_venue_lon, merged.home_team_country,
+        merged.venue_lat, merged.venue_lon, merged.venue_country,
+    )
+    away_traveling, away_km = _team_travel(
+        merged.away_team_venue_lat, merged.away_team_venue_lon, merged.away_team_country,
+        merged.venue_lat, merged.venue_lon, merged.venue_country,
+    )
     return TravelInfo(
         venue_country=merged.venue_country,
         home_team_country=merged.home_team_country,
@@ -218,6 +259,36 @@ def _parse_xg_stat_value(raw: str | None) -> float | None:
         return None
 
 
+def _h2h_meeting_venue(meeting_venue: str, details) -> str:
+    """Neither team's own country matches the venue's -- a genuine
+    neutral-site meeting (a cup final, etc.), not just "away" for
+    whichever side happened to be listed as home. Same comparison
+    form.py's own venue-classification enrichment uses for
+    FormResult.neutral_venue, applied here since these are Sofascore-only
+    fields (None from other sources, in which case this falls back to
+    the plain home/away label meeting_venue already carries). Extracted
+    from compute_recent_meetings to keep its own cognitive complexity
+    down (python:S3776)."""
+    if details.venue_country and details.home_team_country and details.away_team_country:
+        if details.home_team_country != details.venue_country and details.away_team_country != details.venue_country:
+            return "neutral"
+    return meeting_venue
+
+
+def _build_h2h_meeting(meeting, details) -> HeadToHeadMeeting:
+    """Extracted from compute_recent_meetings to keep its own cognitive
+    complexity down (python:S3776); behavior unchanged."""
+    xg_stat = next((s for s in (details.match_stats or []) if "expected goals" in s.name.lower()), None)
+    home_xg = _parse_xg_stat_value(xg_stat.home) if xg_stat else None
+    away_xg = _parse_xg_stat_value(xg_stat.away) if xg_stat else None
+    return HeadToHeadMeeting(
+        date=meeting.date, competition=meeting.competition, scoreline=meeting.scoreline,
+        venue=_h2h_meeting_venue(meeting.venue, details),
+        home_formation=details.home_formation, away_formation=details.away_formation,
+        home_xg=home_xg, away_xg=away_xg, home_lineup=details.home_lineup, away_lineup=details.away_lineup,
+    )
+
+
 async def compute_recent_meetings(
     raw_matches: list[MatchInfo], form_results, opponent_name: str, source: Source
 ) -> list[HeadToHeadMeeting] | None:
@@ -246,16 +317,7 @@ async def compute_recent_meetings(
             continue
         try:
             details = await SCRAPERS[source].details(raw)
-            xg_stat = next((s for s in (details.match_stats or []) if "expected goals" in s.name.lower()), None)
-            home_xg = _parse_xg_stat_value(xg_stat.home) if xg_stat else None
-            away_xg = _parse_xg_stat_value(xg_stat.away) if xg_stat else None
-            out.append(
-                HeadToHeadMeeting(
-                    date=meeting.date, competition=meeting.competition, scoreline=meeting.scoreline, venue=meeting.venue,
-                    home_formation=details.home_formation, away_formation=details.away_formation,
-                    home_xg=home_xg, away_xg=away_xg, home_lineup=details.home_lineup, away_lineup=details.away_lineup,
-                )
-            )
+            out.append(_build_h2h_meeting(meeting, details))
         except Exception:  # noqa: BLE001,S110 - best-effort per past meeting
             pass
     return out if out else None

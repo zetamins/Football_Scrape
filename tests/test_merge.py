@@ -261,6 +261,21 @@ def test_compute_bench_regulars_requires_non_start_majority():
     assert [b.name for b in result] == ["Bench Regular"]
 
 
+def test_compute_bench_regulars_excludes_injured_players():
+    usage = PlayerUsagePattern(
+        matches_in_squad=5, starts=1, sub_appearances=2, unused_bench=2, total_minutes=90, total_goals=0, total_assists=0,
+        total_xg=0, total_xa=0, total_shots=0, total_shots_on_target=0, total_tackles=0, total_interceptions=0, total_fouls=0,
+        total_key_passes=0, appearances_with_stats=0, avg_rating=None, goals_per_90=None, assists_per_90=None, xg_per_90=None,
+        xa_per_90=None, key_passes_per_90=None,
+    )
+    injured_bench_regular = SquadMember(
+        name="Injured Player", role=None, injury="Cruciate Ligament Injury (out)", age=None, market_value=None,
+        season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=usage,
+    )
+    result = compute_bench_regulars([injured_bench_regular])
+    assert result == []
+
+
 def _meeting(**overrides) -> HeadToHeadMeeting:
     base = {
         "date": "2026-01-01T00:00:00.000Z", "competition": "Premier League", "scoreline": "1-0", "venue": "home",

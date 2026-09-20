@@ -445,6 +445,29 @@ def test_standings_table_from():
 
 def test_standings_table_from_none_without_rows():
     assert _standings_table_from(None) is None
+
+
+def test_standings_table_from_reads_actual_sofascore_field_names():
+    # Regression: confirmed live against the real API -- Sofascore's
+    # standings rows use scoresFor/scoresAgainst/scoreDiffFormatted
+    # (the last pre-formatted as a signed string), not goalsFor/
+    # goalsAgainst/goalDiff. The wrong keys silently returned None
+    # forever, independent of how far into the season the table was.
+    rows = [{
+        "team": {"name": "Manchester City"}, "position": 1, "points": 15,
+        "matches": 5, "wins": 5, "draws": 0, "losses": 0,
+        "scoresFor": 13, "scoresAgainst": 5, "scoreDiffFormatted": "+8",
+    }]
+    table = _standings_table_from(rows)
+    assert table[0].goals_for == 13
+    assert table[0].goals_against == 5
+    assert table[0].goal_difference == 8
+
+
+def test_standings_table_from_negative_goal_difference():
+    rows = [{"team": {"name": "Team"}, "position": 20, "points": 1, "scoreDiffFormatted": "-9"}]
+    table = _standings_table_from(rows)
+    assert table[0].goal_difference == -9
     assert _standings_table_from([]) is None
 
 

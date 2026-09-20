@@ -133,13 +133,17 @@ def country_timezone_diff_hours(country_a: str, country_b: str) -> float | None:
 
 
 @dataclass(frozen=True)
-class _Coord:
+class Coord:
     lat: float
     lon: float
 
 
-def _haversine_km(a: _Coord, b: _Coord) -> int:
-    """Haversine great-circle distance in km between two lat/lon points."""
+def haversine_km(a: Coord, b: Coord) -> int:
+    """Haversine great-circle distance in km between two lat/lon points.
+    Public (not just country_distance_km's own internal helper) since
+    insights.py's compute_travel_info also uses it directly, for exact
+    venue-to-venue distance when both teams' own venue coordinates are
+    available -- see that function's own docstring."""
     r = 6371
     d_lat = math.radians(b.lat - a.lat)
     d_lon = math.radians(b.lon - a.lon)
@@ -156,7 +160,7 @@ def country_distance_km(country_a: str, country_b: str) -> int | None:
     b = _COUNTRY_COORDS.get(_normalize_country(country_b))
     if a is None or b is None:
         return None
-    return _haversine_km(_Coord(*a), _Coord(*b))
+    return haversine_km(Coord(*a), Coord(*b))
 
 
 def travel_time_hours(distance_km: float) -> float:

@@ -426,13 +426,18 @@ def compute_bench_regulars(squad: list[SquadMember] | None, count: int = 5) -> l
     often than they actually started -- i.e. genuinely bench-regular, not
     just "happened to miss one game." Requires at least 2 non-start
     appearances (sub-on or unused) to filter out a single one-off absence
-    reading as a pattern."""
+    reading as a pattern. Excludes anyone currently injured (m.injury
+    set) -- confirmed live: a trailing-stat-only filter surfaced a player
+    with a Cruciate Ligament Injury as a "bench regular" purely from
+    matches before the injury, with nothing about their current
+    availability."""
     if not squad:
         return []
     candidates = [
         m
         for m in squad
         if m.recent_usage
+        and not m.injury
         and (m.recent_usage.sub_appearances + m.recent_usage.unused_bench) >= 2
         and (m.recent_usage.sub_appearances + m.recent_usage.unused_bench) > m.recent_usage.starts
     ]

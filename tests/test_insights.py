@@ -137,6 +137,49 @@ def test_compute_recent_meetings_fetches_details_for_matching_raw_fixtures(monke
     assert meetings[0].away_xg == 0.9
 
 
+def test_compute_recent_meetings_detects_neutral_venue(monkeypatch):
+    """Regression: a cup final at a neutral venue was previously forced
+    into "home"/"away" -- HeadToHeadMeeting.venue had no third option and
+    nothing checked venue country against either team's own country."""
+    from football import orchestrate
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x", home_team="Home FC", away_team="Rival FC",
+        venue_country="Germany", home_team_country="England", away_team_country="Spain",
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", venue="away")]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    assert meetings[0].venue == "neutral"
+
+
+def test_compute_recent_meetings_keeps_home_away_when_one_team_matches_venue_country(monkeypatch):
+    from football import orchestrate
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x", home_team="Home FC", away_team="Rival FC",
+        venue_country="England", home_team_country="England", away_team_country="Spain",
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", venue="away")]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    assert meetings[0].venue == "away"
+
+
 def test_compute_recent_meetings_skips_when_no_raw_fixture_matches():
     form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z")]
     result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore"))
@@ -610,6 +653,35 @@ def test_compute_travel_info_home_not_traveling_in_own_country():
     assert info.home_traveling is False
     assert info.home_travel_distance_km == 0
     assert info.away_traveling is True
+
+
+def test_compute_travel_info_uses_exact_distance_for_same_country_travel():
+    """Regression: Newcastle away at Coventry (confirmed live) previously
+    showed away_traveling=False, away_travel_distance_km=0 for a genuine
+    ~250km trip, since the country-only check can never detect intra-
+    country travel. Exact venue coordinates (both England here) must
+    override that and report the real distance."""
+    merged = _all_none(
+        MatchDetails, venue_country="England", home_team_country="England", away_team_country="England",
+        venue_lat=52.4478, venue_lon=-1.4952,  # Coventry Building Society Arena
+        home_team_venue_lat=52.4478, home_team_venue_lon=-1.4952,  # home team plays at the match venue
+        away_team_venue_lat=54.975469, away_team_venue_lon=-1.621874,  # Newcastle's St James' Park
+    )
+    info = compute_travel_info(merged)
+    assert info.away_traveling is True
+    assert info.away_travel_distance_km > 200
+    assert info.home_traveling is False
+    assert info.home_travel_distance_km == 0
+
+
+def test_compute_travel_info_falls_back_to_country_approximation_without_coordinates():
+    merged = _all_none(
+        MatchDetails, venue_country="England", home_team_country="England", away_team_country="England",
+        venue_lat=None, venue_lon=None, home_team_venue_lat=None, away_team_venue_lat=None,
+    )
+    info = compute_travel_info(merged)
+    assert info.away_traveling is False
+    assert info.away_travel_distance_km == 0
 
 
 # --- _defender_count / _result_letter --------------------------------------
