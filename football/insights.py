@@ -428,16 +428,25 @@ def compute_presence(
     injuries: list[SquadMember] | None,
     suspended: list[str] | None,
     additional_notes: list | None = None,
+    missing_players: list | None = None,
 ) -> list[PresenceEntry] | None:
-    """Present = not on the injuries or suspensions list; Absent = either
-    one. Doesn't distinguish "available but not selected" from "on the
-    bench" -- none of our sources publish a separate bench list beyond
-    Sofascore's own.
+    """Present = not on the injuries, suspensions, or match-level
+    missing-players list; Absent = any of those. Doesn't distinguish
+    "available but not selected" from "on the bench" -- none of our
+    sources publish a separate bench list beyond Sofascore's own.
 
     additional_notes: list of AdditionalNote (from merge.py) -- cross-
     referenced for injury mentions not already in the injuries list.
     Player names found in note text mentioning 'injured'/'injury'/'out'
-    are marked absent with the note as reason."""
+    are marked absent with the note as reason.
+
+    missing_players: match-specific list (Sofascore's own
+    lineups.missingPlayers, MissingPlayer objects) -- confirmed live a
+    player ruled out for a non-injury reason (e.g. Richarlison,
+    "coach_decision") showed status "P" here despite being listed
+    unavailable in match.away_missing_players, since this function
+    previously only looked at `injuries`. Checked last, after
+    injury/note/suspension reasons, since those are more specific."""
     if not squad:
         return None
     from .merge import normalize_team_name as _normalize
@@ -447,11 +456,17 @@ def compute_presence(
     injury_by_name = {_normalize(p.name): p.injury for p in (injuries or [])}
     suspended_names = {_normalize(n) for n in (suspended or [])}
     note_injury_by_name = _note_injury_reasons(squad, additional_notes, set(injury_by_name))
+    missing_reason_by_name = {_normalize(p.name): (p.description or "Not in squad") for p in (missing_players or [])}
 
     result = []
     for m in squad:
         norm = _normalize(m.name)
-        reason = injury_by_name.get(norm) or note_injury_by_name.get(norm) or ("Suspended" if norm in suspended_names else None)
+        reason = (
+            injury_by_name.get(norm)
+            or note_injury_by_name.get(norm)
+            or ("Suspended" if norm in suspended_names else None)
+            or missing_reason_by_name.get(norm)
+        )
         result.append(
             PresenceEntry(
                 name=m.name, status=("A" if reason else "P"), starting=(norm in lineup_names),

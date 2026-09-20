@@ -28,6 +28,7 @@ from .merge import (
     compute_role_form_breakdown,
     compute_top_defenders,
     compute_top_performers,
+    reconcile_missing_players,
     is_defender_role,
     is_midfield_role,
     merge_match_details,
@@ -633,6 +634,7 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
         merged_profile.injuries if merged_profile else None,
         merged.home_suspended_players if own_is_home else merged.away_suspended_players,
         additional_notes=merged.additional_notes if hasattr(merged, 'additional_notes') else None,
+        missing_players=merged.home_missing_players if own_is_home else merged.away_missing_players,
     )
     opponent_presence = ins.compute_presence(
         opponent_profile.squad if opponent_profile else None,
@@ -641,6 +643,7 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
         opponent_profile.injuries if opponent_profile else None,
         merged.away_suspended_players if own_is_home else merged.home_suspended_players,
         additional_notes=merged.additional_notes if hasattr(merged, 'additional_notes') else None,
+        missing_players=merged.away_missing_players if own_is_home else merged.home_missing_players,
     )
     insights_result.home_presence, insights_result.away_presence = _home_away(own_is_home, own_presence, opponent_presence)
 
@@ -841,6 +844,18 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     match_kickoff = datetime.fromisoformat(merged.kickoff_utc.replace("Z", _UTC_OFFSET_SUFFIX)) if merged.kickoff_utc else None
     opponent_context = await fetch_opponent_context(merged.base_source, opponent_name, as_of=match_kickoff)
     opponent_profile = opponent_context.merged_profile
+
+    # Reconcile match-level missing_players (Sofascore's match-specific
+    # lineups.missingPlayers) with each team's own profile-level
+    # injuries -- two independently-sourced lists that confirmed live
+    # (repeatedly) disagree. Done here, before compute_insights and
+    # everything downstream, so the reconciled lists are what both the
+    # presence computation and the final JSON output actually see.
+    own_injuries = merged_profile.injuries if merged_profile else None
+    opponent_injuries = opponent_profile.injuries if opponent_profile else None
+    home_injuries, away_injuries = (own_injuries, opponent_injuries) if own_is_home else (opponent_injuries, own_injuries)
+    merged.home_missing_players = reconcile_missing_players(merged.home_missing_players, home_injuries)
+    merged.away_missing_players = reconcile_missing_players(merged.away_missing_players, away_injuries)
 
     insights_result = ins.compute_insights(merged, merged_profile.average_age if merged_profile else None, own_rest_days, opponent_context)
     venue_details = await fetch_venue_details(merged, merged.venue_country)

@@ -16,6 +16,7 @@ from .team_name_match import normalize_for_match as normalize_team_name
 from .types import (
     DefensiveStats,
     MatchDetails,
+    MissingPlayer,
     Source,
     SquadMember,
     TeamProfile,
@@ -656,6 +657,33 @@ def _validate_lineup_positions(lineup: list | None, formation: str | None) -> li
 
     _fix_defender_count(result, expected_def)
     return result
+
+
+def reconcile_missing_players(
+    missing_players: list[MissingPlayer] | None, profile_injuries: list[SquadMember] | None
+) -> list[MissingPlayer] | None:
+    """Merges a team-profile's injuries into the match-level missing-
+    players list. These are two independently-sourced facts about the
+    same team -- match.home/away_missing_players comes from Sofascore's
+    match-specific lineups.missingPlayers, while teamProfile.injuries is
+    a separate squad-level scrape -- and confirmed live (repeatedly,
+    across several reports) that they disagree: Pedro Porro correctly
+    flagged in teamProfile.injuries/missing_defenders but silently
+    absent from match.away_missing_players, alongside several other
+    players in the same situation. Injuries not already present (by
+    normalized name) are added using the profile's own injury text as
+    the description; expected_return stays None since profile-level
+    injuries don't carry that field. Order: existing entries first, then
+    newly-added ones, so a consumer already reading the match-level list
+    sees no change in what was already there."""
+    result = list(missing_players or [])
+    known = {normalize_team_name(p.name) for p in result}
+    for m in (profile_injuries or []):
+        norm = normalize_team_name(m.name)
+        if norm not in known:
+            result.append(MissingPlayer(name=m.name, description=m.injury, expected_return=None))
+            known.add(norm)
+    return result if result else None
 
 
 def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source: Source) -> None:

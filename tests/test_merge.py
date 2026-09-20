@@ -19,12 +19,14 @@ from football.merge import (
     is_midfield_role,
     merge_match_details,
     merge_team_profile,
+    reconcile_missing_players,
 )
 from football.types import (
     DefensiveStats,
     HeadToHeadMeeting,
     LineupPlayer,
     MatchDetails,
+    MissingPlayer,
     PlayerUsagePattern,
     SeasonPlayerStats,
     SquadMember,
@@ -575,3 +577,35 @@ def test_enrich_squad_with_season_stats_surname_fallback_when_unambiguous():
     result = enrich_squad_with_season_stats([target_member], by_source)
     assert result[0].season_stats == stats
     assert result[0].season_stats_source == "goal"
+
+
+# --- reconcile_missing_players -----------------------------------------------------------
+
+
+def test_reconcile_missing_players_adds_profile_injury_not_in_match_list():
+    """Regression: confirmed live (repeatedly) -- Pedro Porro was
+    correctly flagged in teamProfile.injuries/missing_defenders but
+    silently absent from match.away_missing_players, since the two
+    lists were never cross-referenced."""
+    existing = [MissingPlayer(name="Manuel Ugarte", description="Cruciate Ligament Injury", expected_return="2027-04-10T00:00:00+00:00")]
+    profile_injuries = [
+        SquadMember(name="Manuel Ugarte", role="M", injury="Cruciate Ligament Injury", age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None),
+        SquadMember(name="Pedro Porro", role="D", injury="Physical Discomfort (out)", age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None),
+    ]
+    result = reconcile_missing_players(existing, profile_injuries)
+    names = [p.name for p in result]
+    assert names == ["Manuel Ugarte", "Pedro Porro"]  # existing entries first, unchanged
+    porro = next(p for p in result if p.name == "Pedro Porro")
+    assert porro.description == "Physical Discomfort (out)"
+    assert porro.expected_return is None
+
+
+def test_reconcile_missing_players_none_when_both_empty():
+    assert reconcile_missing_players(None, None) is None
+    assert reconcile_missing_players([], []) is None
+
+
+def test_reconcile_missing_players_keeps_match_list_when_no_profile_injuries():
+    existing = [MissingPlayer(name="Player", description="Knock", expected_return=None)]
+    result = reconcile_missing_players(existing, None)
+    assert result == existing

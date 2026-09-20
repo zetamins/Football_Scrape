@@ -1301,6 +1301,29 @@ def test_presence_none_without_squad():
     assert compute_presence(None, None, None, None, None) is None
 
 
+def test_presence_marks_missing_players_absent_even_without_injury():
+    """Regression: confirmed live -- Richarlison was ruled out for
+    "coach_decision" (in match.away_missing_players), not an injury, so
+    he wasn't in teamProfile.injuries and previously showed status "P"
+    despite being explicitly listed as unavailable."""
+    from football.types import LineupPlayer, MissingPlayer
+
+    benched_by_coach = _all_none(SquadMember, name="Rested Player")
+    available = _all_none(SquadMember, name="Fit Player")
+    entries = compute_presence(
+        squad=[benched_by_coach, available],
+        lineup=[_all_none(LineupPlayer, name="Fit Player")],
+        bench=None,
+        injuries=None,
+        suspended=None,
+        missing_players=[MissingPlayer(name="Rested Player", description="coach_decision", expected_return=None)],
+    )
+    by_name = {e.name: e for e in entries}
+    assert by_name["Rested Player"].status == "A"
+    assert by_name["Rested Player"].reason == "coach_decision"
+    assert by_name["Fit Player"].status == "P"
+
+
 # --- season-stats accumulator family (compute_season_match_stats_estimate's
 # --- extracted helpers -- this was the complexity-140 function refactored
 # --- this session; previously verified only by a one-off scratchpad
