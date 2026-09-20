@@ -230,10 +230,10 @@ def test_compute_missing_by_role_none_injuries_is_none_not_empty():
     assert compute_missing_by_role([], is_midfield_role) == []
 
 
-def _squad_member(name, goals=0, assists=0, tackles=None, interceptions=None):
+def _squad_member(name, goals=0, assists=0, tackles=None, interceptions=None, role=None):
     stats = SeasonPlayerStats(appearances=10, goals=goals, assists=assists, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
     defensive = DefensiveStats(tackles_made=tackles, interceptions=interceptions, ball_recoveries=None, clearances=None, ground_duel_success_pct=None, chances_created=None) if tackles is not None else None
-    return SquadMember(name=name, role=None, injury=None, age=None, market_value=None, season_stats=stats, season_stats_source="sofascore", defensive_stats=defensive, recent_usage=None)
+    return SquadMember(name=name, role=role, injury=None, age=None, market_value=None, season_stats=stats, season_stats_source="sofascore", defensive_stats=defensive, recent_usage=None)
 
 
 def test_compute_top_performers_sorts_and_excludes_zero():
@@ -243,9 +243,29 @@ def test_compute_top_performers_sorts_and_excludes_zero():
 
 
 def test_compute_top_defenders_sorts_by_combined_score():
-    squad = [_squad_member("VVD", tackles=3, interceptions=1), _squad_member("Konate", tackles=1, interceptions=1)]
+    squad = [
+        _squad_member("VVD", tackles=3, interceptions=1, role="D"),
+        _squad_member("Konate", tackles=1, interceptions=1, role="D"),
+    ]
     top = compute_top_defenders(squad)
     assert [d.name for d in top] == ["VVD", "Konate"]
+
+
+def test_compute_top_defenders_excludes_midfielders():
+    """Regression: a high-tackle midfielder (e.g. Kobbie Mainoo, Youri
+    Tielemans) previously outranked real defenders since there was no
+    role filter at all -- confirmed live across multiple reports."""
+    squad = [
+        _squad_member("Midfielder With Tackles", tackles=10, interceptions=5, role="M"),
+        _squad_member("Real Defender", tackles=2, interceptions=1, role="D"),
+    ]
+    top = compute_top_defenders(squad)
+    assert [d.name for d in top] == ["Real Defender"]
+
+
+def test_compute_top_defenders_empty_when_no_real_defender_qualifies():
+    squad = [_squad_member("Midfielder Only", tackles=10, interceptions=5, role="M")]
+    assert compute_top_defenders(squad) == []
 
 
 def test_compute_bench_regulars_requires_non_start_majority():

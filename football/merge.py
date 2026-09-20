@@ -388,13 +388,22 @@ class TopDefender:
 def compute_top_defenders(squad: list[SquadMember] | None, count: int = 3) -> list[TopDefender]:
     """Ranked by tackles+interceptions combined -- both are real
     defensive-activity counts (see DefensiveStats), not the literal
-    pressing/defensive-line metrics the original checklist asked for."""
+    pressing/defensive-line metrics the original checklist asked for.
+
+    Restricted to is_defender_role(m.role) -- confirmed live this was
+    previously missing entirely, letting high-tackle midfielders (e.g.
+    Kobbie Mainoo, Youri Tielemans) outrank a team's real defenders and
+    show up in a list named "top defenders". A team with no defender
+    recording any Squawka tackles/interceptions now correctly returns
+    [] instead of being backfilled with midfielders."""
     if not squad:
         return []
     candidates = [
         m
         for m in squad
-        if m.defensive_stats and ((m.defensive_stats.tackles_made or 0) > 0 or (m.defensive_stats.interceptions or 0) > 0)
+        if is_defender_role(m.role)
+        and m.defensive_stats
+        and ((m.defensive_stats.tackles_made or 0) > 0 or (m.defensive_stats.interceptions or 0) > 0)
     ]
 
     def score(m: SquadMember) -> int:

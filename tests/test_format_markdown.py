@@ -1093,13 +1093,19 @@ def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
         name="Top Scorer", role="F", injury=None, age=24, market_value=50_000_000.0,
         season_stats=SeasonPlayerStats(appearances=20, goals=15, assists=5, yellow_cards=2, red_cards=0, rating=7.5, expected_goals=12.0),
         season_stats_source="sofascore",
+        defensive_stats=None,
+        recent_usage=None,
+    )
+    top_defender = SquadMember(
+        name="Top Defender", role="D", injury=None, age=28, market_value=30_000_000.0,
+        season_stats=None, season_stats_source=None,
         defensive_stats=DefensiveStats(tackles_made=5, interceptions=3, ball_recoveries=None, clearances=None, ground_duel_success_pct=None, chances_created=None),
         recent_usage=None,
     )
     injured = SquadMember(name="Injured Player", role="D", injury="hamstring", age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
 
     p = _all_none(
-        MergedProfile, source="sofascore", team_name="Home FC", squad=[scorer, injured], average_age=26.4,
+        MergedProfile, source="sofascore", team_name="Home FC", squad=[scorer, top_defender, injured], average_age=26.4,
         injuries=[injured], key_injuries=[injured], missing_midfielders=["Some Mid"], missing_attackers=["Some Att"],
         missing_defenders=["Injured Player"], missing_goalkeepers=["Some GK"],
         recent_transfers=[__import__("football.types", fromlist=["TransferRecord"]).TransferRecord(player_name="New Signing", direction="in", from_club="Old Club", to_club="Home FC", date="2026-01-01T00:00:00.000Z")],
@@ -1108,7 +1114,7 @@ def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
     lines: list[str] = []
     merged_profile_markdown(p, lines)
     text = "\n".join(lines)
-    assert "Squad (2, avg age 26.4): Top Scorer, Injured Player" in text
+    assert "Squad (3, avg age 26.4): Top Scorer, Top Defender, Injured Player" in text
     assert "Injuries: Injured Player - hamstring" in text
     assert "Key injuries" in text
     assert "Missing midfielders: Some Mid" in text
@@ -1117,7 +1123,7 @@ def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
     assert "Missing goalkeepers: Some GK" in text
     assert "Recent transfers: New Signing" in text
     assert "Top scorers: Top Scorer" in text
-    assert "Top defenders: Top Scorer" in text
+    assert "Top defenders: Top Defender" in text
 
 
 def test_form_summary_markdown_renders_every_optional_section():

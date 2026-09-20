@@ -762,7 +762,17 @@ def compute_fullback_exposure(squad: list[SquadMember] | None, count: int = 3) -
     None when there's no squad data (or too few defenders with the needed
     Squawka stats) to compute a baseline at all -- distinct from a real,
     checked [] meaning "no defender exposed". Both used to return the
-    same []."""
+    same [].
+
+    Despite the name, this covers ANY defender (is_defender_role), not
+    specifically fullbacks/wing-backs -- confirmed live a centre-back
+    (Harry Maguire) can appear here. No source this project scrapes
+    publishes fullback-vs-centre-back position granularity, only the
+    broad G/D/M/F role every SquadMember carries, so there's no data to
+    filter more precisely on. Not fixable without a finer position
+    taxonomy; named to match the Android app's existing "Fullback"
+    section (ProfileTab.kt) rather than renamed, since that's a
+    cross-repo JSON contract, not a pure Python-side naming choice."""
     if not squad:
         return None
     defenders = [m for m in squad if is_defender_role(m.role) and m.defensive_stats and m.defensive_stats.chances_created is not None and m.defensive_stats.ground_duel_success_pct is not None]
