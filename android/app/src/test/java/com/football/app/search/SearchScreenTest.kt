@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import com.football.app.data.model.FetchFailure
 import com.football.app.queue.QueueState
 import com.football.app.queue.SearchQueueService
 import com.football.app.report.ReportViewModel
@@ -236,6 +237,48 @@ class SearchScreenTest {
         composeTestRule.onNodeWithText("Searching \"Arsenal\"...").assertExists()
         composeTestRule.onNodeWithText("(2/5) Fetching Sofascore").assertExists()
         composeTestRule.onNode(hasProgressBarRangeInfo(ProgressBarRangeInfo(0.4f, 0f..1f))).assertExists()
+    }
+
+    @Test
+    fun `single search progress lists each failed link with its source, reason, and url`() {
+        val failures =
+            listOf(
+                FetchFailure("fotmob", "https://api.fotmob.com/matches", "HTTP 403"),
+                FetchFailure("sofascore", "https://www.sofascore.com/api/v1/team/1", "timed out"),
+            )
+        composeTestRule.setContent {
+            SingleSearchProgress(QueueState.Running(currentTeam = "Arsenal", index = 0, total = 1, message = "Working", failures = failures))
+        }
+        composeTestRule.onNodeWithText("2 links failed").assertExists()
+        composeTestRule.onNodeWithText("fotmob — HTTP 403").assertExists()
+        composeTestRule.onNodeWithText("https://api.fotmob.com/matches").assertExists()
+        composeTestRule.onNodeWithText("sofascore — timed out").assertExists()
+    }
+
+    @Test
+    fun `failed links header is singular for one failure`() {
+        composeTestRule.setContent {
+            FailedLinksList(listOf(FetchFailure("goal", "https://api.goal.com/x", "HTTP 500")))
+        }
+        composeTestRule.onNodeWithText("1 link failed").assertExists()
+    }
+
+    @Test
+    fun `failed links list renders nothing when there are no failures`() {
+        composeTestRule.setContent {
+            SingleSearchProgress(QueueState.Running(currentTeam = "Arsenal", index = 0, total = 1, message = "Working"))
+        }
+        composeTestRule.onNodeWithText("Arsenal", substring = true).assertExists()
+        composeTestRule.onNodeWithText("failed", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `queue status card also lists failed links for a running batch`() {
+        val failures = listOf(FetchFailure("goal", "https://api.goal.com/x", "HTTP 500"))
+        composeTestRule.setContent {
+            QueueStatusCard(QueueState.Running(currentTeam = "Chelsea", index = 0, total = 2, message = "Working", failures = failures))
+        }
+        composeTestRule.onNodeWithText("goal — HTTP 500").assertExists()
     }
 
     @Test

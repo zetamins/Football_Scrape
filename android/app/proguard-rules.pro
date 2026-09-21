@@ -42,8 +42,10 @@
 -keep class kotlin.reflect.KAnnotatedElement { *; }
 -dontwarn org.jetbrains.annotations.NotNull
 
-# PythonBridge's two `fun interface`s (ProgressListener,
-# SourceProgressListener) cross the Kotlin<->Python boundary the same
+# PythonBridge's three `fun interface`s (ProgressListener,
+# SourceProgressListener, FailureListener -- all share the identical
+# erased (String) -> Unit shape, so the class-merging failure described
+# below applies to FailureListener exactly as to the first two) cross the Kotlin<->Python boundary the same
 # way WebViewRenderer does, but via a DIFFERENT mechanism than string-
 # reflection: football/android_report.py's run_report() calls the Kotlin
 # lambda objects passed here as plain Python callables
@@ -89,4 +91,6 @@
 -keep interface com.football.app.data.bridge.PythonBridge$SourceProgressListener { *; }
 -keep class * implements com.football.app.data.bridge.PythonBridge$ProgressListener { *; }
 -keep class * implements com.football.app.data.bridge.PythonBridge$SourceProgressListener { *; }
+-keep interface com.football.app.data.bridge.PythonBridge$FailureListener { *; }
+-keep class * implements com.football.app.data.bridge.PythonBridge$FailureListener { *; }
 -keepattributes InnerClasses, EnclosingMethod, Signature

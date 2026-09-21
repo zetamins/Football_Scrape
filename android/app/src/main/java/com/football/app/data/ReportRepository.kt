@@ -2,6 +2,7 @@ package com.football.app.data
 
 import com.chaquo.python.PyException
 import com.football.app.data.bridge.PythonBridge
+import com.football.app.data.model.FetchFailure
 import com.football.app.data.model.ReportJson
 import com.football.app.data.model.SourceStatus
 import com.football.app.report.SearchState
@@ -22,7 +23,12 @@ import kotlinx.serialization.SerializationException
  * ("stays easy to unit test") actually needed a seam to be true.
  */
 class ReportRepository(
-    private val runReport: (String, PythonBridge.ProgressListener, PythonBridge.SourceProgressListener) -> String = PythonBridge::runReport,
+    private val runReport: (
+        String,
+        PythonBridge.ProgressListener,
+        PythonBridge.SourceProgressListener,
+        PythonBridge.FailureListener,
+    ) -> String = PythonBridge::runReport,
 ) {
     /**
      * Synchronous/blocking (see PythonBridge's own docstring for why).
@@ -35,6 +41,7 @@ class ReportRepository(
         onState: (SearchState) -> Unit,
     ) {
         val sourcesSeen = mutableListOf<SourceStatus>()
+        val failuresSeen = mutableListOf<FetchFailure>()
         onState(SearchState.Loading(message = "Searching for \"$teamName\"..."))
 
         try {
@@ -61,7 +68,7 @@ class ReportRepository(
             val progressListener =
                 object : PythonBridge.ProgressListener {
                     override fun onMessage(message: String) {
-                        onState(SearchState.Loading(sources = sourcesSeen.toList(), message = message))
+                        onState(SearchState.Loading(sources = sourcesSeen.toList(), message = message, failures = failuresSeen.toList()))
                     }
                 }
 
@@ -70,10 +77,19 @@ class ReportRepository(
                 object : PythonBridge.SourceProgressListener {
                     override fun onSourceStatus(statusJson: String) {
                         sourcesSeen.add(AppJson.decodeFromString(SourceStatus.serializer(), statusJson))
-                        onState(SearchState.Loading(sources = sourcesSeen.toList(), message = ""))
+                        onState(SearchState.Loading(sources = sourcesSeen.toList(), message = "", failures = failuresSeen.toList()))
                     }
                 }
-            val json = runReport(teamName, progressListener, sourceProgressListener)
+
+            @Suppress("kotlin:S6516")
+            val failureListener =
+                object : PythonBridge.FailureListener {
+                    override fun onFailure(failureJson: String) {
+                        failuresSeen.add(AppJson.decodeFromString(FetchFailure.serializer(), failureJson))
+                        onState(SearchState.Loading(sources = sourcesSeen.toList(), message = "", failures = failuresSeen.toList()))
+                    }
+                }
+            val json = runReport(teamName, progressListener, sourceProgressListener, failureListener)
             onState(SearchState.Success(AppJsonTopLevel.decodeFromString(ReportJson.serializer(), json), json))
         } catch (e: PyException) {
             onState(SearchState.Error(e.message ?: "Search failed"))

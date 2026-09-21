@@ -25,6 +25,8 @@ from typing import Any
 
 import httpx
 
+from .fetch_log import record_failure
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -61,6 +63,9 @@ async def fetch_text(url: str, client: httpx.AsyncClient | None = None) -> str:
         resp = await active.get(url, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         return resp.text
+    except Exception as err:
+        record_failure(url, err)
+        raise
     finally:
         if owns_client:
             await active.aclose()
@@ -74,6 +79,9 @@ async def fetch_json(url: str, client: httpx.AsyncClient | None = None) -> Any:
         resp = await active.get(url, headers={"User-Agent": USER_AGENT})
         resp.raise_for_status()
         return resp.json()
+    except Exception as err:
+        record_failure(url, err)
+        raise
     finally:
         if owns_client:
             await active.aclose()

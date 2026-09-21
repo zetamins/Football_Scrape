@@ -164,7 +164,7 @@ class SearchQueueService : Service() {
         repository.search(teamName) { state ->
             when (state) {
                 is SearchState.Loading -> {
-                    _queueState.value = QueueState.Running(teamName, index, total, state.message)
+                    _queueState.value = QueueState.Running(teamName, index, total, state.message, state.failures)
                     notify(buildNotification("$teamName (${index + 1}/$total)", state.message.ifBlank { "Working …" }, ongoing = true))
                 }
 

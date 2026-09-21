@@ -1,5 +1,7 @@
 package com.football.app.queue
 
+import com.football.app.data.model.FetchFailure
+
 /**
  * In-app observable mirror of what SearchQueueService is doing --
  * separate from the notification (which is the primary, required
@@ -14,6 +16,7 @@ sealed interface QueueState {
         val index: Int,
         val total: Int,
         val message: String,
+        val failures: List<FetchFailure> = emptyList(),
     ) : QueueState
 
     // lastError is the most recent team's failure message, if any --

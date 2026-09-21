@@ -186,7 +186,7 @@ class SearchQueueServiceTest {
     @Test
     fun `onStartCommand runs a single-team queue to completion, saving history and posting notifications`() {
         val sample = loadSampleReportJson()
-        val service = newService(repository = ReportRepository(runReport = { _, _, _ -> sample }))
+        val service = newService(repository = ReportRepository(runReport = { _, _, _, _ -> sample }))
         val before = SearchQueueService.queueState.value
 
         val intent = Intent().putStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES, arrayListOf("Brentford"))
@@ -213,7 +213,7 @@ class SearchQueueServiceTest {
     @Test
     fun `onStartCommand runs a failing search to completion, recording the error`() {
         val service =
-            newService(repository = ReportRepository(runReport = { _, _, _ -> throw PyException("Could not find a team matching \"Xyz\"") }))
+            newService(repository = ReportRepository(runReport = { _, _, _, _ -> throw PyException("Could not find a team matching \"Xyz\"") }))
         val before = SearchQueueService.queueState.value
 
         val intent = Intent().putStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES, arrayListOf("Xyz"))
@@ -233,7 +233,7 @@ class SearchQueueServiceTest {
         val service =
             newService(
                 repository =
-                    ReportRepository(runReport = { teamName, _, _ ->
+                    ReportRepository(runReport = { teamName, _, _, _ ->
                         calls++
                         if (teamName == "Bad") throw PyException("not found") else sample
                     }),
@@ -277,7 +277,7 @@ class SearchQueueServiceTest {
         val service =
             newService(
                 repository =
-                    ReportRepository(runReport = { _, _, _ ->
+                    ReportRepository(runReport = { _, _, _, _ ->
                         runCount.incrementAndGet()
                         startedLatch.countDown()
                         releaseLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -301,6 +301,34 @@ class SearchQueueServiceTest {
         // onStartCommand call was a no-op, not a second queue.
         assertEquals(1, runCount.get())
         assertEquals(1, finished.succeeded)
+    }
+
+    @Test
+    fun `a failed link reported mid-search shows up in the Running queue state`() {
+        val startedLatch = java.util.concurrent.CountDownLatch(1)
+        val releaseLatch = java.util.concurrent.CountDownLatch(1)
+        val sample = loadSampleReportJson()
+        val service =
+            newService(
+                repository =
+                    ReportRepository(runReport = { _, _, _, onFailure ->
+                        onFailure.onFailure("""{"source":"fotmob","url":"https://api.fotmob.com/matches","reason":"HTTP 403"}""")
+                        startedLatch.countDown()
+                        releaseLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                        sample
+                    }),
+            )
+        val before = SearchQueueService.queueState.value
+
+        service.onStartCommand(Intent().putStringArrayListExtra(SearchQueueService.EXTRA_TEAM_NAMES, arrayListOf("Brentford")), 0, 1)
+        assertTrue("search never reported the failure", startedLatch.await(5, java.util.concurrent.TimeUnit.SECONDS))
+
+        val running = SearchQueueService.queueState.value as QueueState.Running
+        assertEquals(listOf("fotmob"), running.failures.map { it.source })
+        assertEquals("HTTP 403", running.failures[0].reason)
+
+        releaseLatch.countDown()
+        awaitFinished(before)
     }
 
     @Test

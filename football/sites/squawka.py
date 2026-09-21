@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
 from ..browser import launch_browser
+from ..fetch_log import record_failure
 from ..http import USER_AGENT
 from ..retry import retry_with_backoff
 from ..team_aliases import known_aliases_for
@@ -59,7 +60,11 @@ async def _load_page_context(page: Page) -> tuple[str, list[dict]]:
         ctx = await page.evaluate(_LOAD_PAGE_CONTEXT_JS)
         return ctx["nonce"], ctx.get("competitions", [])
 
-    return await retry_with_backoff(attempt)
+    try:
+        return await retry_with_backoff(attempt)
+    except Exception as err:
+        record_failure("https://www.squawka.com/en/stats/clubs/arsenal/", err)
+        raise
 
 
 # Squawka's own competition list uses different names than the sources

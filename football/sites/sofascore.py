@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 from .._jsmath import js_round_to, js_to_fixed
 from ..browser import launch_browser
+from ..fetch_log import record_failure
 from ..form import parse_leading_int
 from ..odds_math import fractional_to_decimal, implied_and_fair_percentages, implied_and_fair_percentages_2way
 from ..retry import retry_with_backoff
@@ -80,13 +81,25 @@ async def _warm_up(page: Page) -> None:
     )
 
 
+# A CDN-level block answers 200 with {"error":{"code":403,...}} (see
+# _find_team) -- a 404 in the same shape just means "not published yet".
+_BLOCK_ERROR_CODES = frozenset({403, 429})
+
+
 async def _fetch_json(page: Page, url: str) -> Any:
     async def attempt() -> Any:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         text = await page.evaluate("() => document.body.innerText")
         return json.loads(text)
 
-    return await retry_with_backoff(attempt)
+    try:
+        data = await retry_with_backoff(attempt)
+    except Exception as err:
+        record_failure(url, err)
+        raise
+    if isinstance(data, dict) and isinstance(data.get("error"), dict) and data["error"].get("code") in _BLOCK_ERROR_CODES:
+        record_failure(url, f"HTTP {data['error']['code']} {data['error'].get('reason', 'blocked')}")
+    return data
 
 
 async def _fetch_json_optional(page: Page, url: str) -> Any | None:

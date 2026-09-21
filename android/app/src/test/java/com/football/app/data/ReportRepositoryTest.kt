@@ -16,7 +16,7 @@ class ReportRepositoryTest {
     @Test
     fun `emits an initial Loading state before the blocking call runs`() {
         val states = mutableListOf<SearchState>()
-        val repository = ReportRepository(runReport = { _, _, _ -> loadSampleReportJson() })
+        val repository = ReportRepository(runReport = { _, _, _, _ -> loadSampleReportJson() })
 
         repository.search("Arsenal") { states.add(it) }
 
@@ -29,7 +29,7 @@ class ReportRepositoryTest {
     fun `emits Success with the decoded report and the exact raw json on completion`() {
         val states = mutableListOf<SearchState>()
         val sample = loadSampleReportJson()
-        val repository = ReportRepository(runReport = { _, _, _ -> sample })
+        val repository = ReportRepository(runReport = { _, _, _, _ -> sample })
 
         repository.search("Brentford") { states.add(it) }
 
@@ -44,7 +44,7 @@ class ReportRepositoryTest {
     fun `progress listener callback emits a Loading state carrying the message`() {
         val states = mutableListOf<SearchState>()
         val repository =
-            ReportRepository(runReport = { _, onProgress, _ ->
+            ReportRepository(runReport = { _, onProgress, _, _ ->
                 onProgress.onMessage("Scraping sofascore...")
                 loadSampleReportJson()
             })
@@ -60,7 +60,7 @@ class ReportRepositoryTest {
     fun `source progress listener decodes SourceStatus and accumulates across calls`() {
         val states = mutableListOf<SearchState>()
         val repository =
-            ReportRepository(runReport = { _, _, onSourceProgress ->
+            ReportRepository(runReport = { _, _, onSourceProgress, _ ->
                 onSourceProgress.onSourceStatus("""{"source":"sofascore","fixtures_scraped":5}""")
                 onSourceProgress.onSourceStatus("""{"source":"fotmob","matches_error":"blocked"}""")
                 loadSampleReportJson()
@@ -81,7 +81,7 @@ class ReportRepositoryTest {
     @Test
     fun `PyException from the bridge becomes a SearchState Error with its message`() {
         val states = mutableListOf<SearchState>()
-        val repository = ReportRepository(runReport = { _, _, _ -> throw PyException("Could not find a team matching \"Xyz\"") })
+        val repository = ReportRepository(runReport = { _, _, _, _ -> throw PyException("Could not find a team matching \"Xyz\"") })
 
         repository.search("Xyz") { states.add(it) }
 
@@ -93,7 +93,7 @@ class ReportRepositoryTest {
     @Test
     fun `PyException with no message falls back to a generic Search failed message`() {
         val states = mutableListOf<SearchState>()
-        val repository = ReportRepository(runReport = { _, _, _ -> throw PyException() })
+        val repository = ReportRepository(runReport = { _, _, _, _ -> throw PyException() })
 
         repository.search("Xyz") { states.add(it) }
 
@@ -104,13 +104,63 @@ class ReportRepositoryTest {
     @Test
     fun `malformed json becomes a SearchState Error mentioning it could not be read`() {
         val states = mutableListOf<SearchState>()
-        val repository = ReportRepository(runReport = { _, _, _ -> "not valid json at all" })
+        val repository = ReportRepository(runReport = { _, _, _, _ -> "not valid json at all" })
 
         repository.search("Arsenal") { states.add(it) }
 
         val last = states.last()
         assertTrue(last is SearchState.Error)
         assertTrue((last as SearchState.Error).message.startsWith("Could not read the report:"))
+    }
+
+    @Test
+    fun `failure listener decodes FetchFailure and accumulates it onto every later Loading state`() {
+        val states = mutableListOf<SearchState>()
+        val repository =
+            ReportRepository(runReport = { _, onProgress, _, onFailure ->
+                onFailure.onFailure("""{"source":"fotmob","url":"https://api.fotmob.com/matches","reason":"HTTP 403"}""")
+                onFailure.onFailure("""{"source":"sofascore","url":"https://www.sofascore.com/api/v1/team/1","reason":"timed out"}""")
+                onProgress.onMessage("Scraping goal...")
+                loadSampleReportJson()
+            })
+
+        repository.search("Arsenal") { states.add(it) }
+
+        val afterFirst = states[1] as SearchState.Loading
+        assertEquals(1, afterFirst.failures.size)
+        assertEquals("fotmob", afterFirst.failures[0].source)
+        assertEquals("HTTP 403", afterFirst.failures[0].reason)
+
+        val afterMessage = states[3] as SearchState.Loading
+        assertEquals("Scraping goal...", afterMessage.message)
+        assertEquals(listOf("fotmob", "sofascore"), afterMessage.failures.map { it.source })
+    }
+
+    @Test
+    fun `Loading has no failures until one is reported`() {
+        val states = mutableListOf<SearchState>()
+        val repository = ReportRepository(runReport = { _, onProgress, _, _ ->
+            onProgress.onMessage("Working")
+            loadSampleReportJson()
+        })
+
+        repository.search("Arsenal") { states.add(it) }
+
+        assertTrue((states[0] as SearchState.Loading).failures.isEmpty())
+        assertTrue((states[1] as SearchState.Loading).failures.isEmpty())
+    }
+
+    @Test
+    fun `a malformed failure payload surfaces as a search error rather than crashing`() {
+        val states = mutableListOf<SearchState>()
+        val repository = ReportRepository(runReport = { _, _, _, onFailure ->
+            onFailure.onFailure("not json")
+            loadSampleReportJson()
+        })
+
+        repository.search("Arsenal") { states.add(it) }
+
+        assertTrue(states.last() is SearchState.Error)
     }
 
     @Test

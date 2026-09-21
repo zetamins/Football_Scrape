@@ -83,3 +83,33 @@ def test_run_report_defaults_are_noop_when_no_callbacks_given(monkeypatch):
 
     out = android_report.run_report("Brentford")
     assert json.loads(out)["team"] == "Brentford"
+
+
+def test_run_report_streams_each_failure_as_json_and_stops_capturing_afterwards(monkeypatch):
+    from football.fetch_log import record_failure
+
+    async def fake_run_search(_team_name, _on_progress, _on_source_progress):
+        record_failure("https://api.fotmob.com/matches", "HTTP 403")
+        return _fake_result()
+
+    monkeypatch.setattr(android_report, "run_search", fake_run_search)
+    received: list[str] = []
+
+    android_report.run_report("Brentford", on_failure=received.append)
+
+    assert [json.loads(r) for r in received] == [
+        {"source": "fotmob", "url": "https://api.fotmob.com/matches", "reason": "HTTP 403"}
+    ]
+    record_failure("https://api.fotmob.com/later", "HTTP 500")
+    assert len(received) == 1
+
+
+def test_run_report_works_without_an_on_failure_callback(monkeypatch):
+    from football.fetch_log import record_failure
+
+    async def fake_run_search(_team_name, _on_progress, _on_source_progress):
+        record_failure("https://api.fotmob.com/matches", "HTTP 403")
+        return _fake_result()
+
+    monkeypatch.setattr(android_report, "run_search", fake_run_search)
+    assert json.loads(android_report.run_report("Brentford"))["team"] == "Brentford"

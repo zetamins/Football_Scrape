@@ -1,5 +1,6 @@
 package com.football.app.queue
 
+import com.football.app.data.model.FetchFailure
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -20,6 +21,16 @@ class QueueStateTest {
         assertNotEquals(a, b)
         assertEquals(1, b.index)
         assertEquals("Arsenal", b.currentTeam)
+    }
+
+    @Test
+    fun `Running defaults to no failures and carries them when given`() {
+        val none = QueueState.Running(currentTeam = "Arsenal", index = 0, total = 1, message = "Working")
+        assertEquals(emptyList<FetchFailure>(), none.failures)
+        val failure = FetchFailure(source = "fotmob", url = "https://api.fotmob.com/x", reason = "HTTP 500")
+        val with = none.copy(failures = listOf(failure))
+        assertEquals(listOf(failure), with.failures)
+        assertNotEquals(none, with)
     }
 
     @Test

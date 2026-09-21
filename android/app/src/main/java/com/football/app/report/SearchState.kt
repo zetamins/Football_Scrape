@@ -1,5 +1,6 @@
 package com.football.app.report
 
+import com.football.app.data.model.FetchFailure
 import com.football.app.data.model.ReportJson
 import com.football.app.data.model.SourceStatus
 
@@ -15,6 +16,7 @@ sealed interface SearchState {
     data class Loading(
         val sources: List<SourceStatus> = emptyList(),
         val message: String = "",
+        val failures: List<FetchFailure> = emptyList(),
     ) : SearchState
 
     // rawJson is the exact string the backend returned (report is just

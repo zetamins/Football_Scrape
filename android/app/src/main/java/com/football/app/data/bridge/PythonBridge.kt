@@ -29,14 +29,19 @@ object PythonBridge {
         fun onSourceStatus(statusJson: String)
     }
 
+    fun interface FailureListener {
+        fun onFailure(failureJson: String)
+    }
+
     @ExcludedFromCoverage
     fun runReport(
         teamName: String,
         onProgress: ProgressListener,
         onSourceProgress: SourceProgressListener,
+        onFailure: FailureListener,
     ): String {
         val module = Python.getInstance().getModule("football.android_report")
-        val pyResult = module.callAttr("run_report", teamName, onProgress, onSourceProgress)
+        val pyResult = module.callAttr("run_report", teamName, onProgress, onSourceProgress, onFailure)
         return pyResult.toString()
     }
 }

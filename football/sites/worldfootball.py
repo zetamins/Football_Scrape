@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
 from ..browser import launch_browser
+from ..fetch_log import record_failure
 from ..http import USER_AGENT
 from ..retry import retry_with_backoff
 from ..team_name_match import normalize_for_match as _normalize
@@ -91,16 +92,18 @@ async def _fetch_referee_table(page: Page, competition_path: str) -> list[_Refer
     # (which explicitly does NOT retry, because a real CDN-level block was
     # confirmed to make retrying pointless there), this endpoint has no
     # evidence of that failure mode -- only of transient slowness.
+    url = f"https://www.worldfootball.net/competition/{competition_path}/referees/"
+
     async def attempt() -> list[_RefereeRow]:
-        await page.goto(
-            f"https://www.worldfootball.net/competition/{competition_path}/referees/",
-            wait_until="domcontentloaded",
-            timeout=30000,
-        )
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         rows = await page.evaluate(_TABLE_JS)
         return [_RefereeRow(name=r["name"], penalties=r["penalties"], second_yellow=r["secondYellow"]) for r in rows]
 
-    return await retry_with_backoff(attempt)
+    try:
+        return await retry_with_backoff(attempt)
+    except Exception as err:
+        record_failure(url, err)
+        raise
 
 
 async def get_referee_worldfootball_stats(

@@ -13,17 +13,20 @@ import json
 from collections.abc import Callable
 from dataclasses import asdict
 
+from .fetch_log import FetchFailure, capture_failures
 from .orchestrate import SourceStatus, run_search
 from .report import build_report_json
 
 _NOOP_PROGRESS: Callable[[str], None] = lambda msg: None
 _NOOP_SOURCE_PROGRESS: Callable[[str], None] = lambda status_json: None
+_NOOP_FAILURE: Callable[[str], None] = lambda failure_json: None
 
 
 def run_report(
     team_name: str,
     on_progress: Callable[[str], None] = _NOOP_PROGRESS,
     on_source_progress: Callable[[str], None] = _NOOP_SOURCE_PROGRESS,
+    on_failure: Callable[[str], None] = _NOOP_FAILURE,
 ) -> str:
     """Runs the full search/insights pipeline and returns
     report.build_report_json's JSON shape as a string.
@@ -42,7 +45,14 @@ def run_report(
     section) -- on_progress's free text alone isn't reliably parseable
     for that.
 
-    Both callbacks are optional. Kotlin passes a `fun interface` instance
+    on_failure: fired the moment any single link/API request fails for
+    good (retries exhausted, or a 403/429 block), once per distinct URL,
+    with a JSON string like {"source": "fotmob", "url": "https://...",
+    "reason": "HTTP 403"} -- finer-grained than on_source_progress, which
+    only reports a whole source's own summarized errors after it finishes.
+    Lets the UI list failed links live as the search runs.
+
+    All callbacks are optional. Kotlin passes a `fun interface` instance
     (e.g. `fun interface ProgressListener { fun invoke(message: String) }`)
     -- Chaquopy calls a Java/Kotlin single-abstract-method object exactly
     like a Python callable, so no extra glue is needed on the Python side
@@ -61,5 +71,9 @@ def run_report(
     def _on_source_progress(status: SourceStatus) -> None:
         on_source_progress(json.dumps(asdict(status)))
 
-    result = asyncio.run(run_search(team_name, on_progress, _on_source_progress))
+    def _on_failure(failure: FetchFailure) -> None:
+        on_failure(json.dumps(asdict(failure)))
+
+    with capture_failures(_on_failure):
+        result = asyncio.run(run_search(team_name, on_progress, _on_source_progress))
     return json.dumps(build_report_json(result), default=str)
