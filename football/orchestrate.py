@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from . import insights as ins
 from .elo import compute_elo_rating
 from .form import (
+    all_form_results,
     compute_form_summary,
     enrich_form_with_venue_classification,
     is_team_home,
@@ -330,7 +331,7 @@ async def _scrape_all_sources(
     return matches_by_source, details_by_source, profile_by_source, statuses
 
 
-async def _apply_own_recent_meetings_and_form(merged, form_source, form, matches_by_source, opponent_name, merged_profile):
+async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, form, matches_by_source, opponent_name, merged_profile):
     """Deep Sofascore recent-meetings + venue-classified form enrichment
     for the searched team. Returns the (possibly re-enriched) form plus
     own_advanced_stats, since both feed later steps."""
@@ -340,9 +341,12 @@ async def _apply_own_recent_meetings_and_form(merged, form_source, form, matches
         # is richer than any other source's own recent_meetings field,
         # so it takes priority when it succeeds -- but doesn't clobber
         # a decent fallback the field-merge already filled in (e.g.
-        # from SoccerDesk) when it comes back empty.
+        # from SoccerDesk) when it comes back empty. Searches the full
+        # match history (all_form_results), not just last20_overall --
+        # two teams often haven't met within that smaller window at all.
         try:
-            deep_recent_meetings = await ins.compute_recent_meetings(matches_by_source[form_source], form.last20_overall, opponent_name, form_source)
+            full_history = all_form_results(team_name, matches_by_source[form_source])
+            deep_recent_meetings = await ins.compute_recent_meetings(matches_by_source[form_source], full_history, opponent_name, form_source)
         except Exception:  # noqa: BLE001
             deep_recent_meetings = None
         apply_deep_recent_meetings(merged, deep_recent_meetings, form_source)
@@ -841,7 +845,7 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     opponent_name = merged.home_team if own_is_home is False else merged.away_team
     own_rest_days = form.next5_with_gaps[0].days_since_previous if form and form.next5_with_gaps else None
 
-    form, own_advanced_stats = await _apply_own_recent_meetings_and_form(merged, form_source, form, matches_by_source, opponent_name, merged_profile)
+    form, own_advanced_stats = await _apply_own_recent_meetings_and_form(team_name, merged, form_source, form, matches_by_source, opponent_name, merged_profile)
 
     on_progress(_step_message(1, f"Next match found: {merged.home_team} vs {merged.away_team}. Fetching opponent ({opponent_name})..."))
     match_kickoff = datetime.fromisoformat(merged.kickoff_utc.replace("Z", _UTC_OFFSET_SUFFIX)) if merged.kickoff_utc else None

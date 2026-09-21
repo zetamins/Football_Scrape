@@ -192,3 +192,57 @@ def test_all_three_methods_populate_independently():
     assert result.market_implied is not None
     assert result.heuristic_blend is not None
     assert result.xg_model is not None
+
+
+# --- model name / expected goals / likely scorelines / goal markets -------------------
+
+
+def test_model_name_lists_only_the_methods_that_ran():
+    only_heuristic = compute_match_prediction(None, _elo(1500), _elo(1500))
+    assert only_heuristic.model == "heuristic"
+
+    market_and_xg = compute_match_prediction(
+        _odds(50.0, 25.0, 25.0), None, None, home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0),
+    )
+    assert market_and_xg.model == "market+xg"
+
+    all_three = compute_match_prediction(
+        _odds(50.0, 25.0, 25.0), _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0),
+    )
+    assert all_three.model == "market+heuristic+xg"
+
+
+def test_expected_goals_and_extras_none_without_xg_model():
+    result = compute_match_prediction(_odds(50.0, 25.0, 25.0), None, None)
+    assert result.home_expected_goals is None
+    assert result.away_expected_goals is None
+    assert result.likely_scorelines is None
+    assert result.goal_markets is None
+
+
+def test_expected_goals_and_scorelines_populate_with_xg_model():
+    result = compute_match_prediction(
+        None, None, None, home_xg=_xg(20.0, 10.0, sample_size=10), away_xg=_xg(10.0, 20.0, sample_size=10),
+    )
+    assert result.home_expected_goals > result.away_expected_goals
+    assert len(result.likely_scorelines) == 3
+    # Scorelines are sorted most-likely first.
+    probs = [s.probability_pct for s in result.likely_scorelines]
+    assert probs == sorted(probs, reverse=True)
+
+
+def test_goal_markets_sum_to_100():
+    result = compute_match_prediction(
+        None, None, None, home_xg=_xg(20.0, 10.0, sample_size=10), away_xg=_xg(15.0, 15.0, sample_size=10),
+    )
+    gm = result.goal_markets
+    assert round(gm.over_2_5_pct + gm.under_2_5_pct, 1) == 100.0
+    assert round(gm.btts_yes_pct + gm.btts_no_pct, 1) == 100.0
+
+
+def test_goal_markets_high_scoring_teams_favor_over_and_btts():
+    result = compute_match_prediction(
+        None, None, None, home_xg=_xg(30.0, 25.0, sample_size=10), away_xg=_xg(28.0, 22.0, sample_size=10),
+    )
+    assert result.goal_markets.over_2_5_pct > 50.0
+    assert result.goal_markets.btts_yes_pct > 50.0

@@ -368,6 +368,28 @@ def _compute_last10_stats(all_results: list[FormResult]) -> _Last10Stats:
     )
 
 
+def all_form_results(team_name: str, matches: list[MatchInfo]) -> list[FormResult]:
+    """Every played match converted to a FormResult, most recent first --
+    the full history available from `matches`, not sliced to last5/10/20
+    or friendly-filtered like compute_form_summary's own internal
+    all_results is. Used by compute_recent_meetings (insights.py) to
+    search for historical head-to-head meetings against a specific
+    opponent: two teams often haven't played each other within the
+    smaller last-20-overall window at all (confirmed live -- a
+    Tottenham/Man Utd Europa League meeting over a year old was
+    unreachable from that window), so H2H search needs the wider net.
+    Friendlies deliberately included here (unlike compute_form_summary's
+    all_results) -- a friendly meeting is still real head-to-head
+    history worth surfacing, even though it's excluded from form/goals
+    stats."""
+    played = sorted(
+        (m for m in matches if m.home_score is not None and m.away_score is not None and m.kickoff_utc),
+        key=lambda m: _parse_dt(m.kickoff_utc),
+        reverse=True,
+    )
+    return [r for r in (_to_form_result(m, team_name) for m in played) if r is not None]
+
+
 def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummary:
     now = datetime.now(tz=UTC)
 

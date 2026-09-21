@@ -78,12 +78,12 @@ def _prune_unplayed_match_fields(match_dict: dict[str, Any]) -> dict[str, Any]:
     return match_dict
 
 
-# Every key name, anywhere in the output, that classifies a piece of data
-# by which of the 5 scraped sites it came from. The underlying merge/
-# fallback logic (merge.py) still needs these internally to route deep
-# per-source enrichment correctly -- this only controls what a consumer
-# of the JSON/markdown sees, not how the data was actually assembled.
-_SOURCE_LABEL_KEYS = {"source", "base_source", "field_sources", "season_stats_source"}
+# Per-item source labels (which single site a specific squad member's
+# season stats came from, etc.) -- these still get stripped since they're
+# a finer-grained, more invasive level of labeling than what was actually
+# requested (per-field provenance for the match/profile merge itself,
+# answered by base_source/field_sources below).
+_SOURCE_LABEL_KEYS = {"source", "season_stats_source"}
 
 
 def _strip_source_labels(obj: Any) -> Any:
@@ -113,6 +113,12 @@ def build_report_json(result: RunSearchResult) -> dict[str, Any]:
         "teamProfile": (_strip_source_labels(asdict(result.merged_profile)) if result.merged_profile else None),
         "opponentProfile": (_strip_source_labels(asdict(result.opponent_profile)) if result.opponent_profile else None),
         "insights": (_strip_source_labels(asdict(result.insights)) if result.insights else None),
+        # Same computation the Markdown report's trailing "X/Y fields
+        # populated" line already used -- previously computed for
+        # Markdown only and never included in the JSON output at all.
+        # None when there's no upcoming match at all (compute_data_
+        # completeness needs a real MatchDetails to score against).
+        "dataCompleteness": (compute_data_completeness(result.merged, result.insights) if result.merged else None),
     }
 
 

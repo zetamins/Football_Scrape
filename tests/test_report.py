@@ -136,19 +136,23 @@ def test_never_deletes_a_real_early_confirmed_formation():
 # --- _strip_source_labels -------------------------------------------------------
 
 
-def test_strip_source_labels_removes_provenance_keys_at_any_depth():
+def test_strip_source_labels_removes_per_item_source_keys_at_any_depth():
+    # base_source/field_sources are deliberately NOT stripped -- they're
+    # the per-field provenance a consumer actually asked for (which
+    # source supplied each field of the match/profile merge). Only the
+    # finer-grained, per-item source/season_stats_source labels are.
     obj = {
         "source": "sofascore",
         "team": "Arsenal",
-        "nested": {"base_source": "fotmob", "value": 1},
+        "nested": {"season_stats_source": "fotmob", "value": 1},
         "list": [{"field_sources": {"x": "goal"}, "keep": "yes"}],
     }
     result = _strip_source_labels(obj)
     assert "source" not in result
     assert result["team"] == "Arsenal"
-    assert "base_source" not in result["nested"]
+    assert "season_stats_source" not in result["nested"]
     assert result["nested"]["value"] == 1
-    assert "field_sources" not in result["list"][0]
+    assert "field_sources" in result["list"][0]
     assert result["list"][0]["keep"] == "yes"
 
 
@@ -188,18 +192,21 @@ def test_build_report_json_with_no_match_found():
     assert report["sources"] == []
 
 
-def test_build_report_json_strips_source_labels_from_match():
+def test_build_report_json_strips_only_per_item_source_from_match():
     from football.merge import MergedMatch
 
     merged = _all_none(
         MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
-        source="sofascore", base_source="sofascore", field_sources={}, additional_notes=[],
+        source="sofascore", base_source="sofascore", field_sources={"venue_name": "fotmob"}, additional_notes=[],
     )
     result = _run_search_result(merged=merged)
     report = build_report_json(result)
     assert report["match"]["home_team"] == "Home FC"
     assert "source" not in report["match"]
-    assert "base_source" not in report["match"]
+    # base_source/field_sources ARE the per-field provenance that was
+    # requested -- exposed now, not stripped.
+    assert report["match"]["base_source"] == "sofascore"
+    assert report["match"]["field_sources"] == {"venue_name": "fotmob"}
 
 
 def test_build_report_json_includes_source_statuses():
@@ -211,6 +218,23 @@ def test_build_report_json_includes_source_statuses():
     assert len(report["sources"]) == 2
     assert report["sources"][0]["fixtures_scraped"] == 5
     assert report["sources"][1]["matches_error"] == "blocked"
+
+
+def test_build_report_json_data_completeness_none_without_match():
+    result = _run_search_result()
+    report = build_report_json(result)
+    assert report["dataCompleteness"] is None
+
+
+def test_build_report_json_includes_data_completeness_when_match_exists():
+    from football.merge import MergedMatch
+
+    merged = _all_none(MergedMatch, home_team="Home FC", away_team="Away FC", status="notstarted", additional_notes=[])
+    result = _run_search_result(merged=merged)
+    report = build_report_json(result)
+    assert report["dataCompleteness"] is not None
+    assert "populated" in report["dataCompleteness"]
+    assert "total" in report["dataCompleteness"]
 
 
 def test_build_report_markdown_with_no_match_found():

@@ -1140,6 +1140,26 @@ class OutcomeProbabilities:
 
 
 @dataclass
+class ScorelineProbability:
+    home_goals: int
+    away_goals: int
+    probability_pct: float
+
+
+@dataclass
+class GoalMarketProbabilities:
+    """Both markets derived from the same independent-Poisson score grid
+    xg_model itself uses (see MatchPrediction.xg_model's own doc comment
+    for the model's real citation and stated limitations) -- not a
+    separate model, just a different summary of the same grid."""
+
+    over_2_5_pct: float
+    under_2_5_pct: float
+    btts_yes_pct: float
+    btts_no_pct: float
+
+
+@dataclass
 class MatchPrediction:
     """Three independent methods, shown side by side rather than merged
     into one number, so a reader can see where they agree or disagree
@@ -1191,6 +1211,31 @@ class MatchPrediction:
     # agree, lower when they diverge significantly.
     blended: OutcomeProbabilities | None = None
     confidence: float | None = None
+    # "+"-joined names of whichever of market/heuristic/xg contributed
+    # (e.g. "heuristic+xg") -- which methods actually ran for THIS match,
+    # not a fixed algorithm name (the three methods are three different,
+    # independently-documented approaches, not variants of one model).
+    model: str | None = None
+    # Same xG rates _xg_model_from_estimates already computes internally
+    # to run the Poisson model -- exposed directly rather than making a
+    # consumer re-derive them from SeasonXGEstimate. None under the same
+    # conditions xg_model is None (either team's xG estimate unavailable).
+    home_expected_goals: float | None = None
+    away_expected_goals: float | None = None
+    # Both derived from the same Poisson grid as xg_model -- None under
+    # the same conditions xg_model is None. Not part of xg_model itself
+    # (that's strictly win/draw/loss) so a consumer that only wants the
+    # three headline outcome probabilities isn't forced to also parse
+    # these.
+    likely_scorelines: list[ScorelineProbability] | None = None
+    goal_markets: GoalMarketProbabilities | None = None
+    # NOT provided: a calibration/Brier-score/model-accuracy note would
+    # require comparing past predictions against actual results, which
+    # needs a persistent archive of predictions made and outcomes
+    # observed across many prior runs. This project has no such archive
+    # by design (see elo.py's own docstring on the identical limitation
+    # for its rating) -- every run is stateless. Not a bug to fix; would
+    # need new persistent-storage infrastructure, out of scope here.
 
 
 @dataclass

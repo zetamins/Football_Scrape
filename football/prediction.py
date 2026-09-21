@@ -45,12 +45,15 @@ adding this:
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from .types import (
     BettingOdds,
     EloRating,
+    GoalMarketProbabilities,
     MatchPrediction,
     OutcomeProbabilities,
+    ScorelineProbability,
     SeasonXGEstimate,
     SquadStrengthInfo,
 )
@@ -157,7 +160,7 @@ def _poisson_pmf(k: int, rate: float) -> float:
     return math.exp(-rate) * (rate**k) / math.factorial(k)
 
 
-def _poisson_outcome_probabilities(home_rate: float, away_rate: float) -> OutcomeProbabilities:
+def _poisson_score_grid(home_rate: float, away_rate: float) -> dict[tuple[int, int], float]:
     """Maher (1982)'s independent-Poisson goal model -- the foundational
     version of the approach Dixon & Coles (1997) later refined with a
     low-score dependence correction. That correction's own dependence
@@ -166,26 +169,47 @@ def _poisson_outcome_probabilities(home_rate: float, away_rate: float) -> Outcom
     same limitation for its rating), so this implementation is the plain
     independent-Poisson version, not the full Dixon-Coles correction --
     stated plainly rather than silently claiming more sophistication
-    than what's actually implemented."""
-    home_win = draw = away_win = 0.0
+    than what's actually implemented.
+
+    Returns P(home_goals=i, away_goals=j) for every (i, j) up to
+    _POISSON_MAX_GOALS each, renormalized to sum to 1.0 (the tiny
+    excluded tail beyond that cap is folded back in here). Computed once
+    and shared by outcome probabilities, likely scorelines, and the
+    O/U 2.5 + BTTS goal markets -- all four are different summaries of
+    this same grid, not four separate models."""
     home_probs = [_poisson_pmf(i, home_rate) for i in range(_POISSON_MAX_GOALS + 1)]
     away_probs = [_poisson_pmf(j, away_rate) for j in range(_POISSON_MAX_GOALS + 1)]
-    for i, p_i in enumerate(home_probs):
-        for j, p_j in enumerate(away_probs):
-            p = p_i * p_j
-            if i > j:
-                home_win += p
-            elif i == j:
-                draw += p
-            else:
-                away_win += p
-    total = home_win + draw + away_win  # ~1.0; the tiny excluded tail beyond _POISSON_MAX_GOALS is renormalized away here
+    grid = {(i, j): p_i * p_j for i, p_i in enumerate(home_probs) for j, p_j in enumerate(away_probs)}
+    total = sum(grid.values())
     if total <= 0:
-        return OutcomeProbabilities(home_win_pct=0.0, draw_pct=0.0, away_win_pct=0.0)
+        return grid
+    return {k: v / total for k, v in grid.items()}
+
+
+def _poisson_outcome_probabilities(grid: dict[tuple[int, int], float]) -> OutcomeProbabilities:
+    home_win = sum(p for (i, j), p in grid.items() if i > j)
+    draw = sum(p for (i, j), p in grid.items() if i == j)
+    away_win = sum(p for (i, j), p in grid.items() if i < j)
     return OutcomeProbabilities(
-        home_win_pct=round(100 * home_win / total, 1),
-        draw_pct=round(100 * draw / total, 1),
-        away_win_pct=round(100 * away_win / total, 1),
+        home_win_pct=round(100 * home_win, 1),
+        draw_pct=round(100 * draw, 1),
+        away_win_pct=round(100 * away_win, 1),
+    )
+
+
+def _poisson_likely_scorelines(grid: dict[tuple[int, int], float], count: int = 3) -> list[ScorelineProbability]:
+    ranked = sorted(grid.items(), key=lambda kv: kv[1], reverse=True)
+    return [ScorelineProbability(home_goals=i, away_goals=j, probability_pct=round(100 * p, 1)) for (i, j), p in ranked[:count]]
+
+
+def _poisson_goal_markets(grid: dict[tuple[int, int], float]) -> GoalMarketProbabilities:
+    over_2_5 = sum(p for (i, j), p in grid.items() if i + j > 2.5)
+    btts_yes = sum(p for (i, j), p in grid.items() if i >= 1 and j >= 1)
+    return GoalMarketProbabilities(
+        over_2_5_pct=round(100 * over_2_5, 1),
+        under_2_5_pct=round(100 * (1 - over_2_5), 1),
+        btts_yes_pct=round(100 * btts_yes, 1),
+        btts_no_pct=round(100 * (1 - btts_yes), 1),
     )
 
 
@@ -252,15 +276,38 @@ def _heuristic_blend_from_elo(
     return _davidson_probabilities(adjusted_home, adjusted_away)
 
 
-def _xg_model_from_estimates(home_xg: SeasonXGEstimate | None, away_xg: SeasonXGEstimate | None) -> OutcomeProbabilities | None:
+@dataclass
+class _XgModelResult:
+    """Everything derived from the same Poisson grid the xG model
+    computes -- bundled so compute_match_prediction can take it as one
+    value instead of unpacking a 5-tuple. Not part of the public types
+    module: purely internal plumbing between _xg_model_from_estimates
+    and compute_match_prediction."""
+
+    outcome: OutcomeProbabilities
+    home_expected_goals: float
+    away_expected_goals: float
+    likely_scorelines: list[ScorelineProbability]
+    goal_markets: GoalMarketProbabilities
+
+
+def _xg_model_from_estimates(home_xg: SeasonXGEstimate | None, away_xg: SeasonXGEstimate | None) -> _XgModelResult | None:
     """Extracted from compute_match_prediction to keep its own cognitive
-    complexity down (python:S3776); behavior unchanged."""
+    complexity down (python:S3776)."""
     if not (home_xg and away_xg):
         return None
     rates = _expected_goal_rates(home_xg, away_xg)
     if rates is None:
         return None
-    return _poisson_outcome_probabilities(rates[0], rates[1])
+    home_rate, away_rate = rates
+    grid = _poisson_score_grid(home_rate, away_rate)
+    return _XgModelResult(
+        outcome=_poisson_outcome_probabilities(grid),
+        home_expected_goals=round(home_rate, 2),
+        away_expected_goals=round(away_rate, 2),
+        likely_scorelines=_poisson_likely_scorelines(grid),
+        goal_markets=_poisson_goal_markets(grid),
+    )
 
 
 def _blend_predictions(available: list[OutcomeProbabilities], weights: list[float]) -> tuple[OutcomeProbabilities | None, float | None]:
@@ -293,6 +340,21 @@ def _blend_predictions(available: list[OutcomeProbabilities], weights: list[floa
     return blended, confidence
 
 
+def _prediction_model_name(market_implied, heuristic_blend, xg_result) -> str | None:
+    """"+"-joined names of whichever methods actually ran for this match
+    -- see MatchPrediction.model's own doc comment. Extracted from
+    compute_match_prediction to keep its own cognitive complexity down
+    (python:S3776)."""
+    names = []
+    if market_implied is not None:
+        names.append("market")
+    if heuristic_blend is not None:
+        names.append("heuristic")
+    if xg_result is not None:
+        names.append("xg")
+    return "+".join(names) if names else None
+
+
 def compute_match_prediction(
     betting_odds: BettingOdds | None,
     home_elo: EloRating | None,
@@ -308,7 +370,8 @@ def compute_match_prediction(
     heuristic_blend = _heuristic_blend_from_elo(
         home_elo, away_elo, home_rest_days, away_rest_days, home_squad_strength, away_squad_strength
     )
-    xg_model = _xg_model_from_estimates(home_xg, away_xg)
+    xg_result = _xg_model_from_estimates(home_xg, away_xg)
+    xg_model = xg_result.outcome if xg_result else None
 
     if market_implied is None and heuristic_blend is None and xg_model is None:
         return None
@@ -331,4 +394,9 @@ def compute_match_prediction(
     return MatchPrediction(
         market_implied=market_implied, heuristic_blend=heuristic_blend,
         xg_model=xg_model, blended=blended, confidence=confidence,
+        model=_prediction_model_name(market_implied, heuristic_blend, xg_result),
+        home_expected_goals=(xg_result.home_expected_goals if xg_result else None),
+        away_expected_goals=(xg_result.away_expected_goals if xg_result else None),
+        likely_scorelines=(xg_result.likely_scorelines if xg_result else None),
+        goal_markets=(xg_result.goal_markets if xg_result else None),
     )

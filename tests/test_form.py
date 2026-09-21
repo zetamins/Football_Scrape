@@ -20,6 +20,7 @@ from football.form import (
     _to_form_result,
     _total_goals,
     _win_rate,
+    all_form_results,
     compute_form_summary,
     day_diff,
     enrich_form_with_venue_classification,
@@ -407,6 +408,46 @@ def test_last10_stats_empty_without_results():
     stats = _compute_last10_stats([])
     assert stats.win_rate_pct is None
     assert stats.points_per_game is None
+
+
+# --- all_form_results -------------------------------------------------------------
+
+
+def test_all_form_results_reaches_further_back_than_compute_form_summary_slices():
+    now = datetime.now(tz=UTC)
+    # 21 competitive wins followed by an older meeting against a specific
+    # opponent -- outside last20_overall's window, but still real history.
+    played = [
+        _match(home_team="Home FC", away_team=f"Filler{i}", home_score=1, away_score=0, kickoff_utc=(now - timedelta(days=i)).isoformat())
+        for i in range(21)
+    ]
+    played.append(_match(home_team="Home FC", away_team="Old Rival", home_score=2, away_score=2, kickoff_utc=(now - timedelta(days=400)).isoformat()))
+    results = all_form_results("Home FC", played)
+    summary = compute_form_summary("Home FC", played)
+    assert any(r.opponent == "Old Rival" for r in results)
+    assert not any(r.opponent == "Old Rival" for r in summary.last20_overall)
+
+
+def test_all_form_results_includes_friendlies_unlike_compute_form_summary():
+    now = datetime.now(tz=UTC)
+    played = [_match(home_team="Home FC", away_team="Friendly Opp", home_score=1, away_score=1, competition="Club Friendly Games", kickoff_utc=(now - timedelta(days=1)).isoformat())]
+    results = all_form_results("Home FC", played)
+    assert len(results) == 1
+    assert results[0].opponent == "Friendly Opp"
+
+
+def test_all_form_results_sorted_most_recent_first():
+    now = datetime.now(tz=UTC)
+    played = [
+        _match(home_team="Home FC", away_team="Older", home_score=1, away_score=0, kickoff_utc=(now - timedelta(days=10)).isoformat()),
+        _match(home_team="Home FC", away_team="Newer", home_score=2, away_score=0, kickoff_utc=(now - timedelta(days=1)).isoformat()),
+    ]
+    results = all_form_results("Home FC", played)
+    assert [r.opponent for r in results] == ["Newer", "Older"]
+
+
+def test_all_form_results_empty_without_matches():
+    assert all_form_results("Home FC", []) == []
 
 
 # --- compute_form_summary (integration) -------------------------------------------

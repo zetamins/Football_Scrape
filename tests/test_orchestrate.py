@@ -786,7 +786,7 @@ def test_apply_own_recent_meetings_and_form_noop_without_form_source():
     merged = _all_none(orchestrate.MergedMatch, field_sources={}, additional_notes=[])
     form = _form_summary()
     result_form, advanced_stats = asyncio.run(
-        _apply_own_recent_meetings_and_form(merged, None, form, {}, "Opponent", None)
+        _apply_own_recent_meetings_and_form("Home FC", merged, None, form, {}, "Opponent", None)
     )
     assert result_form is form
     assert advanced_stats is None
@@ -822,7 +822,7 @@ def test_apply_own_recent_meetings_and_form_applies_deep_meetings_and_venue_enri
     merged_profile = _all_none(orchestrate.MergedProfile, source="sofascore", team_name="Own", squad=[squad_member], field_sources={})
 
     result_form, advanced_stats = asyncio.run(
-        _apply_own_recent_meetings_and_form(merged, "sofascore", form, {"sofascore": []}, "Opponent", merged_profile)
+        _apply_own_recent_meetings_and_form("Home FC", merged, "sofascore", form, {"sofascore": []}, "Opponent", merged_profile)
     )
     assert result_form is enriched_form
     assert advanced_stats == "some-advanced-stats"
@@ -846,7 +846,7 @@ def test_apply_own_recent_meetings_and_form_tolerates_failures(monkeypatch):
     original_meetings = merged.recent_meetings
     form = _form_summary()
     result_form, advanced_stats = asyncio.run(
-        _apply_own_recent_meetings_and_form(merged, "sofascore", form, {"sofascore": []}, "Opponent", None)
+        _apply_own_recent_meetings_and_form("Home FC", merged, "sofascore", form, {"sofascore": []}, "Opponent", None)
     )
     assert result_form is form
     assert advanced_stats is None
