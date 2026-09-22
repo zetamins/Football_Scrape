@@ -197,6 +197,23 @@ def test_all_three_methods_populate_independently():
 # --- model name / expected goals / likely scorelines / goal markets -------------------
 
 
+def test_confidence_basis_says_it_is_agreement_and_flags_missing_market_odds():
+    no_market = compute_match_prediction(None, _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0))
+    assert "not real-world accuracy" in no_market.confidence_basis
+    assert "2 of 3 methods" in no_market.confidence_basis
+    assert "no market odds" in no_market.confidence_basis
+
+    with_market = compute_match_prediction(
+        _odds(50.0, 25.0, 25.0), _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0),
+    )
+    assert "3 of 3 methods" in with_market.confidence_basis
+    assert "no market odds" not in with_market.confidence_basis
+
+
+def test_confidence_basis_none_when_only_one_method_ran():
+    assert compute_match_prediction(None, _elo(1500), _elo(1500)).confidence_basis is None
+
+
 def test_model_name_lists_only_the_methods_that_ran():
     only_heuristic = compute_match_prediction(None, _elo(1500), _elo(1500))
     assert only_heuristic.model == "heuristic"

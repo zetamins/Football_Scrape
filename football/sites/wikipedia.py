@@ -17,14 +17,26 @@ import re
 from datetime import UTC, datetime
 from urllib.parse import quote
 
+import httpx
+
+from ..fetch_log import record_failure, record_step_failure
 from ..http import USER_AGENT, new_client
+from ..team_aliases import known_aliases_for
 
 
 async def _fetch_article_html(title: str) -> str | None:
     url = f"https://en.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}"
     async with new_client() as client:
-        resp = await client.get(url, headers={"User-Agent": USER_AGENT})
+        try:
+            resp = await client.get(url, headers={"User-Agent": USER_AGENT})
+        except httpx.HTTPError as err:
+            record_failure(url, err)
+            raise
         if resp.status_code != 200:
+            # 404 = no such article (a normal outcome of guessing a title);
+            # anything else (403 robot policy, 429, 5xx) is a real failure.
+            if resp.status_code != 404:
+                record_failure(url, f"HTTP {resp.status_code}")
             return None
         return resp.text
 
@@ -332,6 +344,40 @@ def _find_manager_table(html: str) -> tuple[int, int, list[list[str]]] | None:
         return name_col, to_col, rows
 
 
+_MANAGER_LIST_PATTERNS = ("{c} F.C.", "{c}", "FC {c}", "{c} CF", "AC {c}", "A.S. {c}", "S.S.C. {c}")
+
+
+def _title_case_name(name: str) -> str:
+    """team_aliases.py stores names normalized (lowercase, ASCII-folded);
+    Wikipedia article titles are title-cased. Not a perfect inverse (loses
+    diacritics, and a few club names have a genuinely lowercase word --
+    "the" in a nickname, say) -- an approximation good enough for a
+    best-effort guess that's reported, not silently trusted, if it
+    doesn't resolve to a real article (see get_previous_manager)."""
+    return " ".join(word.capitalize() for word in name.split())
+
+
+def _manager_list_titles(club_name: str) -> list[str]:
+    """Candidate "List of ... managers" article titles. Only /wiki/ article
+    pages are fetched (the search API is off-limits, see the module
+    docstring), so this is a bounded set of guesses, not a search: the
+    common English naming shapes first ("F.C.", plain, "FC x", "x CF", "AC
+    x", "A.S. x", "S.S.C. x"), then the same shapes applied to every other
+    spelling team_aliases.py already knows for this club (catches e.g. a
+    club searched by nickname or short name whose Wikipedia title uses its
+    full name, or vice versa) -- reuses that table's vetted spellings
+    rather than guessing new prefixes. Stops at the first title that
+    exists (see get_previous_manager)."""
+    titles = [f"List of {pattern.format(c=club_name)} managers" for pattern in _MANAGER_LIST_PATTERNS]
+    for alias in known_aliases_for(club_name):
+        name = _title_case_name(alias)
+        for pattern in ("{c} F.C.", "{c}"):
+            title = f"List of {pattern.format(c=name)} managers"
+            if title not in titles:
+                titles.append(title)
+    return titles
+
+
 async def get_previous_manager(club_name: str) -> str | None:
     """Clubs' own "List of {Club} managers" Wikipedia pages --
     chronologically ordered, current manager last (confirmed live:
@@ -340,13 +386,13 @@ async def get_previous_manager(club_name: str) -> str | None:
     plain variant. Returns the manager immediately before whichever row is
     current -- best-effort, same "may lag a real-world change until
     Wikipedia updates" caveat as get_manager_appointment_date."""
-    candidates = [f"List of {club_name} F.C. managers", f"List of {club_name} managers"]
     html: str | None = None
-    for title in candidates:
+    for title in _manager_list_titles(club_name):
         html = await _fetch_article_html(title)
         if html:
             break
     if not html:
+        record_step_failure(f"previous manager (Wikipedia): no manager list article found for {club_name}", "no matching article title")
         return None
 
     found = _find_manager_table(html)

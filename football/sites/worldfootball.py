@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
 from ..browser import launch_browser
-from ..fetch_log import record_failure
+from ..fetch_log import record_failure, record_step_failure
 from ..http import USER_AGENT
 from ..retry import retry_with_backoff
 from ..team_name_match import normalize_for_match as _normalize
@@ -139,7 +139,8 @@ async def get_referee_worldfootball_stats(
         if hit is None:
             return None
         return WorldfootballRefereeStats(penalties=hit.penalties, second_yellow=hit.second_yellow)
-    except Exception:  # noqa: BLE001 - mirrors TS's catch { return null }
+    except Exception as err:  # noqa: BLE001 - mirrors TS's catch { return null }
+        record_step_failure("referee stats (WorldFootball)", err)
         return None
     finally:
         await browser_cm.__aexit__(None, None, None)

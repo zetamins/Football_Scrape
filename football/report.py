@@ -94,10 +94,44 @@ def _strip_source_labels(obj: Any) -> Any:
     return obj
 
 
+# Which slice of history each family of numbers covers. These genuinely
+# differ (season stats and top scorers are current-season-to-date; form
+# blocks are trailing match windows), so the same team can legitimately
+# show e.g. 60% season possession beside 52% last-20 possession -- this
+# says so explicitly instead of leaving consumers to guess.
+_DATA_WINDOWS = {
+    "team_season_stats": "current season to date (goals, cards, average possession)",
+    "top_scorers_and_assists": "current season to date",
+    "recent_form_leaders": "last 20 matches",
+    "form_by_competition_half_split_venue_split_last20": "last 20 competitive matches (friendlies excluded)",
+    "win_rate_points_goals_per_game_over_btts": "last 10 competitive matches",
+    "recent_competitions": "last 10 competitive matches plus upcoming fixtures",
+    "head_to_head_summary": "all meetings the source records; recent_meetings lists only those found in either team's match history",
+}
+
+
+_PROVENANCE_META_KEYS = {"source", "source_url", "base_source", "field_sources", "team_name", "additional_notes"}
+
+
+def _with_explicit_provenance(section: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Merge bookkeeping only records fields a NON-base source filled in;
+    every other populated field silently means "the base source". Spell
+    that out so field_sources covers every populated field -- an empty
+    field_sources otherwise reads as "no provenance tracked at all"."""
+    if not section or not section.get("base_source"):
+        return section
+    explicit = dict(section.get("field_sources") or {})
+    for key, value in section.items():
+        if key not in _PROVENANCE_META_KEYS and key not in explicit and not is_empty_value(value):
+            explicit[key] = section["base_source"]
+    section["field_sources"] = explicit
+    return section
+
+
 def build_report_json(result: RunSearchResult) -> dict[str, Any]:
     match_dict = asdict(result.merged) if result.merged else None
     if match_dict is not None:
-        match_dict = _strip_source_labels(_prune_unplayed_match_fields(match_dict))
+        match_dict = _strip_source_labels(_with_explicit_provenance(_prune_unplayed_match_fields(match_dict)))
     return {
         "team": result.team,
         "generatedAt": result.generated_at,
@@ -110,8 +144,8 @@ def build_report_json(result: RunSearchResult) -> dict[str, Any]:
         "venueDetails": (_strip_source_labels(asdict(result.venue_details)) if result.venue_details else None),
         "form": (_strip_source_labels(asdict(result.form)) if result.form else None),
         "opponentForm": (_strip_source_labels(asdict(result.opponent_form)) if result.opponent_form else None),
-        "teamProfile": (_strip_source_labels(asdict(result.merged_profile)) if result.merged_profile else None),
-        "opponentProfile": (_strip_source_labels(asdict(result.opponent_profile)) if result.opponent_profile else None),
+        "teamProfile": (_strip_source_labels(_with_explicit_provenance(asdict(result.merged_profile))) if result.merged_profile else None),
+        "opponentProfile": (_strip_source_labels(_with_explicit_provenance(asdict(result.opponent_profile))) if result.opponent_profile else None),
         "insights": (_strip_source_labels(asdict(result.insights)) if result.insights else None),
         # Same computation the Markdown report's trailing "X/Y fields
         # populated" line already used -- previously computed for
@@ -119,6 +153,8 @@ def build_report_json(result: RunSearchResult) -> dict[str, Any]:
         # None when there's no upcoming match at all (compute_data_
         # completeness needs a real MatchDetails to score against).
         "dataCompleteness": (compute_data_completeness(result.merged, result.insights) if result.merged else None),
+        "dataWindows": _DATA_WINDOWS,
+        "calibration": (asdict(result.calibration) if result.calibration else None),
     }
 
 

@@ -323,6 +323,24 @@ def test_apply_deep_recent_meetings_clears_fallback_label_when_base_source_wins(
     assert "recent_meetings" not in merged.field_sources  # absence = base source, per convention
 
 
+def test_apply_deep_recent_meetings_keeps_older_fallback_meetings_it_could_not_detail():
+    # Regression (confirmed live): the deep computation only detailed the
+    # newest meeting, and replacing the list dropped the two older ones the
+    # fallback source still had.
+    old_a = _meeting(date="2025-11-08T12:30:00.000Z")
+    old_b = _meeting(date="2025-05-21T19:00:00.000Z")
+    newest_shallow = _meeting(date="2026-02-07T12:30:00.000Z")
+    merged = merge_match_details({"sofascore": _match_details("sofascore"), "soccerdesk": _match_details("soccerdesk", recent_meetings=[newest_shallow, old_a, old_b])})
+
+    deep = [_meeting(date="2026-02-07T12:30:00.000Z", home_formation="4-2-3-1")]
+    apply_deep_recent_meetings(merged, deep, "sofascore")
+
+    assert [m.date[:10] for m in merged.recent_meetings] == ["2026-02-07", "2025-11-08", "2025-05-21"]
+    assert merged.recent_meetings[0].home_formation == "4-2-3-1"  # the detailed copy wins the same-date tie
+    assert merged.recent_meetings[1].home_formation is None
+    assert merged.field_sources.get("recent_meetings") == "soccerdesk"  # part of the list still comes from it
+
+
 def test_apply_deep_recent_meetings_labels_non_base_source():
     merged = merge_match_details({"sofascore": _match_details("sofascore"), "soccerdesk": _match_details("soccerdesk", recent_meetings=[_meeting()])})
     deep = [_meeting(home_formation="4-3-3")]
@@ -645,3 +663,131 @@ def test_reconcile_missing_by_role_skips_missing_player_with_wrong_role():
     squad = [SquadMember(name="A Defender", role="D", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
     missing_players = [MissingPlayer(name="A Defender", description="Suspended", expected_return=None)]
     assert reconcile_missing_by_role(squad, [], missing_players, is_attacker_role) == []
+
+
+def test_confirmed_empty_suspended_list_survives_the_merge_instead_of_staying_none():
+    base = _match_details("sofascore")
+    other = _match_details("soccerdesk", home_suspended_players=[], away_suspended_players=["Banned Player"])
+    merged = merge_match_details({"sofascore": base, "soccerdesk": other})
+    assert merged.home_suspended_players == []  # "checked, nobody" is kept
+    assert merged.away_suspended_players == ["Banned Player"]
+    assert merged.field_sources["home_suspended_players"] == "soccerdesk"
+
+
+def test_unknown_suspended_stays_none_when_no_source_knows():
+    merged = merge_match_details({"sofascore": _match_details("sofascore"), "soccerdesk": _match_details("soccerdesk")})
+    assert merged.home_suspended_players is None
+
+
+
+def test_canonical_role_maps_every_sources_spelling_to_g_d_m_f():
+    from football.merge import canonical_role
+
+    for raw, expected in [
+        ("G", "G"), ("Keeper", "G"), ("Goalkeeper", "G"), ("GOALKEEPER", "G"),
+        ("D", "D"), ("Defender", "D"), ("DEFENDER", "D"), ("Right-back", "D"),
+        ("M", "M"), ("Midfielder", "M"), ("MIDFIELDER", "M"),
+        ("F", "F"), ("Attacker", "F"), ("Forward", "F"), ("Striker", "F"), ("A", "F"),
+    ]:
+        assert canonical_role(raw) == expected, raw
+    assert canonical_role(None) is None
+    assert canonical_role("Coach") == "Coach"  # unrecognized passes through
+
+
+def test_merge_team_profile_gives_squad_and_injuries_one_role_vocabulary():
+    squad = [_squad_member("A", role="Keeper"), _squad_member("B", role="Defender"), _squad_member("C", role="Midfielder"), _squad_member("D", role="Attacker")]
+    base = _team_profile("fotmob", squad=squad, injuries=[_squad_member("B", role="Defender")])
+    merged = merge_team_profile({"fotmob": base})
+    assert [m.role for m in merged.squad] == ["G", "D", "M", "F"]
+    assert [m.role for m in merged.injuries] == ["D"]
+    assert merged.missing_defenders == ["B"]
+
+
+# --- source conflicts / reliability weighting ---------------------------------------------------
+
+
+def test_no_conflict_when_sources_agree_or_one_simply_lacks_the_value():
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", attendance=60000, venue_name="Old Trafford"),
+        "fotmob": _match_details("fotmob", attendance=60000, venue_name="Old Trafford"),
+        "goal": _match_details("goal", attendance=None, venue_name=None),
+    })
+    assert merged.source_conflicts == []
+
+
+def test_one_dissenting_source_does_not_override_the_base_number():
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", attendance=60000),
+        "fotmob": _match_details("fotmob", attendance=61234),
+    })
+    assert merged.attendance == 60000  # sofascore weight 3 beats fotmob 2
+    (conflict,) = merged.source_conflicts
+    assert (conflict.field, conflict.kept, conflict.kept_source) == ("attendance", 60000, "sofascore")
+    assert [(a.from_source, a.value) for a in conflict.alternatives] == [("fotmob", 61234)]
+    assert conflict.resolution == "base source kept"
+
+
+def test_two_mid_tier_sources_that_agree_outvote_the_base_on_a_number():
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", venue_capacity=74000),
+        "fotmob": _match_details("fotmob", venue_capacity=74310),
+        "goal": _match_details("goal", venue_capacity=74310),
+    })
+    assert merged.venue_capacity == 74310
+    assert merged.field_sources["venue_capacity"] == "fotmob"
+    (conflict,) = merged.source_conflicts
+    assert conflict.kept_source == "fotmob"
+    assert conflict.resolution == "weighted vote: 2 sources agree"
+    assert [(a.from_source, a.value) for a in conflict.alternatives] == [("sofascore", 74000)]
+
+
+def test_a_number_won_by_the_base_after_a_fallback_label_clears_the_label():
+    # base is sofascore; the vote goes to the base -> no fallback label
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", attendance=50000),
+        "fotmob": _match_details("fotmob", attendance=50001),
+        "soccerdesk": _match_details("soccerdesk", attendance=50002),
+    })
+    assert merged.attendance == 50000
+    assert "attendance" not in merged.field_sources
+
+
+def test_text_disagreements_are_reported_but_never_override_the_base_spelling():
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", referee="Michael Oliver"),
+        "fotmob": _match_details("fotmob", referee="Anthony Taylor"),
+        "goal": _match_details("goal", referee="Anthony Taylor"),
+    })
+    assert merged.referee == "Michael Oliver"
+    (conflict,) = merged.source_conflicts
+    assert conflict.field == "referee"
+    assert "reported, not overridden" in conflict.resolution
+    assert {a.value for a in conflict.alternatives} == {"Anthony Taylor"}
+
+
+def test_different_spellings_of_the_same_name_are_not_a_conflict():
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", venue_name="Old Trafford"),
+        "fotmob": _match_details("fotmob", venue_name="Old Trafford Stadium"),
+        "goal": _match_details("goal", venue_name="Old Trafford"),
+    })
+    assert merged.source_conflicts == []
+
+
+def test_score_disagreement_between_finished_match_sources_is_settled_by_vote():
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", home_score=2, away_score=1),
+        "fotmob": _match_details("fotmob", home_score=3, away_score=1),
+        "goal": _match_details("goal", home_score=3, away_score=1),
+    })
+    assert (merged.home_score, merged.away_score) == (3, 1)
+    assert [c.field for c in merged.source_conflicts] == ["home_score"]
+
+
+def test_source_weights_rank_the_base_highest_and_a_single_other_source_below_it():
+    from football.merge import SOURCE_ORDER, SOURCE_WEIGHTS
+
+    assert set(SOURCE_WEIGHTS) == set(SOURCE_ORDER)
+    assert SOURCE_WEIGHTS[SOURCE_ORDER[0]] == max(SOURCE_WEIGHTS.values())
+    assert SOURCE_WEIGHTS[SOURCE_ORDER[0]] < SOURCE_WEIGHTS["fotmob"] + SOURCE_WEIGHTS["goal"]
+    assert all(SOURCE_WEIGHTS[SOURCE_ORDER[0]] > w for s, w in SOURCE_WEIGHTS.items() if s != SOURCE_ORDER[0])

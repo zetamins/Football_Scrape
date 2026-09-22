@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 
 from .._jsmath import js_number
+from ..fetch_log import record_step_failure
 from ..http import fetch_text
 from ..team_name_match import normalize_for_match as _normalize
 
@@ -98,7 +99,8 @@ async def get_referee_kpis(referee_name: str | None) -> RefereeKpis | None:
         return None
     try:
         url = await _find_referee_url(referee_name)
-    except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => null)
+    except Exception as err:  # noqa: BLE001 - mirrors TS's .catch(() => null)
+        record_step_failure("referee lookup (RefsRadar)", err)
         url = None
     if not url:
         return None

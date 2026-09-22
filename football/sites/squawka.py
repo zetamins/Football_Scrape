@@ -77,6 +77,9 @@ async def _load_page_context(page: Page) -> tuple[str, list[dict]]:
 _COMPETITION_ALIASES: dict[str, str] = {
     "laliga": "primera division",
     "la liga": "primera division",
+    # Squawka's own name for the English second tier is plain "Championship".
+    "efl championship": "championship",
+    "sky bet championship": "championship",
 }
 
 
@@ -171,6 +174,45 @@ async def _fetch_stat_values(page: Page, nonce: str, competition_id: str, stat_l
     return values
 
 
+_SHORT_EXTRA_TOKEN_MAX_LEN = 3
+
+
+def _tokens(name: str) -> frozenset[str]:
+    return frozenset(name.split())
+
+
+def resolve_squawka_team(variants: set[str], squawka_teams: set[str]) -> str | None:
+    """Which of Squawka's own (normalized) team names is this team?
+
+    1. Exact: any known alias (team_aliases.py) equals a Squawka name.
+    2. Otherwise a token-containment fallback for short/long spelling
+       differences ("coventry" vs Squawka's "coventry city", "sociedad" vs
+       "real sociedad", "ca osasuna" vs "osasuna"): a variant whose words
+       are all inside a Squawka name (forward), or a Squawka name whose
+       words are all inside the variant with only short extra words like
+       "ca"/"ud" (reverse -- a longer extra word such as the "inter" in
+       "inter milan" would otherwise wrongly claim "milan").
+       Accepted ONLY if exactly one Squawka team qualifies, so an
+       ambiguous name ("manchester", "united", "real") matches nothing
+       rather than guessing -- a wrong team's stats are worse than none."""
+    exact = variants & squawka_teams
+    if exact:
+        return next(iter(exact))
+    candidates: set[str] = set()
+    for squawka_name in squawka_teams:
+        squawka_tokens = _tokens(squawka_name)
+        for variant in variants:
+            variant_tokens = _tokens(variant)
+            if not variant_tokens:
+                continue
+            forward = variant_tokens <= squawka_tokens
+            extra = variant_tokens - squawka_tokens
+            reverse = squawka_tokens <= variant_tokens and all(len(t) <= _SHORT_EXTRA_TOKEN_MAX_LEN for t in extra)
+            if forward or reverse:
+                candidates.add(squawka_name)
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
 async def get_squawka_defensive_stats(team_name: str, competition_candidates: list[str]) -> dict[str, DefensiveStats]:
     """Returns per-player defensive stats for a team, keyed by normalized
     player name -- empty if the competition isn't in Squawka's coverage
@@ -224,17 +266,21 @@ async def get_squawka_defensive_stats(team_name: str, competition_candidates: li
         for values in by_stat.values():
             player_keys.update(values.keys())
 
+        squawka_team_names = {key.split("::", 1)[1] for key in player_keys}
+        resolved_team = resolve_squawka_team(target_team_variants, squawka_team_names)
+
         defensive_field_names = {f.name for f in fields(DefensiveStats)}
         for key in player_keys:
             player_norm, team_norm = key.split("::", 1)
-            if team_norm not in target_team_variants:
+            if team_norm != resolved_team:
                 continue
             stat_kwargs = dict.fromkeys(defensive_field_names)
             for attr_name, label in _STAT_NAMES:
                 stat_kwargs[attr_name] = by_stat[label].get(key)
             result[player_norm] = DefensiveStats(**stat_kwargs)
         return result
-    except Exception:  # noqa: BLE001 - mirrors TS's catch { return result }
+    except Exception as err:  # noqa: BLE001 - mirrors TS's catch { return result }
+        record_failure("https://www.squawka.com/en/wp-json/vcsw/v2/statistics", err)
         return result
     finally:
         await browser_cm.__aexit__(None, None, None)

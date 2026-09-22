@@ -206,7 +206,47 @@ def test_build_report_json_strips_only_per_item_source_from_match():
     # base_source/field_sources ARE the per-field provenance that was
     # requested -- exposed now, not stripped.
     assert report["match"]["base_source"] == "sofascore"
-    assert report["match"]["field_sources"] == {"venue_name": "fotmob"}
+    assert report["match"]["field_sources"]["venue_name"] == "fotmob"  # explicit non-base label preserved
+    assert report["match"]["field_sources"]["home_team"] == "sofascore"  # populated, unlabeled -> base source
+
+
+def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
+    report = build_report_json(_run_search_result())
+    assert report["dataWindows"]["team_season_stats"].startswith("current season")
+    assert "last 20" in report["dataWindows"]["recent_form_leaders"]
+
+
+def test_build_report_json_data_completeness_lists_missing_fields():
+    from football.merge import MergedMatch
+
+    merged = _all_none(MergedMatch, home_team="H", away_team="A", status="notstarted", additional_notes=[])
+    report = build_report_json(_run_search_result(merged=merged))
+    assert "weather" in report["dataCompleteness"]["missing"]
+
+
+def test_field_sources_lists_every_populated_field_with_base_source_as_default():
+    from football.merge import MergedMatch
+
+    merged = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished", venue_name="Old Trafford", referee=None,
+        source="sofascore", base_source="sofascore", field_sources={"venue_capacity": "stadiumdb"}, additional_notes=[],
+    )
+    fs = build_report_json(_run_search_result(merged=merged))["match"]["field_sources"]
+    assert fs["venue_capacity"] == "stadiumdb"  # explicit non-base label untouched
+    assert fs["venue_name"] == "sofascore"  # populated, unlabeled -> base source
+    assert fs["home_team"] == "sofascore"
+    assert "referee" not in fs  # empty fields have no provenance to report
+    assert "field_sources" not in fs
+    assert "base_source" not in fs
+
+
+def test_field_sources_fills_profile_sections_too():
+    from football.merge import MergedProfile
+
+    profile = _all_none(MergedProfile, source="fotmob", base_source="fotmob", team_name="Man Utd", field_sources={}, squad=[])
+    profile.injuries = [1]
+    fs = build_report_json(_run_search_result(merged_profile=profile))["teamProfile"]["field_sources"]
+    assert fs.get("injuries") == "fotmob"
 
 
 def test_build_report_json_includes_source_statuses():

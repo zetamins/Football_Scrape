@@ -6,11 +6,13 @@ Ported from src/search.ts's runSearch() and its immediate helpers.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from . import insights as ins
-from .elo import compute_elo_rating
+from .calibration import compute_calibration
+from .elo import compute_elo_rating, with_league_rank
+from .fetch_log import record_step_failure
 from .form import (
     all_form_results,
     compute_form_summary,
@@ -23,6 +25,8 @@ from .merge import (
     SOURCE_ORDER,
     MergedMatch,
     MergedProfile,
+    SourceConflict,
+    SourceValue,
     apply_deep_recent_meetings,
     compute_bench_regulars,
     compute_recent_form_leaders,
@@ -53,7 +57,9 @@ from .sites import (
     wttrin,
 )
 from .sites import sofascore as sofascore_site
+from .team_aliases import same_team
 from .types import (
+    CalibrationSummary,
     ManagerTenureRecord,
     MatchDetails,
     MatchInfo,
@@ -81,6 +87,12 @@ SCRAPERS: dict[Source, _Scraper] = {
     "goal": _Scraper(goal.get_goal_matches, goal.get_goal_match_details, goal.get_goal_team_profile),
     "365scores": _Scraper(three65scores.get365_scores_matches, three65scores.get365_scores_match_details, three65scores.get365_scores_team_profile),
 }
+
+
+def _error_text(err: BaseException) -> str:
+    """str(err) is "" for an exception raised with no message, which would
+    read as "no error" in SourceStatus -- fall back to the class name."""
+    return str(err) or type(err).__name__
 
 
 def _age_from_iso_date(iso_date: str | None) -> int | None:
@@ -200,7 +212,8 @@ async def fetch_venue_details(merged: MergedMatch, venue_country: str | None) ->
         if result:
             return result
         return await stadiumdb.get_stadium_db_venue_details(merged.away_team, venue_country)
-    except Exception:  # noqa: BLE001 - mirrors TS's catch { return null }
+    except Exception as err:  # noqa: BLE001 - mirrors TS's catch { return null }
+        record_step_failure("venue details (StadiumDB)", err)
         return None
 
 
@@ -233,6 +246,9 @@ class RunSearchResult:
     opponent_profile: MergedProfile | None
     insights: MatchInsights | None
     venue_details: VenueDetails | None
+    # None unless the caller supplied past predictions to score (see
+    # calibration.py).
+    calibration: CalibrationSummary | None = None
 
 
 @dataclass
@@ -315,20 +331,70 @@ async def _scrape_all_sources(
                 try:
                     details_by_source[source] = await scraper.details(next_m)
                 except Exception as err:  # noqa: BLE001
-                    status.details_error = str(err)
+                    status.details_error = _error_text(err)
+                    record_step_failure(f"{source} match details", err)
         except Exception as err:  # noqa: BLE001
-            status.matches_error = str(err)
+            status.matches_error = _error_text(err)
+            record_step_failure(f"{source} matches", err)
 
         try:
             profile_by_source[source] = await scraper.profile(team_name)
         except Exception as err:  # noqa: BLE001
-            status.profile_error = str(err)
+            status.profile_error = _error_text(err)
+            record_step_failure(f"{source} team profile", err)
 
         statuses.append(status)
         on_progress(f"{source}: {status.fixtures_scraped} fixtures" + (f" -- {status.matches_error}" if status.matches_error else ""))
         on_source_progress(status)
 
     return matches_by_source, details_by_source, profile_by_source, statuses
+
+
+_FLIPPED_VENUE = {"home": "away", "away": "home"}
+
+
+async def _refine_undetailed_meetings(team_name, merged, opponent_name, form_source) -> None:
+    """Meetings only a fallback source (Fotmob/SoccerDesk) knows -- too old
+    for the deep computation's fixture window -- carry no venue facts, so a
+    neutral-ground final was labelled plain home/away. Look those up in
+    Sofascore's older event pages (see get_sofascore_older_meeting_info)
+    and correct venue + who hosted. Only when Sofascore is the form source;
+    a failure leaves the fallback labels as they were, and is reported."""
+    if form_source != "sofascore" or not merged.recent_meetings:
+        return
+    wanted = {m.date[:10] for m in merged.recent_meetings if m.date and m.home_lineup is None and m.home_formation is None}
+    if not wanted:
+        return
+    try:
+        info_by_day = await sofascore_site.get_sofascore_older_meeting_info(team_name, opponent_name, wanted)
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("older meetings venue (Sofascore)", err)
+        return
+    refined = []
+    for m in merged.recent_meetings:
+        info = info_by_day.get(m.date[:10]) if m.date else None
+        if info is None:
+            refined.append(m)
+            continue
+        if info.neutral:
+            venue = "neutral"
+        elif same_team(info.home_team, merged.home_team):
+            venue = "home"
+        else:
+            venue = "away"
+        refined.append(replace(m, venue=venue, home_team=info.home_team, away_team=info.away_team))
+    merged.recent_meetings = refined
+
+
+def _meetings_in_fixture_frame(meetings, own_is_home: bool | None):
+    """The deep computation labels each meeting's venue from the SEARCHED
+    team's side; every other source (and HeadToHeadMeeting.venue's
+    documented frame) uses the upcoming fixture's HOME team. They only
+    coincide when the searched team is the fixture's home side, so flip
+    when it's the away side ("neutral" is side-independent)."""
+    if not meetings or own_is_home is not False:
+        return meetings
+    return [replace(m, venue=_FLIPPED_VENUE.get(m.venue, m.venue)) for m in meetings]
 
 
 async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, form, matches_by_source, opponent_name, merged_profile):
@@ -347,15 +413,18 @@ async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, fo
         try:
             full_history = all_form_results(team_name, matches_by_source[form_source])
             deep_recent_meetings = await ins.compute_recent_meetings(matches_by_source[form_source], full_history, opponent_name, form_source)
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
+            record_step_failure("recent meetings", err)
             deep_recent_meetings = None
-        apply_deep_recent_meetings(merged, deep_recent_meetings, form_source)
+        apply_deep_recent_meetings(merged, _meetings_in_fixture_frame(deep_recent_meetings, is_team_home(merged, team_name)), form_source)
+        await _refine_undetailed_meetings(team_name, merged, opponent_name, form_source)
 
     own_advanced_stats = None
     if form_source and form:
         try:
             enriched_own = await enrich_form_with_venue_classification(matches_by_source[form_source], form, form_source)
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
+            record_step_failure("form enrichment (own team)", err)
             from .form import VenueEnrichmentResult
 
             enriched_own = VenueEnrichmentResult(form=form, advanced_stats=None, usage_by_player={})
@@ -376,7 +445,8 @@ async def _enrich_manager_tenure(manager, team_name: str):
         return manager
     try:
         tenure_row = await wikipedia.get_current_tenure_row(manager.name)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("manager tenure (Wikipedia)", err)
         tenure_row = None
     appointed_date = wikipedia.parse_wiki_date(tenure_row.from_date) if tenure_row and tenure_row.from_date else None
     record_at_club = (
@@ -387,7 +457,8 @@ async def _enrich_manager_tenure(manager, team_name: str):
     manager_age = _age_from_iso_date(tenure_row.date_of_birth) if tenure_row else None
     try:
         previous_manager = await wikipedia.get_previous_manager(team_name)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("previous manager (Wikipedia)", err)
         previous_manager = None
     from dataclasses import replace as _replace
 
@@ -403,15 +474,18 @@ async def _fetch_referee_source_stats(merged):
     complexity down (python:S3776); behavior unchanged."""
     try:
         worldfootball_stats = await worldfootball.get_referee_worldfootball_stats(merged.competition, merged.referee)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("referee stats (WorldFootball)", err)
         worldfootball_stats = None
     try:
         home_away_bias = await footballdata.get_referee_home_away_bias(merged.competition, merged.referee)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("referee bias (football-data)", err)
         home_away_bias = None
     try:
         refsradar_kpis = await refsradar.get_referee_kpis(merged.referee)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("referee KPIs (RefsRadar)", err)
         refsradar_kpis = None
     return worldfootball_stats, home_away_bias, refsradar_kpis
 
@@ -495,11 +569,13 @@ async def _compute_and_apply_match_stat_estimates(team_name, opponent_name, own_
     stretch a search would sit at."""
     try:
         opponent_fotmob_matches = await fotmob.get_fotmob_matches(opponent_name)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("opponent matches (Fotmob)", err)
         opponent_fotmob_matches = []
     try:
         opponent_goal_matches = await goal.get_goal_matches(opponent_name)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("opponent matches (Goal.com)", err)
         opponent_goal_matches = []
     own_match_stats = await ins.compute_season_match_stats_estimate(team_name, matches_by_source.get("fotmob", []))
     opponent_match_stats = await ins.compute_season_match_stats_estimate(opponent_name, opponent_fotmob_matches)
@@ -564,7 +640,8 @@ async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_contex
             enriched_opponent = await enrich_form_with_venue_classification(
                 opponent_context.matches, opponent_form, opponent_context.matches_source
             )
-        except Exception:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001
+            record_step_failure("form enrichment (opponent)", err)
             from .form import VenueEnrichmentResult
 
             enriched_opponent = VenueEnrichmentResult(form=opponent_form, advanced_stats=None, usage_by_player={})
@@ -583,8 +660,10 @@ async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_contex
     opponent_rank_record = ins.compute_opponent_rank_record(opponent_form.last20_overall, merged.competition, merged.standings_table, opponent_position)
     insights_result.home_opponent_rank_record, insights_result.away_opponent_rank_record = _home_away(own_is_home, own_rank_record, opponent_rank_record)
 
-    own_elo = compute_elo_rating(form.last20_overall if form else [])
-    opponent_elo = compute_elo_rating(opponent_form.last20_overall)
+    ins.fill_standings_form(merged.standings_table, own_position, form.last20_overall if form else None, merged.competition)
+    ins.fill_standings_form(merged.standings_table, opponent_position, opponent_form.last20_overall, merged.competition)
+    own_elo = with_league_rank(compute_elo_rating(form.last20_overall if form else []), merged.standings_table, own_position)
+    opponent_elo = with_league_rank(compute_elo_rating(opponent_form.last20_overall), merged.standings_table, opponent_position)
     insights_result.home_elo_rating, insights_result.away_elo_rating = _home_away(own_is_home, own_elo, opponent_elo)
 
     return opponent_form
@@ -633,6 +712,15 @@ def _apply_duel_and_fullback_insights(insights_result, own_is_home, merged_profi
     insights_result.home_fullback_exposure, insights_result.away_fullback_exposure = _home_away(own_is_home, own_fullback_exposure, opponent_fullback_exposure)
 
 
+def _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile) -> None:
+    """Extracted from _apply_presence_and_bench_insights to keep its own
+    cognitive complexity down (python:S3776)."""
+    own_projected = ins.mark_projected_starters(own_presence, merged_profile.squad if merged_profile else None)
+    opponent_projected = ins.mark_projected_starters(opponent_presence, opponent_profile.squad if opponent_profile else None)
+    if own_projected or opponent_projected:
+        insights_result.projected_xi_basis = "Projected, not a published lineup: one goalkeeper plus the ten available outfield players with the most starts in the recent matches whose lineups were read"
+
+
 def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile) -> None:
     own_presence = ins.compute_presence(
         merged_profile.squad if merged_profile else None,
@@ -653,15 +741,24 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
         missing_players=merged.away_missing_players if own_is_home else merged.home_missing_players,
     )
     insights_result.home_presence, insights_result.away_presence = _home_away(own_is_home, own_presence, opponent_presence)
+    _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile)
 
     insights_result.home_bench_info = ins.compute_bench_info(merged.home_bench, merged.home_lineup, _squad_for_bench_info(own_is_home, merged_profile, opponent_profile))
     insights_result.away_bench_info = ins.compute_bench_info(merged.away_bench, merged.away_lineup, _squad_for_bench_info(not own_is_home, merged_profile, opponent_profile))
 
 
 def _apply_squad_strength_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile) -> None:
-    own_squad_strength = ins.compute_squad_strength(merged_profile.squad if merged_profile else None, merged_profile.injuries if merged_profile else None, merged.home_suspended_players if own_is_home else merged.away_suspended_players)
+    own_squad_strength = ins.compute_squad_strength(
+        merged_profile.squad if merged_profile else None,
+        merged_profile.injuries if merged_profile else None,
+        merged.home_suspended_players if own_is_home else merged.away_suspended_players,
+        merged.home_missing_players if own_is_home else merged.away_missing_players,
+    )
     opponent_squad_strength = ins.compute_squad_strength(
-        opponent_profile.squad if opponent_profile else None, opponent_profile.injuries if opponent_profile else None, merged.away_suspended_players if own_is_home else merged.home_suspended_players
+        opponent_profile.squad if opponent_profile else None,
+        opponent_profile.injuries if opponent_profile else None,
+        merged.away_suspended_players if own_is_home else merged.home_suspended_players,
+        merged.away_missing_players if own_is_home else merged.home_missing_players,
     )
     insights_result.home_squad_strength, insights_result.away_squad_strength = _home_away(own_is_home, own_squad_strength, opponent_squad_strength)
 
@@ -763,7 +860,8 @@ async def _enrich_weather(merged) -> None:
         return
     try:
         weather_detail = await wttrin.get_wttr_weather_detail(weather_query_city, merged.kickoff_utc, merged.venue_country)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("weather (wttr.in)", err)
         weather_detail = None
     if not weather_detail:
         return
@@ -792,7 +890,8 @@ async def _get_club_strength_ratings_safe(merged) -> dict:
     complexity down (python:S3776); behavior unchanged."""
     try:
         return await statsultra.get_club_strength_ratings(merged.home_team, merged.away_team)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("club strength (StatsUltra)", err)
         return {"home": None, "away": None}
 
 
@@ -801,7 +900,8 @@ async def _get_upcoming_match_odds_safe(merged):
     complexity down (python:S3776); behavior unchanged."""
     try:
         return await footballdata.get_upcoming_match_odds(merged.home_team, merged.away_team)
-    except Exception:  # noqa: BLE001
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("match odds (football-data)", err)
         return None
 
 
@@ -814,9 +914,20 @@ async def _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, 
     from .merge import enrich_squad_with_defensive_stats
 
     if merged_profile and merged_profile.squad:
-        merged_profile.squad = await enrich_squad_with_defensive_stats(merged_profile.squad, team_name, form.recent_competitions if form else [])
+        own_name = merged_profile.team_name or team_name
+        merged_profile.squad = await enrich_squad_with_defensive_stats(merged_profile.squad, own_name, form.recent_competitions if form else [])
+        _note_missing_defensive_stats(merged_profile, own_name)
     if opponent_profile and opponent_profile.squad:
         opponent_profile.squad = await enrich_squad_with_defensive_stats(opponent_profile.squad, opponent_name, opponent_form.recent_competitions)
+        _note_missing_defensive_stats(opponent_profile, opponent_name)
+
+
+def _note_missing_defensive_stats(profile, team_name: str) -> None:
+    if any(m.defensive_stats for m in profile.squad):
+        return
+    profile.defensive_stats_note = (
+        f"Squawka defensive stats unavailable for {team_name} (fetch failed or team not found in its competitions) -- top_defenders is empty for that reason, not because the squad has no defenders."
+    )
 
 
 def _reconcile_venue_capacity(merged, venue_details) -> None:
@@ -830,6 +941,13 @@ def _reconcile_venue_capacity(merged, venue_details) -> None:
     if not (venue_details and venue_details.capacity and merged.venue_capacity):
         return
     if venue_details.capacity != merged.venue_capacity:
+        previous = SourceValue(from_source=merged.field_sources.get("venue_capacity", merged.base_source), value=merged.venue_capacity)
+        alternatives = [a for c in merged.source_conflicts if c.field == "venue_capacity" for a in c.alternatives]
+        merged.source_conflicts = [c for c in merged.source_conflicts if c.field != "venue_capacity"]
+        merged.source_conflicts.append(SourceConflict(
+            field="venue_capacity", kept=venue_details.capacity, kept_source="stadiumdb",
+            alternatives=[previous, *alternatives], resolution="StadiumDB preferred: dedicated stadium database",
+        ))
         merged.venue_capacity = venue_details.capacity
         merged.field_sources["venue_capacity"] = "stadiumdb"
 
@@ -941,10 +1059,24 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     )
 
 
+def _score_past_predictions(past_predictions, matches_by_source) -> CalibrationSummary | None:
+    """Scores the caller's saved predictions against every match this run
+    fetched. A failure here must never sink the report -- it is reported
+    in the failure list and calibration is simply omitted."""
+    if past_predictions is None:
+        return None
+    try:
+        return compute_calibration(past_predictions, [m for matches in matches_by_source.values() for m in matches])
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("calibration", err)
+        return None
+
+
 async def run_search(
     team_name: str,
     on_progress: Callable[[str], None] = _NOOP_PROGRESS,
     on_source_progress: Callable[[SourceStatus], None] = _NOOP_SOURCE_PROGRESS,
+    past_predictions: list[dict] | None = None,
 ) -> RunSearchResult:
     """The full fetch/merge/compute pipeline, decoupled from the CLI's own
     printing/file-writing (see cli.py) so it can be called from anywhere
@@ -957,6 +1089,7 @@ async def run_search(
     profile_error), for a caller that needs real per-source state (e.g.
     a UI showing "Sofascore blocked / Fotmob: 42 fixtures" -- see
     android_report.py) rather than parsing on_progress's free text."""
+    sofascore_site.reset_block_state()  # a block from a previous run says nothing about this one
     on_progress(f'Searching for "{team_name}" (base: Sofascore, supplemented by Fotmob, SoccerDesk, Goal.com, 365Scores)...')
 
     matches_by_source, details_by_source, profile_by_source, statuses = await _scrape_all_sources(team_name, on_progress, on_source_progress)
@@ -996,6 +1129,7 @@ async def run_search(
         ctx = await _compute_match_context(team_name, merged, merged_profile, form, form_source, matches_by_source, on_progress)
 
     on_progress("Done.")
+    calibration = _score_past_predictions(past_predictions, matches_by_source)
     generated_at = datetime.now(tz=UTC).isoformat(timespec="milliseconds").replace(_UTC_OFFSET_SUFFIX, "Z")
     return RunSearchResult(
         team=team_name,
@@ -1011,4 +1145,5 @@ async def run_search(
         opponent_profile=ctx.opponent_profile if ctx else None,
         insights=ctx.insights_result if ctx else None,
         venue_details=ctx.venue_details if ctx else None,
+        calibration=calibration,
     )

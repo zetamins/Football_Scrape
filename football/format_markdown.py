@@ -775,7 +775,9 @@ def fouls_estimate_str(x: SeasonFoulsEstimate, label: str) -> str:
 
 def goalkeeping_estimate_str(x: SeasonGoalkeepingEstimate, label: str) -> str:
     save_pct = js_number_to_string(x.save_pct) if x.save_pct is not None else "n/a"
-    return f"{label} goalkeeping estimate (last {x.sample_size} finished): {x.saves_for} saves on {x.shots_on_target_faced} shots faced ({save_pct}% save rate), {x.goals_conceded} conceded"
+    return f"{label} goalkeeping estimate (last {x.sample_size} finished): {x.saves_for} saves on {x.shots_on_target_faced} shots faced ({save_pct}% save rate), {x.goals_conceded} conceded" + (
+        f" (shots faced differ from saves + conceded by {x.unreconciled_shots_on_target:+d}: own goals/provider inconsistencies)" if x.unreconciled_shots_on_target else ""
+    )
 
 
 def set_piece_threat_str(f: SetPieceThreatFlag, label: str) -> str:

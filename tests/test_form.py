@@ -926,3 +926,105 @@ def test_compute_advanced_stats_none_without_any_sample():
 
     stat_totals = {key: {"for": 0, "against": 0, "n": 0} for key in ADVANCED_STAT_NAMES}
     assert _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "sofascore") is None
+
+
+def _played_series(count, competition="Premier League", start_day=1):
+    now = datetime.now(tz=UTC)
+    return [
+        _match(home_team="Home FC", away_team=f"Opp{i}", home_score=1, away_score=0, home_score_ht=1, away_score_ht=0, competition=competition,
+               kickoff_utc=(now - timedelta(days=start_day + i)).isoformat())
+        for i in range(count)
+    ]
+
+
+def test_windowed_breakdowns_all_use_the_same_last_20_competitive_matches():
+    summary = compute_form_summary("Home FC", _played_series(25))
+    assert len(summary.last20_overall) == 20
+    assert sum(r.played for r in summary.form_by_competition) == 20
+    assert summary.half_split.sample_size == 20
+
+
+def test_recent_competitions_excludes_friendlies_like_form_by_competition():
+    friendlies = _played_series(3, competition="Club Friendly Games", start_day=1)
+    league = _played_series(3, competition="UEFA Champions League", start_day=10)
+    summary = compute_form_summary("Home FC", friendlies + league)
+    assert summary.recent_competitions == ["UEFA Champions League"]
+    assert [r.competition for r in summary.form_by_competition] == ["UEFA Champions League"]
+
+
+# --- _back_line_slots: real lineups (Sofascore order: GK, back line right-to-left) ---
+
+
+def _xi(*pairs):
+    return [_lineup_player(name=n, position=pos) for n, pos in pairs]
+
+
+def test_back_line_slots_marks_the_first_and_last_of_a_back_four_as_wide():
+    from football.form import _back_line_slots
+
+    man_utd = _xi(("Senne Lammens", "G"), ("Diogo Dalot", "D"), ("Harry Maguire", "D"), ("Lisandro Martinez", "D"), ("Luke Shaw", "D"),
+                  ("Casemiro", "M"), ("Kobbie Mainoo", "M"), ("Amad Diallo", "M"), ("Bruno Fernandes", "M"), ("Bryan Mbeumo", "F"), ("Matheus Cunha", "F"))
+    slots = {p.name: wide for p, wide in _back_line_slots(man_utd, "4-2-3-1")}
+    assert slots == {"Diogo Dalot": True, "Harry Maguire": False, "Lisandro Martinez": False, "Luke Shaw": True}
+
+
+def test_back_line_slots_counts_a_midfielder_listed_player_playing_right_back_as_wide():
+    from football.form import _back_line_slots
+
+    spurs = _xi(("Guglielmo Vicario", "G"), ("Archie Gray", "M"), ("Cristian Romero", "D"), ("Micky van de Ven", "D"), ("Destiny Udogie", "D"),
+                ("Conor Gallagher", "M"), ("Joao Palhinha", "M"), ("Pape Matar Sarr", "M"), ("Wilson Odobert", "F"), ("Dominic Solanke", "F"), ("Xavi Simons", "M"))
+    slots = {p.name: wide for p, wide in _back_line_slots(spurs, "4-3-3")}
+    assert slots["Archie Gray"] is True
+    assert slots["Destiny Udogie"] is True
+    assert slots["Cristian Romero"] is False
+
+
+def test_back_line_slots_three_at_the_back_is_all_central_and_five_has_wing_backs():
+    from football.form import _back_line_slots
+
+    three = _xi(("GK", "G"), ("A", "D"), ("B", "D"), ("C", "D"), ("M1", "M"), ("M2", "M"), ("M3", "M"), ("M4", "M"), ("F1", "F"), ("F2", "F"), ("F3", "F"))
+    assert [w for _, w in _back_line_slots(three, "3-4-3")] == [False, False, False]
+    five = _xi(("GK", "G"), ("A", "D"), ("B", "D"), ("C", "D"), ("D", "D"), ("E", "D"), ("M1", "M"), ("M2", "M"), ("M3", "M"), ("F1", "F"), ("F2", "F"))
+    assert [w for _, w in _back_line_slots(five, "5-3-2")] == [True, False, False, False, True]
+
+
+def test_back_line_slots_empty_when_the_shape_cannot_be_trusted():
+    from football.form import _back_line_slots
+
+    xi = _xi(("GK", "G"), ("A", "D"), ("B", "D"), ("C", "D"), ("D", "D"))
+    assert _back_line_slots(None, "4-4-2") == []
+    assert _back_line_slots(xi, None) == []
+    assert _back_line_slots(xi, "not-a-formation") == []
+    assert _back_line_slots(_xi(("A", "D"), ("B", "D")), "4-4-2") == []  # first player isn't a keeper
+    assert _back_line_slots(xi[:3], "4-4-2") == []  # lineup shorter than the back line
+
+
+def test_tally_usage_records_wide_and_central_back_starts_across_matches():
+    from football.form import _tally_usage
+    from football.merge import normalize_team_name
+
+    usage: dict = {}
+    xi = _xi(("GK", "G"), ("Right Back", "D"), ("Centre One", "D"), ("Centre Two", "D"), ("Left Back", "D"),
+             ("M1", "M"), ("M2", "M"), ("M3", "M"), ("F1", "F"), ("F2", "F"), ("F3", "F"))
+    _tally_usage(usage, xi, [], "4-3-3")
+    _tally_usage(usage, xi, [], "4-3-3")
+    assert usage[normalize_team_name("Right Back")].wide_back_starts == 2
+    assert usage[normalize_team_name("Centre One")].central_back_starts == 2
+    assert usage[normalize_team_name("Centre One")].wide_back_starts == 0
+    assert usage[normalize_team_name("M1")].wide_back_starts == 0
+
+
+def test_outcome_rates_always_add_up_to_exactly_100():
+    from football.form import _outcome_rates
+
+    def results(w, d, l):
+        return [_result(result="W")] * w + [_result(result="D")] * d + [_result(result="L")] * l
+
+    assert _outcome_rates([]) == (None, None, None)
+    assert _outcome_rates(results(3, 2, 2)) == (43, 29, 28)  # naive rounding gave 43+29+29 = 101
+    assert sum(_outcome_rates(results(1, 1, 1))) == 100  # naive rounding gave 99
+    assert _outcome_rates(results(10, 0, 0)) == (100, 0, 0)
+    assert _outcome_rates(results(5, 3, 2)) == (50, 30, 20)
+    for w in range(0, 11):
+        for d in range(0, 11 - w):
+            assert sum(_outcome_rates(results(w, d, 10 - w - d))) == 100

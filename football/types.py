@@ -105,6 +105,18 @@ class TeamStanding:
     # classify "top of table"/"relegation zone" without guessing a fixed
     # league size.
     total_teams: int | None
+    # Numeric twin of goal_diff (same type as StandingsTableRow.
+    # goal_difference), derived from it -- so a consumer can compare the
+    # two standings shapes without parsing the string; goal_diff itself
+    # stays a string for the Android contract above.
+    goal_difference: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.goal_difference is None:
+            try:
+                self.goal_difference = int(self.goal_diff)
+            except (TypeError, ValueError):
+                self.goal_difference = None
 
 
 @dataclass
@@ -354,6 +366,12 @@ class HeadToHeadMeeting:
     # forced into "home"/"away" with no way to represent the truth.
     # Fallback sources (Fotmob/SoccerDesk) can't detect this and still
     # only ever produce "home"/"away".
+    #
+    # Frame, for every source: "home" means the UPCOMING FIXTURE'S home
+    # team also hosted that past meeting, "away" means the fixture's away
+    # team did. (Deep entries used to be framed from the searched team
+    # instead, so the two kinds disagreed whenever the searched team was
+    # the away side.) home_team/away_team below name who actually hosted.
     venue: Literal["home", "away", "neutral"]
     home_formation: str | None
     away_formation: str | None
@@ -361,6 +379,10 @@ class HeadToHeadMeeting:
     away_xg: float | None
     home_lineup: list[LineupPlayer] | None
     away_lineup: list[LineupPlayer] | None
+    # Who actually played at home/away in THAT meeting (scoreline, xG and
+    # formations above are in this same home-first order).
+    home_team: str | None = None
+    away_team: str | None = None
 
 
 @dataclass
@@ -376,6 +398,36 @@ class MissingPlayer:
     name: str
     description: str | None
     expected_return: str | None
+    # "injury" / "suspension" / "coach_decision" / "other" (None when there
+    # is no description to classify) -- derived from `description`, so a
+    # consumer needn't parse the mixed slug/free-text itself, and a
+    # non-injury absence (e.g. Richarlison, "coach_decision") isn't read as
+    # an injury just because it sits in the missing list. expected_return is
+    # left exactly as the source published it either way.
+    absence_type: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.absence_type is None:
+            self.absence_type = classify_absence(self.description)
+
+
+_INJURY_WORDS = (
+    "injur", "ligament", "fractur", "strain", "sprain", "knee", "ankle", "hamstring", "muscle", "surgery", "illness",
+    "concussion", "discomfort", "groin", "calf", "thigh", "foot", "shoulder", "back problem", "virus", "physical",
+)
+
+
+def classify_absence(description: str | None) -> str | None:
+    if not description or not description.strip():
+        return None
+    text = description.lower().replace("_", " ")
+    if "suspen" in text or " ban" in f" {text}" or "red card" in text:
+        return "suspension"
+    if "coach" in text or "not in squad" in text or "tactical" in text:
+        return "coach_decision"
+    if any(word in text for word in _INJURY_WORDS):
+        return "injury"
+    return "other"
 
 
 @dataclass
@@ -579,6 +631,14 @@ class PlayerUsagePattern:
     xg_per_90: float | None
     xa_per_90: float | None
     key_passes_per_90: float | None
+    # Starts in the wide slots (right/left of a 4- or 5-man back line) vs
+    # the central slots, read from each match's lineup order and formation
+    # (Sofascore lists GK, then the back line right-to-left) -- the only
+    # fullback-vs-centre-back signal any source gives us, since squad
+    # positions are just G/D/M/F. A midfielder-listed player deployed as a
+    # full-back (e.g. Archie Gray) counts as a wide back start.
+    wide_back_starts: int = 0
+    central_back_starts: int = 0
 
 
 @dataclass
@@ -897,6 +957,16 @@ class SeasonGoalkeepingEstimate:
     save_pct: float | None
     goals_conceded: int
     source: str
+    # shots_on_target_faced - (saves_for + goals_conceded): the quantified
+    # gap the paragraph above explains (positive = more shots faced than
+    # saves + goals account for; negative = fewer). Reported as its own
+    # number so the mismatch is explicit rather than left for a consumer
+    # to discover by adding the fields up; derived, never used to adjust
+    # any of the three real figures.
+    unreconciled_shots_on_target: int = 0
+
+    def __post_init__(self) -> None:
+        self.unreconciled_shots_on_target = self.shots_on_target_faced - (self.saves_for + self.goals_conceded)
 
 
 @dataclass
@@ -1079,6 +1149,10 @@ class PresenceEntry:
     # True when named among substitutes (used or unused) -- Sofascore only.
     on_bench: bool | None
     reason: str | None
+    # True for the 11 available players a projection expects to start
+    # (see insights.mark_projected_starters) -- NOT a published lineup;
+    # `starting` stays False until a real lineup exists.
+    projected_starter: bool = False
 
 
 @dataclass
@@ -1123,13 +1197,16 @@ class SquadStrengthInfo:
 
 @dataclass
 class EloRating:
-    # Only ClubElo's global-network calibration could ever produce a real
-    # world rank -- this project's own computation below has no such
-    # network to rank against, and never will (the API dependency was
-    # removed for being persistently unreachable, see elo.py's own
-    # docstring). No `rank` field here -- it would only ever be None.
     elo: float
     as_of: str
+    # Rank among the teams in the same league table (1 = strongest), NOT
+    # a world rank -- ClubElo's global network is gone (see elo.py). Every
+    # team in the table is rated the same way (season W/D/L record vs an
+    # average opponent, on the Elo scale), so the ranking is like-for-like;
+    # rank_basis says exactly that. None when there's no usable table.
+    rank: int | None = None
+    rank_of: int | None = None
+    rank_basis: str | None = None
 
 
 @dataclass
@@ -1157,6 +1234,31 @@ class GoalMarketProbabilities:
     under_2_5_pct: float
     btts_yes_pct: float
     btts_no_pct: float
+
+
+@dataclass
+class MethodCalibration:
+    method: str
+    sample_size: int
+    brier_score: float
+    log_loss: float
+    accuracy_pct: float
+
+
+@dataclass
+class CalibrationSummary:
+    """How this app's own earlier predictions scored against what actually
+    happened -- see calibration.py. Headline numbers are for the blended
+    prediction; by_method breaks out each method that had probabilities."""
+
+    evaluated: int
+    pending: int
+    brier_score: float | None
+    brier_skill_vs_uniform_pct: float | None
+    log_loss: float | None
+    accuracy_pct: float | None
+    by_method: list[MethodCalibration]
+    note: str
 
 
 @dataclass
@@ -1211,6 +1313,11 @@ class MatchPrediction:
     # agree, lower when they diverge significantly.
     blended: OutcomeProbabilities | None = None
     confidence: float | None = None
+    # Plain-language basis for `confidence`: it measures only how closely
+    # the methods that ran agree with each other, NOT real-world accuracy
+    # (no outcome archive exists to calibrate against) -- and names any
+    # method that could not run, e.g. no market odds this far out.
+    confidence_basis: str | None = None
     # "+"-joined names of whichever of market/heuristic/xg contributed
     # (e.g. "heuristic+xg") -- which methods actually ran for THIS match,
     # not a fixed algorithm name (the three methods are three different,
@@ -1470,3 +1577,6 @@ class MatchInsights:
     away_club_strength: ClubStrengthRating | None
     prediction: MatchPrediction | None
     opponent_context_error: str | None
+    # How PresenceEntry.projected_starter was chosen; None when no
+    # projection was made (a real lineup is out, or no usage history).
+    projected_xi_basis: str | None = None

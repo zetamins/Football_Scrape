@@ -265,6 +265,7 @@ def test_h2h_meeting_from_parses_score_string():
     meeting = _h2h_meeting_from(m, "home fc")
     assert meeting.scoreline == "2-1"
     assert meeting.venue == "home"
+    assert (meeting.home_team, meeting.away_team) == ("Home FC", "Away FC")
 
 
 def test_h2h_meeting_from_none_without_recorded_score():

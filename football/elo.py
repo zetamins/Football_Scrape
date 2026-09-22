@@ -24,9 +24,10 @@ the removed external metric.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 
-from .types import EloRating, FormResult
+from .types import EloRating, FormResult, StandingsTableRow
 
 _BASELINE_RATING = 1500.0
 _AVERAGE_OPPONENT_RATING = 1500.0
@@ -47,6 +48,46 @@ def is_friendly_competition(competition: str | None) -> bool:
         return False
     lowered = competition.lower()
     return "friendly" in lowered or "friendlies" in lowered or "pre-season" in lowered or "preseason" in lowered
+
+
+def _standings_score(row: StandingsTableRow) -> float | None:
+    """Season score fraction, (W + D/2) / played -- the same "vs an
+    average opponent" reading compute_elo_rating uses, applied to a whole
+    league-table record. None when the source omitted W/D/L."""
+    if not row.played or row.wins is None or row.draws is None or row.losses is None:
+        return None
+    return (row.wins + 0.5 * row.draws) / row.played
+
+
+def league_elo_rank(standings_table: list[StandingsTableRow] | None, position: int | None) -> tuple[int, int, int] | None:
+    """(rank, teams_ranked, matches_played) for the table row at
+    `position`, ordered by season score fraction (goal difference, then
+    points, break ties). Every row is scored the same way, so unlike the
+    sequential last-20 `elo` this ranking is like-for-like across the
+    league. Rows are matched by table POSITION, not team name, so no fuzzy
+    name matching is involved. Elo is monotonic in score fraction, so
+    ordering by it is the ordering by Elo-scale rating."""
+    if not standings_table or position is None:
+        return None
+    scored = [(r, s) for r in standings_table if (s := _standings_score(r)) is not None]
+    own = next(((r, s) for r, s in scored if r.position == position), None)
+    if own is None:
+        return None
+    scored.sort(key=lambda rs: (rs[1], rs[0].goal_difference or 0, rs[0].points), reverse=True)
+    rank = next(i for i, (r, _) in enumerate(scored, start=1) if r.position == position)
+    return rank, len(scored), own[0].played
+
+
+def with_league_rank(elo: EloRating | None, standings_table: list[StandingsTableRow] | None, position: int | None) -> EloRating | None:
+    if elo is None:
+        return None
+    ranked = league_elo_rank(standings_table, position)
+    if ranked is None:
+        return elo
+    rank, of, played = ranked
+    elo.rank, elo.rank_of = rank, of
+    elo.rank_basis = f"rank among {of} league-table teams by season record vs an average opponent ({played} matches played); not a world rank"
+    return elo
 
 
 def compute_elo_rating(results: list[FormResult]) -> EloRating | None:

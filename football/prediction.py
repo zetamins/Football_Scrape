@@ -355,6 +355,15 @@ def _prediction_model_name(market_implied, heuristic_blend, xg_result) -> str | 
     return "+".join(names) if names else None
 
 
+def _confidence_basis(method_names: list[str], confidence: float | None, market_available: bool) -> str | None:
+    if confidence is None:
+        return None
+    basis = f"Agreement between {len(method_names)} of 3 methods ({', '.join(method_names)}), not real-world accuracy"
+    if not market_available:
+        basis += "; no market odds available, so no independent check on the model-based methods"
+    return basis
+
+
 def compute_match_prediction(
     betting_odds: BettingOdds | None,
     home_elo: EloRating | None,
@@ -395,6 +404,9 @@ def compute_match_prediction(
         market_implied=market_implied, heuristic_blend=heuristic_blend,
         xg_model=xg_model, blended=blended, confidence=confidence,
         model=_prediction_model_name(market_implied, heuristic_blend, xg_result),
+        confidence_basis=_confidence_basis(
+            (_prediction_model_name(market_implied, heuristic_blend, xg_result) or "").split("+"), confidence, market_implied is not None
+        ),
         home_expected_goals=(xg_result.home_expected_goals if xg_result else None),
         away_expected_goals=(xg_result.away_expected_goals if xg_result else None),
         likely_scorelines=(xg_result.likely_scorelines if xg_result else None),

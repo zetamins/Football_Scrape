@@ -209,6 +209,7 @@ def test_extract_recent_meetings_skips_matches_without_a_score():
     assert len(meetings) == 1
     assert meetings[0].scoreline == "2-1"
     assert meetings[0].venue == "home"
+    assert (meetings[0].home_team, meetings[0].away_team) == ("Home FC", "Away FC")
 
 
 def test_extract_recent_meetings_skips_a_match_missing_a_team_side():
@@ -445,6 +446,10 @@ def test_get_soccerdesk_match_details_builds_full_details(monkeypatch):
     assert details.venue_lat == 51.5
     assert details.home_manager.name == "Home Boss"
     assert "referee/attendance/weather/match-stats not available" in details.note
+    # The site published an empty suspended list for both sides: that is
+    # "checked, nobody suspended", not "unknown".
+    assert details.home_suspended_players == []
+    assert details.away_suspended_players == []
 
 
 def test_get_soccerdesk_match_details_notes_injured_and_suspended_players(monkeypatch):

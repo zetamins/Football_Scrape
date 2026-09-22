@@ -21,7 +21,7 @@ def _fake_result() -> RunSearchResult:
 
 
 def test_run_report_returns_valid_json_matching_build_report_json_shape(monkeypatch):
-    async def fake_run_search(_team_name, _on_progress, _on_source_progress):
+    async def fake_run_search(_team_name, _on_progress, _on_source_progress, _past_predictions=None):
         return _fake_result()
 
     monkeypatch.setattr(android_report, "run_search", fake_run_search)
@@ -35,7 +35,7 @@ def test_run_report_returns_valid_json_matching_build_report_json_shape(monkeypa
 
 
 def test_run_report_forwards_progress_messages_unchanged(monkeypatch):
-    async def fake_run_search(_team_name, on_progress, _on_source_progress):
+    async def fake_run_search(_team_name, on_progress, _on_source_progress, _past_predictions=None):
         on_progress("Scraping fotmob...")
         on_progress("Done.")
         return _fake_result()
@@ -49,7 +49,7 @@ def test_run_report_forwards_progress_messages_unchanged(monkeypatch):
 
 
 def test_run_report_serializes_source_status_to_json(monkeypatch):
-    async def fake_run_search(_team_name, _on_progress, on_source_progress):
+    async def fake_run_search(_team_name, _on_progress, on_source_progress, _past_predictions=None):
         on_source_progress(SourceStatus(source="fotmob", fixtures_scraped=42))
         on_source_progress(SourceStatus(source="sofascore", fixtures_scraped=0, matches_error="403 blocked"))
         return _fake_result()
@@ -74,7 +74,7 @@ def test_run_report_defaults_are_noop_when_no_callbacks_given(monkeypatch):
     """Kotlin passing neither callback (a plain status check, e.g.) must
     not raise -- both parameters have working no-op defaults."""
 
-    async def fake_run_search(_team_name, on_progress, on_source_progress):
+    async def fake_run_search(_team_name, on_progress, on_source_progress, _past_predictions=None):
         on_progress("hello")
         on_source_progress(SourceStatus(source="goal", fixtures_scraped=1))
         return _fake_result()
@@ -88,7 +88,7 @@ def test_run_report_defaults_are_noop_when_no_callbacks_given(monkeypatch):
 def test_run_report_streams_each_failure_as_json_and_stops_capturing_afterwards(monkeypatch):
     from football.fetch_log import record_failure
 
-    async def fake_run_search(_team_name, _on_progress, _on_source_progress):
+    async def fake_run_search(_team_name, _on_progress, _on_source_progress, _past_predictions=None):
         record_failure("https://api.fotmob.com/matches", "HTTP 403")
         return _fake_result()
 
@@ -107,9 +107,34 @@ def test_run_report_streams_each_failure_as_json_and_stops_capturing_afterwards(
 def test_run_report_works_without_an_on_failure_callback(monkeypatch):
     from football.fetch_log import record_failure
 
-    async def fake_run_search(_team_name, _on_progress, _on_source_progress):
+    async def fake_run_search(_team_name, _on_progress, _on_source_progress, _past_predictions=None):
         record_failure("https://api.fotmob.com/matches", "HTTP 403")
         return _fake_result()
 
     monkeypatch.setattr(android_report, "run_search", fake_run_search)
     assert json.loads(android_report.run_report("Brentford"))["team"] == "Brentford"
+
+
+def test_run_report_passes_the_saved_predictions_to_run_search_and_reports_calibration(monkeypatch):
+    seen = {}
+
+    async def fake_run_search(_team, _on_progress, _on_source_progress, past_predictions=None):
+        seen["past"] = past_predictions
+        return _fake_result()
+
+    monkeypatch.setattr(android_report, "run_search", fake_run_search)
+    payload = json.dumps([{"home_team": "A", "away_team": "B", "kickoff_utc": "2026-01-01T15:00:00.000Z", "generated_at": "2025-12-30T10:00:00.000Z", "prediction": {}}])
+    android_report.run_report("Brentford", past_predictions_json=payload)
+    assert seen["past"][0]["home_team"] == "A"
+
+
+def test_run_report_defaults_to_no_past_predictions(monkeypatch):
+    seen = {}
+
+    async def fake_run_search(_team, _on_progress, _on_source_progress, past_predictions=None):
+        seen["past"] = past_predictions
+        return _fake_result()
+
+    monkeypatch.setattr(android_report, "run_search", fake_run_search)
+    android_report.run_report("Brentford")
+    assert seen["past"] == []

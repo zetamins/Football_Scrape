@@ -88,6 +88,44 @@ def test_on_source_progress_fires_once_per_source_with_real_status(monkeypatch):
         assert status.profile_error == "boom"
 
 
+def test_a_source_that_cannot_find_the_team_shows_up_in_the_failure_list_not_just_the_status(monkeypatch):
+    # An alias miss surfaces as 'No X team found matching ...' -- it used to
+    # live only in SourceStatus, which the loading screen doesn't show.
+    from football.fetch_log import capture_failures
+
+    async def not_found(_team_name):
+        raise ValueError('No Fotmob team found matching "Spurs"')
+
+    fake_scrapers = {source: _Scraper(run=not_found, details=not_found, profile=not_found) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    seen = []
+    with capture_failures(seen.append), pytest.raises(RuntimeError, match="Could not find a team"):
+        asyncio.run(run_search("Spurs"))
+
+    assert {f.source for f in seen} >= {f"{source} matches" for source in SOURCE_ORDER}
+    assert all("No Fotmob team found" in f.reason for f in seen if f.source.endswith(" matches"))
+
+
+def test_error_text_falls_back_to_the_class_name_for_a_message_less_exception():
+    from football.orchestrate import _error_text
+
+    assert _error_text(RuntimeError("boom")) == "boom"
+    assert _error_text(RuntimeError()) == "RuntimeError"
+
+
+def test_a_message_less_source_error_is_still_recorded_as_an_error(monkeypatch):
+    async def silent_failure(_team_name):
+        raise RuntimeError()
+
+    fake_scrapers = {source: _Scraper(run=silent_failure, details=silent_failure, profile=silent_failure) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+    seen = []
+    with pytest.raises(RuntimeError, match="Could not find a team"):
+        asyncio.run(run_search("X", on_source_progress=seen.append))
+    assert all(status.matches_error == "RuntimeError" for status in seen)
+
+
 def test_on_source_progress_reports_fixtures_scraped(monkeypatch):
     async def one_match(_team_name):
         return []  # empty list is enough: exercises the success path, no MatchInfo shape needed
@@ -780,6 +818,19 @@ def _form_summary(**overrides):
     return FormSummary(**base)
 
 
+def test_meetings_in_fixture_frame_flips_home_and_away_only_when_the_searched_team_is_the_away_side():
+    from football.orchestrate import _meetings_in_fixture_frame
+
+    meetings = [_meeting(venue="home"), _meeting(venue="away"), _meeting(venue="neutral")]
+    flipped = _meetings_in_fixture_frame(meetings, own_is_home=False)
+    assert [m.venue for m in flipped] == ["away", "home", "neutral"]
+    assert [m.venue for m in meetings] == ["home", "away", "neutral"]  # input untouched
+
+    assert _meetings_in_fixture_frame(meetings, own_is_home=True) is meetings
+    assert _meetings_in_fixture_frame(meetings, own_is_home=None) is meetings
+    assert _meetings_in_fixture_frame(None, own_is_home=False) is None
+
+
 def test_apply_own_recent_meetings_and_form_noop_without_form_source():
     from football.orchestrate import _apply_own_recent_meetings_and_form
 
@@ -816,7 +867,7 @@ def test_apply_own_recent_meetings_and_form_applies_deep_meetings_and_venue_enri
     monkeypatch.setattr(orchestrate.ins, "compute_recent_meetings", fake_compute_recent_meetings)
     monkeypatch.setattr(orchestrate, "enrich_form_with_venue_classification", fake_enrich_venue)
 
-    merged = _all_none(orchestrate.MergedMatch, field_sources={}, additional_notes=[], recent_meetings=None)
+    merged = _all_none(orchestrate.MergedMatch, home_team="Home FC", away_team="Away FC", field_sources={}, additional_notes=[], recent_meetings=None)
     form = _form_summary()
     squad_member = SquadMember(name="Some Player", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
     merged_profile = _all_none(orchestrate.MergedProfile, source="sofascore", team_name="Own", squad=[squad_member], field_sources={})
@@ -842,7 +893,7 @@ def test_apply_own_recent_meetings_and_form_tolerates_failures(monkeypatch):
     monkeypatch.setattr(orchestrate.ins, "compute_recent_meetings", failing_meetings)
     monkeypatch.setattr(orchestrate, "enrich_form_with_venue_classification", failing_enrich)
 
-    merged = _all_none(orchestrate.MergedMatch, field_sources={}, additional_notes=[], recent_meetings=[_meeting()])
+    merged = _all_none(orchestrate.MergedMatch, home_team="Home FC", away_team="Away FC", field_sources={}, additional_notes=[], recent_meetings=[_meeting()])
     original_meetings = merged.recent_meetings
     form = _form_summary()
     result_form, advanced_stats = asyncio.run(
@@ -1460,6 +1511,36 @@ def test_compute_match_context_enriches_opponent_squad_defensive_stats(monkeypat
     assert "Away FC" in called
 
 
+def test_compute_match_context_passes_own_resolved_team_name_to_defensive_stats(monkeypatch):
+    from football.orchestrate import _compute_match_context
+    from football.types import SquadMember
+
+    _mock_full_pipeline(monkeypatch)
+    called = []
+
+    async def fake_enrich_defensive(squad, team_name, _competitions):
+        called.append(team_name)
+        return squad
+
+    import football.merge as merge_module
+
+    monkeypatch.setattr(merge_module, "enrich_squad_with_defensive_stats", fake_enrich_defensive)
+
+    async def one_opponent_match(_team_name):
+        return [_match()]
+
+    fake_scrapers = {source: orchestrate._Scraper(run=one_opponent_match, details=None, profile=None) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    member = SquadMember(name="Own Player", role="D", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+    own_profile = _all_none(orchestrate.MergedProfile, source="sofascore", team_name="Tottenham Hotspur", squad=[member], field_sources={})
+    merged = _merged_match(home_team="Tottenham Hotspur", away_team="Away FC")
+    # The user typed the short name; Squawka needs the resolved full one.
+    asyncio.run(_compute_match_context("Tottenham", merged, own_profile, None, None, {}, lambda _msg: None))
+    assert "Tottenham Hotspur" in called
+    assert "Tottenham" not in called
+
+
 # --- run_search: full pipeline, both branches of the "no match" guard --------------------
 
 
@@ -1524,3 +1605,118 @@ def test_run_search_returns_a_fully_populated_result_on_success(monkeypatch):
     assert result.opponent_name == "Away FC"
     assert result.insights is not None
     assert result.form_source == SOURCE_ORDER[0]
+
+
+def test_note_missing_defensive_stats_set_only_when_no_member_has_stats():
+    from football.orchestrate import _note_missing_defensive_stats
+    from football.types import DefensiveStats, SquadMember
+
+    plain = SquadMember(name="A", role="D", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+    profile = _all_none(orchestrate.MergedProfile, source="sofascore", team_name="Spurs", squad=[plain], field_sources={})
+    _note_missing_defensive_stats(profile, "Spurs")
+    assert "Squawka defensive stats unavailable for Spurs" in profile.defensive_stats_note
+
+    stats = _all_none(DefensiveStats)
+    covered = SquadMember(name="B", role="D", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=stats, recent_usage=None)
+    profile2 = _all_none(orchestrate.MergedProfile, source="sofascore", team_name="Spurs", squad=[covered], field_sources={})
+    _note_missing_defensive_stats(profile2, "Spurs")
+    assert profile2.defensive_stats_note is None
+
+
+# --- _refine_undetailed_meetings ----------------------------------------------------------------
+
+
+def _shallow(date, venue="away", **overrides):
+    return _meeting(date=date, venue=venue, **overrides)
+
+
+def test_refine_relabels_an_undetailed_meeting_as_neutral_using_real_venue_facts(monkeypatch):
+    from football.orchestrate import _refine_undetailed_meetings
+    from football.sites.sofascore import OlderMeetingInfo
+
+    async def fake_info(_team, _opponent, wanted):
+        assert wanted == {"2025-05-21"}
+        return {"2025-05-21": OlderMeetingInfo("Tottenham Hotspur", "Manchester United", "San Mames", "Spain", True, "Final")}
+
+    monkeypatch.setattr(orchestrate.sofascore_site, "get_sofascore_older_meeting_info", fake_info)
+    detailed = _meeting(date="2026-02-07T12:30:00.000Z", venue="home", home_formation="4-3-3")
+    final = _shallow("2025-05-21T19:00:00.000Z")
+    merged = _all_none(orchestrate.MergedMatch, home_team="Manchester United", away_team="Tottenham Hotspur", recent_meetings=[detailed, final], field_sources={}, additional_notes=[])
+    asyncio.run(_refine_undetailed_meetings("Tottenham", merged, "Manchester United", "sofascore"))
+    assert [(m.date[:10], m.venue) for m in merged.recent_meetings] == [("2026-02-07", "home"), ("2025-05-21", "neutral")]
+    assert merged.recent_meetings[1].home_team == "Tottenham Hotspur"
+    assert merged.recent_meetings[0].venue == "home"  # the already-detailed one is left alone
+
+
+def test_refine_labels_a_non_neutral_meeting_by_who_actually_hosted_it(monkeypatch):
+    from football.orchestrate import _refine_undetailed_meetings
+    from football.sites.sofascore import OlderMeetingInfo
+
+    async def fake_info(_team, _opponent, _wanted):
+        return {"2025-11-08": OlderMeetingInfo("Tottenham Hotspur", "Manchester United", "Spurs Stadium", "England", False, None)}
+
+    monkeypatch.setattr(orchestrate.sofascore_site, "get_sofascore_older_meeting_info", fake_info)
+    merged = _all_none(orchestrate.MergedMatch, home_team="Manchester United", away_team="Tottenham Hotspur", recent_meetings=[_shallow("2025-11-08T12:30:00.000Z", venue="home")], field_sources={}, additional_notes=[])
+    asyncio.run(_refine_undetailed_meetings("Tottenham", merged, "Manchester United", "sofascore"))
+    # Tottenham (the fixture's AWAY side) hosted that one -> "away" in the fixture-home frame
+    assert merged.recent_meetings[0].venue == "away"
+
+
+def test_refine_makes_no_lookup_unless_sofascore_is_the_form_source_and_something_needs_it(monkeypatch):
+    from football.orchestrate import _refine_undetailed_meetings
+
+    async def must_not_run(*_a):
+        raise AssertionError("no lookup expected")
+
+    monkeypatch.setattr(orchestrate.sofascore_site, "get_sofascore_older_meeting_info", must_not_run)
+    shallow = _all_none(orchestrate.MergedMatch, home_team="A", away_team="B", recent_meetings=[_shallow("2025-05-21T19:00:00.000Z")], field_sources={}, additional_notes=[])
+    asyncio.run(_refine_undetailed_meetings("A", shallow, "B", "fotmob"))
+    assert shallow.recent_meetings[0].venue == "away"
+
+    all_detailed = _all_none(orchestrate.MergedMatch, home_team="A", away_team="B", recent_meetings=[_meeting(home_formation="4-3-3")], field_sources={}, additional_notes=[])
+    asyncio.run(_refine_undetailed_meetings("A", all_detailed, "B", "sofascore"))
+    none_at_all = _all_none(orchestrate.MergedMatch, home_team="A", away_team="B", recent_meetings=None, field_sources={}, additional_notes=[])
+    asyncio.run(_refine_undetailed_meetings("A", none_at_all, "B", "sofascore"))
+
+
+def test_refine_keeps_the_fallback_labels_and_reports_when_the_lookup_fails(monkeypatch):
+    from football.fetch_log import capture_failures
+    from football.orchestrate import _refine_undetailed_meetings
+
+    async def boom(*_a):
+        raise KeyError("startTimestamp")
+
+    monkeypatch.setattr(orchestrate.sofascore_site, "get_sofascore_older_meeting_info", boom)
+    merged = _all_none(orchestrate.MergedMatch, home_team="A", away_team="B", recent_meetings=[_shallow("2025-05-21T19:00:00.000Z")], field_sources={}, additional_notes=[])
+    seen = []
+    with capture_failures(seen.append):
+        asyncio.run(_refine_undetailed_meetings("A", merged, "B", "sofascore"))
+    assert merged.recent_meetings[0].venue == "away"
+    assert [f.source for f in seen] == ["older meetings venue (Sofascore)"]
+
+
+# --- _reconcile_venue_capacity records the override as a source conflict ------------------------
+
+
+def test_stadiumdb_capacity_override_is_recorded_with_the_replaced_value():
+    from football.orchestrate import _reconcile_venue_capacity
+    from football.merge import SourceConflict, SourceValue
+
+    merged = _all_none(
+        orchestrate.MergedMatch, base_source="sofascore", venue_capacity=74000, field_sources={}, additional_notes=[],
+        source_conflicts=[SourceConflict("venue_capacity", 74000, "sofascore", [SourceValue("fotmob", 74100)], "base source kept")],
+    )
+    _reconcile_venue_capacity(merged, SimpleNamespace(capacity=74310))
+    assert merged.venue_capacity == 74310
+    assert merged.field_sources["venue_capacity"] == "stadiumdb"
+    (conflict,) = merged.source_conflicts
+    assert (conflict.kept, conflict.kept_source) == (74310, "stadiumdb")
+    assert [(a.from_source, a.value) for a in conflict.alternatives] == [("sofascore", 74000), ("fotmob", 74100)]
+
+
+def test_matching_stadiumdb_capacity_records_no_conflict():
+    from football.orchestrate import _reconcile_venue_capacity
+
+    merged = _all_none(orchestrate.MergedMatch, base_source="sofascore", venue_capacity=74310, field_sources={}, additional_notes=[], source_conflicts=[])
+    _reconcile_venue_capacity(merged, SimpleNamespace(capacity=74310))
+    assert merged.source_conflicts == []

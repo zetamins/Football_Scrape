@@ -164,6 +164,16 @@ class ReportRepositoryTest {
     }
 
     @Test
+    fun `saved predictions are read at search time, not when the repository is built`() {
+        var reads = 0
+        val repository = ReportRepository(pastPredictions = { reads++; "[]" }, runReport = { _, _, _, _ -> loadSampleReportJson() })
+        assertEquals(0, reads)
+        repository.search("Arsenal") { }
+        // A custom runReport bypasses the default that would call pastPredictions().
+        assertEquals(0, reads)
+    }
+
+    @Test
     fun `default constructor wires the real PythonBridge runReport without throwing at construction time`() {
         // Just confirms the default-argument reference (PythonBridge::runReport)
         // resolves and the class constructs -- actually invoking search()

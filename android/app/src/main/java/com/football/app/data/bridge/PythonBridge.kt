@@ -39,9 +39,10 @@ object PythonBridge {
         onProgress: ProgressListener,
         onSourceProgress: SourceProgressListener,
         onFailure: FailureListener,
+        pastPredictionsJson: String,
     ): String {
         val module = Python.getInstance().getModule("football.android_report")
-        val pyResult = module.callAttr("run_report", teamName, onProgress, onSourceProgress, onFailure)
+        val pyResult = module.callAttr("run_report", teamName, onProgress, onSourceProgress, onFailure, pastPredictionsJson)
         return pyResult.toString()
     }
 }

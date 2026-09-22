@@ -23,12 +23,18 @@ import kotlinx.serialization.SerializationException
  * ("stays easy to unit test") actually needed a seam to be true.
  */
 class ReportRepository(
+    // The predictions saved so far, as compact JSON, for the backend to
+    // score against finished results (its "calibration" block). Read at
+    // search time, not construction time, so it reflects the latest history.
+    private val pastPredictions: () -> String = { "[]" },
     private val runReport: (
         String,
         PythonBridge.ProgressListener,
         PythonBridge.SourceProgressListener,
         PythonBridge.FailureListener,
-    ) -> String = PythonBridge::runReport,
+    ) -> String = { team, onProgress, onSourceProgress, onFailure ->
+        PythonBridge.runReport(team, onProgress, onSourceProgress, onFailure, pastPredictions())
+    },
 ) {
     /**
      * Synchronous/blocking (see PythonBridge's own docstring for why).

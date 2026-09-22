@@ -2,6 +2,10 @@ package com.football.app.data.history
 
 import com.football.app.data.AppJsonTopLevel
 import com.football.app.data.model.ReportJson
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -127,5 +131,59 @@ class HistoryRepositoryTest {
         assertEquals(2, listed.size)
         assertEquals(second.id, listed.first().id)
         assertEquals(first.id, listed.last().id)
+    }
+
+    @Test
+    fun `predictionRecordsJson keeps only the teams, kickoff, generation time and probability blocks`() {
+        val rawJson = loadSample()
+        val repo = newRepo()
+        repo.save(AppJsonTopLevel.decodeFromString(ReportJson.serializer(), rawJson), rawJson)
+
+        val records = Json.parseToJsonElement(repo.predictionRecordsJson()).jsonArray
+        assertEquals(1, records.size)
+        val record = records[0].jsonObject
+        assertEquals("Brentford", record["home_team"]?.jsonPrimitive?.content)
+        assertEquals("Sunderland", record["away_team"]?.jsonPrimitive?.content)
+        assertEquals("2026-09-05T14:00:00.000Z", record["kickoff_utc"]?.jsonPrimitive?.content)
+        assertEquals("2026-08-31T02:21:23.778Z", record["generated_at"]?.jsonPrimitive?.content)
+        val prediction = record["prediction"]!!.jsonObject
+        assertTrue(prediction.keys.all { it in setOf("blended", "market_implied", "heuristic_blend", "xg_model") })
+        assertTrue("market_implied" in prediction)
+        // far smaller than the report it came from -- that is the point
+        assertTrue(repo.predictionRecordsJson().length < rawJson.length / 10)
+    }
+
+    @Test
+    fun `predictionRecordsJson skips reports with no prediction or unreadable content`() {
+        val dir = File.createTempFile("history", "").apply { delete(); mkdirs() }
+        val repo = HistoryRepository(dir)
+        val rawJson = loadSample()
+        val report = AppJsonTopLevel.decodeFromString(ReportJson.serializer(), rawJson)
+        val withoutPrediction = rawJson.replace("\"prediction\"", "\"prediction_removed\"")
+        repo.save(report, withoutPrediction)
+        val corrupt = repo.save(report, rawJson)
+        File(dir, "${corrupt.id}.json").writeText("not json")
+
+        assertEquals("[]", repo.predictionRecordsJson())
+    }
+
+    @Test
+    fun `predictionRecordsJson respects the limit and lists newest first`() {
+        val repo = newRepo()
+        val rawJson = loadSample()
+        val report = AppJsonTopLevel.decodeFromString(ReportJson.serializer(), rawJson)
+        repeat(3) {
+            repo.save(report, rawJson.replace("2026-08-31T02:21:23.778Z", "2026-08-31T02:21:2$it.000Z"))
+            Thread.sleep(2)
+        }
+
+        val records = Json.parseToJsonElement(repo.predictionRecordsJson(limit = 2)).jsonArray
+        assertEquals(2, records.size)
+        assertEquals("2026-08-31T02:21:22.000Z", records[0].jsonObject["generated_at"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `predictionRecordsJson is an empty array with no history`() {
+        assertEquals("[]", newRepo().predictionRecordsJson())
     }
 }

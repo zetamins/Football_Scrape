@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
 from ._jsmath import js_round_to
+from .fetch_log import record_step_failure
 from .team_name_match import normalize_for_match as normalize_team_name
 from .types import (
     DefensiveStats,
@@ -28,6 +29,23 @@ from .types import (
 # for everything downstream.
 SOURCE_ORDER: tuple[Source, ...] = ("sofascore", "fotmob", "soccerdesk", "goal", "365scores")
 
+# Reliability weights used ONLY to settle a genuine disagreement between
+# sources on a hard number (see detect_source_conflicts). They restate
+# SOURCE_ORDER's trust ranking as votes: Sofascore (the base) outweighs any
+# single other source, but two mid-tier sources that agree with each other
+# (2 + 2 = 4) outvote it -- one dissenting source never overrides the
+# base, a small consensus can. Not used to pick between spellings.
+SOURCE_WEIGHTS: dict[str, int] = {"sofascore": 3, "fotmob": 2, "goal": 2, "soccerdesk": 1, "365scores": 1}
+
+# Fields whose values are hard numbers: a disagreement is a real conflict
+# and is settled by weighted vote.
+_NUMERIC_CONFLICT_FIELDS = ("venue_capacity", "attendance", "home_score", "away_score", "home_score_ht", "away_score_ht")
+# Fields whose values are names/labels, where sources legitimately spell
+# things differently ("Old Trafford" / "Old Trafford Stadium"): a
+# disagreement is only REPORTED, and the base source's value is kept.
+_TEXT_CONFLICT_FIELDS = ("venue_name", "venue_city", "venue_country", "referee", "home_formation", "away_formation")
+
+
 # wttr.in isn't a per-team Source (it has no fixtures/lineups/squad to
 # search) -- it only ever fills the single `weather` field, as a post-merge
 # supplemental fetch, so field_sources needs to name it too.
@@ -40,6 +58,17 @@ def is_empty(v: Any) -> bool:
     if isinstance(v, (list, dict)):
         return len(v) == 0
     return False
+
+
+# Fields where a source's explicit [] means "checked -- none" (e.g. nobody
+# suspended), a real answer distinct from None ("no source told us"). The
+# generic is_empty() would treat that [] as missing and keep hunting for a
+# non-empty value, discarding the confirmation.
+CONFIRMED_EMPTY_FIELDS = frozenset({"home_suspended_players", "away_suspended_players"})
+
+
+def _is_unfilled(field_name: str, value: Any) -> bool:
+    return value is None if field_name in CONFIRMED_EMPTY_FIELDS else is_empty(value)
 
 
 # Fields Sofascore might not have, that another source can fill in.
@@ -97,6 +126,27 @@ class AdditionalNote:
 
 
 @dataclass
+class SourceValue:
+    # `from_source`, not `source`: report.py strips every "source" key from
+    # the JSON output as a per-item label.
+    from_source: str
+    value: str | int | float
+
+
+@dataclass
+class SourceConflict:
+    """Sources disagreed on `field`. `kept` is the value the report uses
+    (from `kept_source`); `alternatives` are the other values and who gave
+    them; `resolution` says how `kept` was chosen."""
+
+    field: str
+    kept: str | int | float
+    kept_source: str
+    alternatives: list[SourceValue]
+    resolution: str
+
+
+@dataclass
 class MergedMatch(MatchDetails):
     """MatchDetails plus provenance metadata -- a flat subclass (not a
     wrapper) so downstream code reads `merged.home_team`,
@@ -111,6 +161,7 @@ class MergedMatch(MatchDetails):
     base_source: Source | None = None
     field_sources: dict[str, FieldSource] = field(default_factory=dict)
     additional_notes: list[AdditionalNote] = field(default_factory=list)
+    source_conflicts: list[SourceConflict] = field(default_factory=list)
 
 
 def _fill_missing_fields(merged: dict, by_source: dict, base_source: Source, field_names: list[str]) -> dict[str, Source]:
@@ -123,7 +174,7 @@ def _fill_missing_fields(merged: dict, by_source: dict, base_source: Source, fie
     Behavior unchanged for either call site."""
     field_sources: dict[str, Source] = {}
     for field_name in field_names:
-        if not is_empty(merged.get(field_name)):
+        if not _is_unfilled(field_name, merged.get(field_name)):
             continue
         for src in SOURCE_ORDER:
             if src == base_source:
@@ -131,11 +182,83 @@ def _fill_missing_fields(merged: dict, by_source: dict, base_source: Source, fie
             candidate = by_source.get(src)
             if candidate is not None:
                 candidate_val = getattr(candidate, field_name)
-                if not is_empty(candidate_val):
+                if not _is_unfilled(field_name, candidate_val):
                     merged[field_name] = candidate_val
                     field_sources[field_name] = src
                     break
     return field_sources
+
+
+def _same_text(a: str, b: str) -> bool:
+    na, nb = normalize_team_name(a), normalize_team_name(b)
+    return na == nb or (bool(na) and bool(nb) and (na in nb or nb in na))
+
+
+def _group_by_agreement(present: dict[str, Any], numeric: bool) -> list[list[str]]:
+    """Sources whose values agree, as lists ordered by SOURCE_ORDER; text
+    agrees loosely (_same_text), numbers exactly."""
+    groups: list[list[str]] = []
+    for src in SOURCE_ORDER:
+        if src not in present:
+            continue
+        for group in groups:
+            other = present[group[0]]
+            if present[src] == other if numeric else _same_text(str(present[src]), str(other)):
+                group.append(src)
+                break
+        else:
+            groups.append([src])
+    return groups
+
+
+def _settle_numeric_conflict(
+    groups: list[list[str]], current_source: str, base_source: Source, merged: dict, field_sources: dict, field_name: str, present: dict
+) -> tuple[str, str]:
+    """The weighted-vote branch of detect_source_conflicts, extracted to
+    keep that function's own cognitive complexity down (python:S3776).
+    Mutates `merged`/`field_sources` when the consensus beats the current
+    source. Returns (new current_source, resolution)."""
+    winner = max(groups, key=lambda g: (sum(SOURCE_WEIGHTS.get(s, 1) for s in g), -SOURCE_ORDER.index(g[0])))
+    if current_source in winner:
+        return current_source, "base source kept"
+    winning_source = winner[0]
+    merged[field_name] = present[winning_source]
+    if winning_source == base_source:
+        field_sources.pop(field_name, None)
+    else:
+        field_sources[field_name] = winning_source
+    return winning_source, f"weighted vote: {len(winner)} sources agree"
+
+
+def detect_source_conflicts(
+    by_source: dict[Source, MatchDetails], base_source: Source, merged: dict, field_sources: dict[str, Source]
+) -> list[SourceConflict]:
+    """Finds fields where two or more sources gave DIFFERENT non-empty
+    values. Numeric fields are settled by SOURCE_WEIGHTS vote (mutating
+    `merged`/`field_sources` when the consensus beats the base source);
+    text fields are only reported. A source that simply lacks a value is
+    not a conflict (that's what the fill-from-fallback merge is for)."""
+    conflicts: list[SourceConflict] = []
+    for field_name in (*_NUMERIC_CONFLICT_FIELDS, *_TEXT_CONFLICT_FIELDS):
+        present = {src: v for src, d in by_source.items() if (v := getattr(d, field_name, None)) not in (None, "")}
+        if len(present) < 2:
+            continue
+        numeric = field_name in _NUMERIC_CONFLICT_FIELDS
+        groups = _group_by_agreement(present, numeric)
+        if len(groups) < 2:
+            continue
+        current_source = field_sources.get(field_name, base_source)
+        if numeric:
+            current_source, resolution = _settle_numeric_conflict(groups, current_source, base_source, merged, field_sources, field_name, present)
+        else:
+            resolution = "base source kept (text disagreements are reported, not overridden)"
+        kept_value = merged.get(field_name)
+        conflicts.append(SourceConflict(
+            field=field_name, kept=kept_value, kept_source=current_source,
+            alternatives=[SourceValue(from_source=src, value=present[src]) for g in groups for src in g if present[src] != kept_value],
+            resolution=resolution,
+        ))
+    return conflicts
 
 
 def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
@@ -155,11 +278,14 @@ def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
     merged["home_lineup"] = _validate_lineup_positions(merged.get("home_lineup"), merged.get("home_formation"))
     merged["away_lineup"] = _validate_lineup_positions(merged.get("away_lineup"), merged.get("away_formation"))
 
+    source_conflicts = detect_source_conflicts(by_source, base_source, merged, field_sources)
+
     return MergedMatch(
         **merged,
         base_source=base_source,
         field_sources=field_sources,
         additional_notes=additional_notes,
+        source_conflicts=source_conflicts,
     )
 
 
@@ -179,6 +305,9 @@ class MergedProfile(TeamProfile):
     top_scorers: list[TopPerformer] = field(default_factory=list)
     top_assists: list[TopPerformer] = field(default_factory=list)
     top_defenders: list[TopDefender] = field(default_factory=list)
+    # Set when no squad member received Squawka defensive stats, so an
+    # empty top_defenders reads as "source unavailable", not "no defenders".
+    defensive_stats_note: str | None = None
     bench_regulars: list[BenchRegular] = field(default_factory=list)
     midfielders_form: list[RoleFormEntry] = field(default_factory=list)
     defenders_form: list[RoleFormEntry] = field(default_factory=list)
@@ -218,6 +347,31 @@ def is_goalkeeper_role(role: str | None) -> bool:
     r = role.upper()
     lowered = role.lower()
     return r in ("G", "GK") or "goalkeeper" in lowered or "keeper" in lowered
+
+
+def canonical_role(role: str | None) -> str | None:
+    """G/D/M/F for any source's spelling ("Keeper", "DEFENDER", "Attacker",
+    "Midfielder"...), so both teams' squads use one role vocabulary in the
+    output -- confirmed live: the own team came back as G/D/M/F while the
+    opponent (a different source) came back as Keeper/Defender/
+    Midfielder/Attacker. Unrecognized values pass through unchanged."""
+    if is_goalkeeper_role(role):
+        return "G"
+    if is_defender_role(role):
+        return "D"
+    if is_midfield_role(role):
+        return "M"
+    if is_attacker_role(role):
+        return "F"
+    return role
+
+
+def _with_canonical_roles(members: list[SquadMember] | None) -> list[SquadMember] | None:
+    if not members:
+        return members
+    from dataclasses import replace as _replace
+
+    return [_replace(m, role=canonical_role(m.role)) for m in members]
 
 
 def compute_missing_midfielders(injuries: list[SquadMember] | None) -> list[str] | None:
@@ -377,7 +531,8 @@ async def enrich_squad_with_defensive_stats(
 
     try:
         stats_by_name = await get_squawka_defensive_stats(team_name, competition_candidates)
-    except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => new Map())
+    except Exception as err:  # noqa: BLE001 - mirrors TS's .catch(() => new Map())
+        record_step_failure("defensive stats (Squawka)", err)
         stats_by_name: dict[str, DefensiveStats] = {}
     if not stats_by_name:
         return squad
@@ -591,6 +746,8 @@ def merge_team_profile(by_source: dict[Source, TeamProfile]) -> MergedProfile:
     base = by_source[base_source]
     merged = {f.name: getattr(base, f.name) for f in fields(base)}
     field_sources = _fill_missing_fields(merged, by_source, base_source, _PROFILE_MERGE_FIELDS)
+    for key in ("squad", "injuries", "key_injuries"):
+        merged[key] = _with_canonical_roles(merged.get(key))
 
     merged["missing_midfielders"] = compute_missing_midfielders(merged.get("injuries"))
     merged["missing_attackers"] = compute_missing_by_role(merged.get("injuries"), is_attacker_role)
@@ -737,10 +894,22 @@ def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source:
     the label needs to reflect whichever source actually produced the
     final value, not what was true at merge time. No-op if deep_meetings
     is empty (a decent fallback from the earlier merge is left in place
-    rather than being cleared)."""
+    rather than being cleared).
+
+    Meetings the deep computation could not detail (older than the raw
+    fixtures it can look up) are KEPT from the earlier merge rather than
+    dropped -- replacing the whole list previously turned a 3-meeting
+    fallback into a single detailed meeting. Same-date entries are taken
+    from the deep result; the list is newest-first. When any fallback
+    entry survives, the existing provenance label is left as is, since
+    part of the list still comes from that source."""
     if not deep_meetings:
         return
-    merged.recent_meetings = deep_meetings
+    deep_days = {m.date[:10] for m in deep_meetings}
+    leftovers = [m for m in (merged.recent_meetings or []) if m.date[:10] not in deep_days]
+    merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date, reverse=True)
+    if leftovers:
+        return
     if source == merged.base_source:
         merged.field_sources.pop("recent_meetings", None)
     else:

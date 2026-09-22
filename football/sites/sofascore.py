@@ -36,7 +36,7 @@ from ..fetch_log import record_failure
 from ..form import parse_leading_int
 from ..odds_math import fractional_to_decimal, implied_and_fair_percentages, implied_and_fair_percentages_2way
 from ..retry import retry_with_backoff
-from ..team_aliases import canonical_for
+from ..team_aliases import canonical_for, known_aliases_for, same_team
 from ..team_aliases import normalize as _normalize_alias
 from ..team_name_match import normalize_for_match as _normalize
 from ..types import (
@@ -86,7 +86,32 @@ async def _warm_up(page: Page) -> None:
 _BLOCK_ERROR_CODES = frozenset({403, 429})
 
 
+class SofascoreBlockedError(RuntimeError):
+    """Raised instead of making a request once Sofascore has answered a
+    run with a 403/429 block -- see _fetch_json."""
+
+
+# Circuit breaker: the first block answer trips it for the rest of the run
+# (run_search resets it at the start). A CDN-level block isn't cleared by
+# asking again -- more requests only dig the block in (see _find_team) --
+# and one run makes dozens of Sofascore calls, so without this every later
+# call (per-match details, opponent lookups...) kept hitting a connection
+# already known to be blocked.
+_block_reason: str | None = None
+
+
+def reset_block_state() -> None:
+    global _block_reason
+    _block_reason = None
+
+
 async def _fetch_json(page: Page, url: str) -> Any:
+    global _block_reason
+    if _block_reason is not None:
+        skipped = SofascoreBlockedError(f"Sofascore blocked this run ({_block_reason}); further Sofascore requests were skipped")
+        skipped._failure_recorded = True  # the block itself was already reported once, with the skipped-requests note
+        raise skipped
+
     async def attempt() -> Any:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         text = await page.evaluate("() => document.body.innerText")
@@ -98,7 +123,8 @@ async def _fetch_json(page: Page, url: str) -> Any:
         record_failure(url, err)
         raise
     if isinstance(data, dict) and isinstance(data.get("error"), dict) and data["error"].get("code") in _BLOCK_ERROR_CODES:
-        record_failure(url, f"HTTP {data['error']['code']} {data['error'].get('reason', 'blocked')}")
+        _block_reason = f"HTTP {data['error']['code']} {data['error'].get('reason', 'blocked')}"
+        record_failure(url, f"{_block_reason} -- remaining Sofascore requests skipped this run")
     return data
 
 
@@ -172,6 +198,27 @@ _SOFASCORE_QUERY_OVERRIDE: dict[str, str] = {
 }
 
 
+def _pick_team_hit(results: list[dict[str, Any]], team_name: str, query: str) -> dict[str, Any] | None:
+    """Sofascore's search returns the best-ranked team FIRST but not always
+    the right one (a women's side, a youth/reserve team, a same-name club).
+    Among the team hits, prefer one whose name is the same club as the
+    searched/queried name under the alias table (same_team's exact-alias
+    rule first, then a looser containment match, always a men's team over
+    a women's), and only then fall back to the first team hit -- so behavior for an unambiguous search is
+    unchanged. Reads Sofascore's own `gender` field when present; absent
+    fields simply don't disqualify anything."""
+    teams = [r for r in results if r.get("type") == "team" and r.get("entity")]
+    if not teams:
+        return None
+    mens = [r for r in teams if (r["entity"].get("gender") or "M") != "F"] or teams
+    wanted = {alias for name in (team_name, query) for alias in known_aliases_for(name)}
+    exact = next((r for r in mens if wanted & set(known_aliases_for(r["entity"].get("name", "")))), None)
+    if exact:
+        return exact
+    loose = next((r for r in mens if any(same_team(r["entity"].get("name", ""), name) for name in (team_name, query))), None)
+    return loose or mens[0]
+
+
 async def _find_team(page: Page, team_name: str) -> _SofascoreTeam | None:
     """On Vercel specifically, this endpoint reliably came back
     `{"error":{"code":403,"reason":"challenge"}}` in the original TS
@@ -226,7 +273,7 @@ async def _find_team(page: Page, team_name: str) -> _SofascoreTeam | None:
             f'Sofascore search blocked for "{team_name}": '
             f'{error.get("code", "unknown")} {error.get("reason", "unknown")}'
         )
-    hit = next((r for r in data.get("results", []) if r.get("type") == "team"), None)
+    hit = _pick_team_hit(data.get("results", []), team_name, query)
     if not hit:
         return None
     entity = hit["entity"]
@@ -278,6 +325,92 @@ async def get_sofascore_matches(team_name: str) -> list[MatchInfo]:
 
         events = [*next_data.get("events", []), *last_data.get("events", [])]
         return [_to_match_info(e) for e in events]
+
+
+@dataclass
+class OlderMeetingInfo:
+    """What one past meeting's own Sofascore event says about where it was
+    actually played -- enough to label venue home/away/neutral without the
+    ~12 extra requests a full details fetch costs."""
+
+    home_team: str
+    away_team: str
+    venue_name: str | None
+    venue_country: str | None
+    neutral: bool | None
+    round_name: str | None
+
+
+def _older_meeting_info(e: dict[str, Any]) -> OlderMeetingInfo:
+    venue = e.get("venue") or {}
+    venue_country = (venue.get("country") or {}).get("name")
+    home_country = ((e.get("homeTeam") or {}).get("country") or {}).get("name")
+    away_country = ((e.get("awayTeam") or {}).get("country") or {}).get("name")
+    known = bool(venue_country and home_country and away_country)
+    # Same rule as insights._h2h_meeting_venue: neutral when neither team's
+    # own country is the venue's. None (unknown), not False, when any of
+    # the three countries is missing.
+    neutral = (venue_country != home_country and venue_country != away_country) if known else None
+    return OlderMeetingInfo(
+        home_team=e["homeTeam"]["name"], away_team=e["awayTeam"]["name"], venue_name=venue.get("name"),
+        venue_country=venue_country, neutral=neutral, round_name=(e.get("roundInfo") or {}).get("name"),
+    )
+
+
+async def get_sofascore_older_meeting_info(
+    team_name: str, opponent_name: str, wanted_days: set[str], max_pages: int = 4
+) -> dict[str, OlderMeetingInfo]:
+    """Venue facts for past meetings with `opponent_name` that fall outside
+    the newest events get_sofascore_matches returns (page 0). Walks the
+    team's older `events/last/{page}` pages (at most `max_pages`, stopping
+    as soon as it has passed the oldest wanted day or runs out of pages),
+    then fetches ONLY the event record of each meeting found -- so this is
+    one browser session, one team search, up to `max_pages` page requests
+    and one request per meeting, all paced like every other Sofascore call.
+    Keyed by "YYYY-MM-DD". Empty when nothing is found."""
+    if not wanted_days:
+        return {}
+    async with launch_browser() as browser:
+        context = await browser.new_context(user_agent=_USER_AGENT)
+        page = await context.new_page()
+        await _warm_up(page)
+        team = await _find_team(page, team_name)
+        if team is None:
+            return {}
+
+        found = await _find_older_meetings(page, team.id, opponent_name, wanted_days, max_pages)
+
+        result: dict[str, OlderMeetingInfo] = {}
+        for day, e in found.items():
+            await _sleep(800)
+            full = await _fetch_json(page, f"https://www.sofascore.com/api/v1/event/{e['id']}")
+            result[day] = _older_meeting_info(full.get("event") or e)
+        return result
+
+
+def _event_day(e: dict[str, Any]) -> str:
+    return _to_iso_z(datetime.fromtimestamp(e["startTimestamp"], tz=UTC))[:10]
+
+
+async def _find_older_meetings(page: Page, team_id: int, opponent_name: str, wanted_days: set[str], max_pages: int) -> dict[str, dict[str, Any]]:
+    """The paging half of get_sofascore_older_meeting_info, extracted to
+    keep that function's own cognitive complexity down (python:S3776).
+    Stops once every wanted day is found, the page has run out, or the
+    oldest event on a page is already older than every wanted day."""
+    oldest_wanted = min(wanted_days)
+    found: dict[str, dict[str, Any]] = {}
+    for page_number in range(1, max_pages + 1):
+        await _sleep(800)
+        data = await _fetch_json(page, f"https://www.sofascore.com/api/v1/team/{team_id}/events/last/{page_number}")
+        events = data.get("events") or []
+        for e in events:
+            day = _event_day(e)
+            if day in wanted_days and (same_team(e["homeTeam"]["name"], opponent_name) or same_team(e["awayTeam"]["name"], opponent_name)):
+                found[day] = e
+        oldest_on_page = min((_event_day(e) for e in events), default=None)
+        if not events or not data.get("hasNextPage") or len(found) == len(wanted_days) or (oldest_on_page and oldest_on_page < oldest_wanted):
+            break
+    return found
 
 
 # side.players carries the FULL matchday squad (starting XI + bench, both

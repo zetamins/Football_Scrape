@@ -135,6 +135,7 @@ def test_compute_recent_meetings_fetches_details_for_matching_raw_fixtures(monke
     assert meetings[0].home_formation == "4-3-3"
     assert meetings[0].home_xg == 1.8
     assert meetings[0].away_xg == 0.9
+    assert (meetings[0].home_team, meetings[0].away_team) == ("Home FC", "Rival FC")
 
 
 def test_compute_recent_meetings_detects_neutral_venue(monkeypatch):
@@ -408,9 +409,20 @@ def test_completeness_none_insights_contributes_zero():
     merged = _all_none(MatchDetails, status="finished")
     from football.insights import _count_merged_completeness
 
-    merged_populated, merged_total = _count_merged_completeness(merged, not_started=False)
+    merged_total, merged_missing = _count_merged_completeness(merged, not_started=False)
     result = compute_data_completeness(merged, None)
-    assert result == {"populated": merged_populated, "total": merged_total}
+    assert result == {"populated": merged_total - len(merged_missing), "total": merged_total, "missing": merged_missing}
+
+
+def test_completeness_missing_names_exactly_the_fields_without_data():
+    merged = _all_none(MatchDetails, status="finished", referee="Some Ref")
+    insights = _all_none(MatchInsights, match_type="competitive")
+    result = compute_data_completeness(merged, insights)
+    assert "referee" not in result["missing"]
+    assert "weather" in result["missing"]
+    assert "match_type" not in result["missing"]
+    assert "home_bench_info" in result["missing"]
+    assert result["populated"] + len(result["missing"]) == result["total"]
 
 
 def test_completeness_counts_a_real_populated_scalar_insights_field():
@@ -1011,6 +1023,31 @@ def test_fullback_exposure_flags_above_median_chances_and_below_55pct_duels():
     assert [e.name for e in result] == ["Exposed FB"]
 
 
+def _usage(wide=0, central=0):
+    from football.types import PlayerUsagePattern
+
+    return _all_none(PlayerUsagePattern, wide_back_starts=wide, central_back_starts=central)
+
+
+def test_fullback_exposure_leaves_out_a_centre_back_who_mostly_starts_centrally():
+    # Confirmed live: Harry Maguire (a centre-back) appeared in the
+    # "fullback" list. Same stats for both; only where they line up differs.
+    stats = _all_none(DefensiveStats, chances_created=8, ground_duel_success_pct=45.0)
+    centre_back = _all_none(SquadMember, name="Centre Back", role="D", defensive_stats=stats, recent_usage=_usage(wide=0, central=6))
+    full_back = _all_none(SquadMember, name="Full Back", role="D", defensive_stats=stats, recent_usage=_usage(wide=5, central=1))
+    baseline_a = _all_none(SquadMember, name="Base A", role="D", defensive_stats=_all_none(DefensiveStats, chances_created=1, ground_duel_success_pct=60.0))
+    baseline_b = _all_none(SquadMember, name="Base B", role="D", defensive_stats=_all_none(DefensiveStats, chances_created=2, ground_duel_success_pct=60.0))
+    result = compute_fullback_exposure([centre_back, full_back, baseline_a, baseline_b])
+    assert [e.name for e in result] == ["Full Back"]
+
+
+def test_fullback_exposure_keeps_a_defender_with_no_lineup_history():
+    stats = _all_none(DefensiveStats, chances_created=8, ground_duel_success_pct=45.0)
+    unknown = _all_none(SquadMember, name="No History", role="D", defensive_stats=stats, recent_usage=None)
+    baseline = _all_none(SquadMember, name="Base", role="D", defensive_stats=_all_none(DefensiveStats, chances_created=1, ground_duel_success_pct=60.0))
+    assert [e.name for e in compute_fullback_exposure([unknown, baseline])] == ["No History"]
+
+
 # --- compute_referee_card_risk_note -----------------------------------------
 
 
@@ -1252,6 +1289,17 @@ def test_squad_strength_sums_by_role_and_excludes_unavailable():
     assert strength.attack_value == 50.0
     assert strength.defense_value == 30.0
     assert strength.available_value == 80.0  # excludes the injured player
+
+
+def test_squad_strength_excludes_match_level_missing_player_not_in_injuries():
+    from football.types import MissingPlayer
+
+    fw = _all_none(SquadMember, name="Striker", role="F", market_value=50.0)
+    benched = _all_none(SquadMember, name="Richarlison", role="F", market_value=24.0)
+    missing = [MissingPlayer(name="Richarlison", description="coach_decision", expected_return=None)]
+    strength = compute_squad_strength([fw, benched], injuries=None, suspended=None, missing_players=missing)
+    assert strength.total_value == 74.0
+    assert strength.available_value == 50.0
 
 
 def test_squad_strength_none_without_squad():
@@ -1835,3 +1883,189 @@ def test_build_estimates_return_none_from_an_empty_accumulator():
     assert _build_card_split(acc) is None
     assert _build_passing_style(acc) is None
     assert _build_goalkeeping_estimate(acc) is None
+
+
+def test_goalkeeping_estimate_quantifies_the_saves_plus_conceded_gap_without_adjusting_anything():
+    from football.types import SeasonGoalkeepingEstimate
+
+    over = SeasonGoalkeepingEstimate(sample_size=10, saves_for=25, shots_on_target_faced=40, save_pct=62.5, goals_conceded=16, source="fotmob")
+    assert over.unreconciled_shots_on_target == -1  # 40 - (25 + 16)
+    assert (over.saves_for, over.shots_on_target_faced, over.goals_conceded) == (25, 40, 16)
+
+    under = SeasonGoalkeepingEstimate(sample_size=10, saves_for=20, shots_on_target_faced=33, save_pct=60.6, goals_conceded=12, source="fotmob")
+    assert under.unreconciled_shots_on_target == 1  # 33 - (20 + 12)
+
+    exact = SeasonGoalkeepingEstimate(sample_size=10, saves_for=20, shots_on_target_faced=30, save_pct=66.7, goals_conceded=10, source="fotmob")
+    assert exact.unreconciled_shots_on_target == 0
+
+
+def test_missing_player_absence_type_is_derived_from_the_published_description():
+    from football.types import MissingPlayer
+
+    def kind(description):
+        return MissingPlayer(name="X", description=description, expected_return=None).absence_type
+
+    assert kind("coach_decision") == "coach_decision"
+    assert kind("Knee Injury") == "injury"
+    assert kind("Cruciate Ligament Injury") == "injury"
+    assert kind("Physical Discomfort (out)") == "injury"
+    assert kind("Suspended") == "suspension"
+    assert kind("Yellow card ban") == "suspension"
+    assert kind("Personal reasons") == "other"
+    assert kind(None) is None
+    assert kind("  ") is None
+
+
+def test_missing_player_keeps_the_expected_return_the_source_published_even_for_a_coach_decision():
+    from football.types import MissingPlayer
+
+    m = MissingPlayer(name="Richarlison", description="coach_decision", expected_return="2027-01-02T00:00:00+00:00")
+    assert m.absence_type == "coach_decision"
+    assert m.expected_return == "2027-01-02T00:00:00+00:00"
+
+
+def test_completeness_counts_a_confirmed_empty_suspended_list_as_populated():
+    checked = _all_none(MatchDetails, status="finished", home_suspended_players=[], away_suspended_players=None)
+    result = compute_data_completeness(checked, None)
+    assert "home_suspended_players" not in result["missing"]
+    assert "away_suspended_players" in result["missing"]
+
+
+# --- mark_projected_starters --------------------------------------------------------------------
+
+
+def _squad_with_starts(rows):
+    """rows: (name, role, starts, minutes)"""
+    from football.types import PlayerUsagePattern
+
+    return [
+        _all_none(SquadMember, name=n, role=r, recent_usage=_all_none(PlayerUsagePattern, starts=st, total_minutes=mins))
+        for n, r, st, mins in rows
+    ]
+
+
+def _presence(names, absent=()):
+    from football.types import PresenceEntry
+
+    return [PresenceEntry(name=n, status=("A" if n in absent else "P"), starting=False, on_bench=None, reason=None) for n in names]
+
+
+def test_projected_xi_is_one_keeper_plus_the_ten_outfield_players_with_most_starts():
+    from football.insights import mark_projected_starters
+
+    rows = [("GK Regular", "G", 9, 810), ("GK Backup", "G", 1, 90)] + [(f"P{i}", "M", 10 - i, 900 - i) for i in range(12)]
+    squad = _squad_with_starts(rows)
+    presence = _presence([r[0] for r in rows])
+    assert mark_projected_starters(presence, squad) is True
+    chosen = {p.name for p in presence if p.projected_starter}
+    assert len(chosen) == 11
+    assert "GK Regular" in chosen
+    assert "GK Backup" not in chosen
+    assert {f"P{i}" for i in range(10)} <= chosen
+    assert "P11" not in chosen
+
+
+def test_projected_xi_skips_unavailable_players_even_if_they_start_the_most():
+    from football.insights import mark_projected_starters
+
+    rows = [("GK", "G", 8, 720), ("Star", "F", 10, 900)] + [(f"P{i}", "M", 5, 450) for i in range(10)]
+    squad = _squad_with_starts(rows)
+    presence = _presence([r[0] for r in rows], absent={"Star"})
+    mark_projected_starters(presence, squad)
+    assert not next(p for p in presence if p.name == "Star").projected_starter
+
+
+def test_projected_xi_is_not_made_once_a_real_lineup_is_marked_or_without_usage_history():
+    from football.insights import mark_projected_starters
+    from football.types import PresenceEntry
+
+    squad = _squad_with_starts([("GK", "G", 8, 720), ("A", "M", 5, 450)])
+    confirmed = [PresenceEntry(name="GK", status="P", starting=True, on_bench=None, reason=None)]
+    assert mark_projected_starters(confirmed, squad) is False
+    assert confirmed[0].projected_starter is False
+
+    no_history = [_all_none(SquadMember, name="GK", role="G", recent_usage=None)]
+    assert mark_projected_starters(_presence(["GK"]), no_history) is False
+    assert mark_projected_starters(None, squad) is False
+    assert mark_projected_starters(_presence(["GK"]), None) is False
+
+
+def test_projected_xi_tie_on_starts_is_broken_by_minutes():
+    from football.insights import mark_projected_starters
+
+    rows = [("GK", "G", 5, 450)] + [(f"P{i}", "M", 5, 450 + i) for i in range(11)]
+    squad = _squad_with_starts(rows)
+    presence = _presence([r[0] for r in rows])
+    mark_projected_starters(presence, squad)
+    assert not next(p for p in presence if p.name == "P0").projected_starter  # fewest minutes misses out
+
+
+# --- fill_standings_form ------------------------------------------------------------------------
+
+
+def _table_row(position, form=None):
+    from football.types import StandingsTableRow
+
+    return StandingsTableRow(team_name=f"T{position}", position=position, points=0, form=form)
+
+
+def _league_result(result, competition="Premier League", date="2026-01-01T00:00:00.000Z"):
+    from football.types import FormResult
+
+    return _all_none(FormResult, result=result, competition=competition, date=date)
+
+
+def test_fill_standings_form_uses_the_last_five_league_results_oldest_first():
+    from football.insights import fill_standings_form
+
+    table = [_table_row(1), _table_row(2)]
+    # newest-first, as FormSummary provides them; the cup match is ignored
+    results = [_league_result("W"), _league_result("L", competition="EFL Cup"), _league_result("D"), _league_result("L"), _league_result("W"), _league_result("W"), _league_result("L")]
+    fill_standings_form(table, 2, results, "Premier League")
+    assert table[1].form == "WWLDW"  # last 5 league results (W,D,L,W,W newest-first) reversed to oldest-first
+    assert table[0].form is None  # other teams are never guessed
+
+
+def test_fill_standings_form_leaves_an_existing_value_and_no_op_without_data():
+    from football.insights import fill_standings_form
+
+    table = [_table_row(1, form="LLLLL")]
+    fill_standings_form(table, 1, [_league_result("W")], "Premier League")
+    assert table[0].form == "LLLLL"
+
+    empty = [_table_row(1)]
+    fill_standings_form(empty, 1, [_league_result("W", competition="Cup")], "Premier League")
+    fill_standings_form(empty, 9, [_league_result("W")], "Premier League")
+    fill_standings_form(empty, None, [_league_result("W")], "Premier League")
+    fill_standings_form(None, 1, [_league_result("W")], "Premier League")
+    assert empty[0].form is None
+
+
+def test_opponent_rank_record_finds_the_opponent_by_alias_not_just_substring():
+    # The form source spells it "Man Utd"; the standings table (another
+    # source) says "Manchester United" -- neither contains the other, so the
+    # old substring-only match silently dropped the result.
+    from football.types import FormResult, StandingsTableRow
+
+    def result(opponent):
+        return _all_none(FormResult, opponent=opponent, competition="Premier League", result="W")
+
+    table = [StandingsTableRow(team_name="Manchester United", position=1, points=10), StandingsTableRow(team_name="Own FC", position=5, points=5)]
+    record = compute_opponent_rank_record([result("Man Utd")], "Premier League", table, own_position=5)
+    assert record is not None
+    assert record.wins == 1
+
+
+def test_compute_recent_meetings_matches_the_opponent_by_alias(monkeypatch):
+    from football import orchestrate
+
+    raw_match = _match(home_team="Own FC", away_team="Man Utd", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(MatchDetails, source="sofascore", source_url="https://x", home_team="Own FC", away_team="Man Utd", match_stats=[])
+
+    async def fake_details(_m):
+        return details
+
+    monkeypatch.setattr(orchestrate, "SCRAPERS", {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()})
+    results = [_form_result(opponent="Man Utd", date="2026-01-01T15:00:00.000Z", scoreline="1-0")]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], results, "Manchester United", "sofascore"))
+    assert len(meetings) == 1

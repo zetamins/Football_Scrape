@@ -10,6 +10,7 @@ from typing import NamedTuple
 
 from ._jsmath import js_round, js_round_to
 from .elo import is_friendly_competition
+from .fetch_log import record_step_failure
 from .merge import normalize_team_name
 from .team_aliases import canonical_for
 from .types import (
@@ -41,6 +42,9 @@ from .types import (
 # next_match() below needs it and form.py has no dependency on
 # insights.py, only the reverse.
 NOT_STARTED_STATUSES = {"notstarted", "scheduled"}
+
+
+_FORM_WINDOW = 20
 
 
 def _parse_dt(iso: str) -> datetime:
@@ -299,6 +303,23 @@ class _Last10Stats(NamedTuple):
     goals_against_per_game: float | None
 
 
+def _outcome_rates(results: list[FormResult]) -> tuple[float | None, float | None, float | None]:
+    """Win/draw/loss percentages that add up to exactly 100. Rounding each
+    independently gave 101 (or 99) for sample sizes that don't divide
+    evenly, e.g. 3W/2D/2L of 7 -> 43+29+29; the largest-remainder method
+    hands the leftover points to the biggest fractional parts instead."""
+    if not results:
+        return None, None, None
+    counts = [len([r for r in results if r.result == outcome]) for outcome in ("W", "D", "L")]
+    exact = [c * 100 / len(results) for c in counts]
+    floors = [int(e) for e in exact]
+    leftover = 100 - sum(floors)
+    by_remainder = sorted(range(3), key=lambda i: (exact[i] - floors[i], -i), reverse=True)
+    for i in by_remainder[:leftover]:
+        floors[i] += 1
+    return floors[0], floors[1], floors[2]
+
+
 def _compute_last10_stats(all_results: list[FormResult]) -> _Last10Stats:
     """Every share/rate/per-game stat derived from the last 10 played
     results. Extracted from compute_form_summary to keep its own
@@ -339,9 +360,7 @@ def _compute_last10_stats(all_results: list[FormResult]) -> _Last10Stats:
         else None
     )
 
-    win_rate_pct = js_round(len([r for r in last10_played if r.result == "W"]) / len(last10_played) * 100) if last10_played else None
-    draw_rate_pct = js_round(len([r for r in last10_played if r.result == "D"]) / len(last10_played) * 100) if last10_played else None
-    loss_rate_pct = js_round(len([r for r in last10_played if r.result == "L"]) / len(last10_played) * 100) if last10_played else None
+    win_rate_pct, draw_rate_pct, loss_rate_pct = _outcome_rates(last10_played)
     points_per_game = js_round_to(sum(_points_for_result(r) for r in last10_played) / len(last10_played), 2) if last10_played else None
     goals_for_per_game = (
         js_round_to(sum(_team_goals(r)["for"] for r in last10_played) / len(last10_played), 2) if last10_played else None
@@ -423,14 +442,17 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
         for i in range(len(last_three_played) - 1)
     ]
 
-    half_split = _compute_half_split(competitive_played, team_name)
+    # Every windowed breakdown below uses the same last-20 competitive
+    # matches as last20_overall/venue_split_form, so their sample sizes
+    # reconcile instead of differing by however much history was fetched.
+    half_split = _compute_half_split(competitive_played[:_FORM_WINDOW], team_name)
 
-    # From `played` (raw MatchInfo, sorted desc, NOT `all_results`) --
+    # From `competitive_played` (raw MatchInfo, sorted desc, NOT `all_results`) --
     # `all_results` can be shorter than `played` when isTeamHome() returns
     # None for some entries (ambiguous team-name match), so the two aren't
     # interchangeable here even though they're both "recent matches".
     # dict.fromkeys preserves first-seen order the same way JS's Set does.
-    recent_competitions = list(dict.fromkeys(m.competition for m in played[:10] if m.competition is not None))
+    recent_competitions = list(dict.fromkeys(m.competition for m in competitive_played[:10] if m.competition is not None))
     # Also include competitions from upcoming fixtures so consumers know
     # what's coming (e.g. a cup match in next5 that isn't in recent
     # played results yet).
@@ -446,7 +468,7 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
 
     momentum = _compute_momentum(all_results)
     clean_sheet_streak, scoreless_streak = _compute_clean_sheet_and_scoreless_streaks(all_results)
-    form_by_competition = _compute_form_by_competition(all_results)
+    form_by_competition = _compute_form_by_competition(all_results[:_FORM_WINDOW])
 
     matches_last7_days = len([m for m in played if (now - _parse_dt(m.kickoff_utc)).total_seconds() <= 7 * 86400])
     matches_last14_days = len([m for m in played if (now - _parse_dt(m.kickoff_utc)).total_seconds() <= 14 * 86400])
@@ -606,6 +628,8 @@ class _UsageAccumulator:
         self.total_key_passes = 0
         self.appearances_with_stats = 0
         self.rating_sum = 0.0
+        self.wide_back_starts = 0
+        self.central_back_starts = 0
 
 
 def _tally_player_stats(entry: _UsageAccumulator, p: LineupPlayer) -> None:
@@ -624,8 +648,35 @@ def _tally_player_stats(entry: _UsageAccumulator, p: LineupPlayer) -> None:
         entry.appearances_with_stats += 1
 
 
+_BACK_LINE_SIZES_WITH_WIDE_SLOTS = (4, 5)
+
+
+def _back_line_slots(lineup: list[LineupPlayer] | None, formation: str | None) -> list[tuple[LineupPlayer, bool]]:
+    """(player, is_wide) for each member of the back line, from lineup
+    order + formation: index 0 is the goalkeeper, the next N (the
+    formation's first number) are the back line right-to-left, so the
+    first and last of a 4- or 5-man line are the full-/wing-backs and the
+    rest are central. Empty when the shape can't be trusted (no lineup or
+    formation, first player not a keeper, unparsable formation); a
+    3-man line is all central."""
+    if not lineup or not formation or lineup[0].position != "G":
+        return []
+    head = formation.split("-", 1)[0]
+    if not head.isdigit():
+        return []
+    size = int(head)
+    line = lineup[1 : 1 + size]
+    if len(line) != size:
+        return []
+    wide_ends = size in _BACK_LINE_SIZES_WITH_WIDE_SLOTS
+    return [(p, wide_ends and i in (0, size - 1)) for i, p in enumerate(line)]
+
+
 def _tally_usage(
-    usage_by_player: dict[str, _UsageAccumulator], lineup: list[LineupPlayer] | None, bench: list[LineupPlayer] | None
+    usage_by_player: dict[str, _UsageAccumulator],
+    lineup: list[LineupPlayer] | None,
+    bench: list[LineupPlayer] | None,
+    formation: str | None = None,
 ) -> None:
     def get(name: str) -> _UsageAccumulator:
         return usage_by_player.setdefault(name, _UsageAccumulator())
@@ -636,6 +687,12 @@ def _tally_usage(
         entry.starts += 1
         entry.total_minutes += p.minutes_played or 0
         _tally_player_stats(entry, p)
+    for p, is_wide in _back_line_slots(lineup, formation):
+        entry = get(normalize_team_name(p.name))
+        if is_wide:
+            entry.wide_back_starts += 1
+        else:
+            entry.central_back_starts += 1
     for p in bench or []:
         entry = get(normalize_team_name(p.name))
         entry.matches_in_squad += 1
@@ -817,7 +874,8 @@ def _accumulate_usage_and_xa(
     own_bench = details.home_bench if result.venue == "home" else details.away_bench
     opp_lineup = details.away_lineup if result.venue == "home" else details.home_lineup
     opp_bench = details.away_bench if result.venue == "home" else details.home_bench
-    _tally_usage(usage_by_player, own_lineup, own_bench)
+    own_formation = details.home_formation if result.venue == "home" else details.away_formation
+    _tally_usage(usage_by_player, own_lineup, own_bench, own_formation)
     acc.xa_for += _sum_xa(own_lineup, own_bench)
     acc.xa_against += _sum_xa(opp_lineup, opp_bench)
 
@@ -881,7 +939,8 @@ async def _process_one_result(
         _accumulate_usage_and_xa(usage_by_player, acc, details, result)
         _accumulate_set_piece_and_shotmap(acc, details, result)
         return enriched_result
-    except Exception:  # noqa: BLE001  # mirrors TS's catch { enriched.push(result) }
+    except Exception as err:  # noqa: BLE001  # mirrors TS's catch { enriched.push(result) }
+        record_step_failure("form enrichment: past-match details", err)
         return result
 
 
@@ -1035,6 +1094,7 @@ def _finalize_usage(usage_by_player: dict[str, _UsageAccumulator]) -> dict[str, 
             goals_per_90=_per90(entry.total_goals, entry.total_minutes), assists_per_90=_per90(entry.total_assists, entry.total_minutes),
             xg_per_90=_per90(entry.total_xg, entry.total_minutes), xa_per_90=_per90(entry.total_xa, entry.total_minutes),
             key_passes_per_90=_per90(entry.total_key_passes, entry.total_minutes),
+            wide_back_starts=entry.wide_back_starts, central_back_starts=entry.central_back_starts,
         )
     return finalized_usage
 

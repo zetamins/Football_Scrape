@@ -421,3 +421,59 @@ def test_get_previous_manager_falls_back_to_last_row_without_a_present_marker(mo
     monkeypatch.setattr(wikipedia, "new_client", _mock_client_factory(handler))
     result = asyncio.run(get_previous_manager("Arsenal"))
     assert result == "Second Boss"
+
+
+def test_manager_list_titles_cover_the_common_wikipedia_naming_shapes_in_order():
+    from football.sites.wikipedia import _manager_list_titles
+
+    titles = _manager_list_titles("Barcelona")
+    assert titles[0] == "List of Barcelona F.C. managers"
+    assert titles[1] == "List of Barcelona managers"
+    assert "List of FC Barcelona managers" in titles
+    assert "List of Real CF managers" not in titles
+    assert _manager_list_titles("Madrid")[3] == "List of Madrid CF managers"
+    assert "List of AC Milan managers" in _manager_list_titles("Milan")
+
+
+def test_get_previous_manager_finds_a_club_titled_with_the_fc_prefix(monkeypatch):
+    html = _managers_list_html([("Old Boss", "2023"), ("Current Boss", "Present")])
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text=html) if "FC_Barcelona" in str(request.url) else httpx.Response(404)
+
+    monkeypatch.setattr(wikipedia, "new_client", _mock_client_factory(handler))
+    assert asyncio.run(get_previous_manager("Barcelona")) == "Old Boss"
+    assert all("/wiki/" in url for url in seen)  # never the /w/ API, which robots.txt disallows
+
+
+def test_get_previous_manager_reports_a_step_failure_when_no_title_pattern_exists(monkeypatch):
+    from football.fetch_log import capture_failures
+
+    monkeypatch.setattr(wikipedia, "new_client", _mock_client_factory(lambda _r: httpx.Response(404)))
+    seen = []
+    with capture_failures(seen.append):
+        assert asyncio.run(get_previous_manager("Some Club")) is None
+    assert any("previous manager (Wikipedia)" in f.source for f in seen)
+
+
+def test_manager_list_titles_includes_the_clubs_known_aliases_from_the_shared_table():
+    from football.sites.wikipedia import _manager_list_titles
+
+    # Confirmed live: Tottenham's real Wikipedia title is "List of
+    # Tottenham Hotspur F.C. managers" -- not reachable from any of the
+    # fixed "{c} ..." patterns applied to the bare searched name "Tottenham".
+    titles = _manager_list_titles("Tottenham")
+    assert "List of Tottenham Hotspur F.C. managers" in titles
+    assert "List of Spurs F.C. managers" in titles
+
+
+def test_get_previous_manager_finds_a_club_only_reachable_through_its_alias(monkeypatch):
+    html = _managers_list_html([("Old Boss", "2023"), ("Current Boss", "Present")])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=html) if "Tottenham_Hotspur_F" in str(request.url) else httpx.Response(404)
+
+    monkeypatch.setattr(wikipedia, "new_client", _mock_client_factory(handler))
+    assert asyncio.run(get_previous_manager("Tottenham")) == "Old Boss"

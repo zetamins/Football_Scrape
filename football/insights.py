@@ -7,18 +7,22 @@ Ported from src/search.ts.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from ._jsmath import js_round, js_round_to
 from .elo import is_friendly_competition
+from .fetch_log import record_step_failure
 from .form import NOT_STARTED_STATUSES as _NOT_STARTED_STATUSES
 from .form import day_diff, is_team_home, normalize_team_name, parse_leading_int
 from .geo import country_distance_km, country_timezone_diff_hours, travel_time_hours
 from .merge import (
+    CONFIRMED_EMPTY_FIELDS,
     is_attacker_role,
     is_defender_role,
     is_goalkeeper_role,
     is_midfield_role,
 )
+from .team_aliases import same_team
 from .types import (
     CardDisciplineInfo,
     CardDisciplineVenueSplit,
@@ -27,6 +31,7 @@ from .types import (
     ExperienceComparison,
     ExperienceH2HNote,
     FatigueFlag,
+    FormResult,
     FullbackExposureInfo,
     HeadToHeadMeeting,
     HeadToHeadSummary,
@@ -63,6 +68,7 @@ from .types import (
     SquadStrengthInfo,
     StandingsImpactInfo,
     StandingsScenario,
+    StandingsTableRow,
     StandingsZoneInfo,
     StreakInfo,
     StreakStabilityInfo,
@@ -228,11 +234,7 @@ def compute_opponent_rank_record(results, competition: str | None, standings_tab
     for r in results:
         if r.competition != competition:
             continue
-        target = normalize_team_name(r.opponent)
-        row = next(
-            (s for s in standings_table if normalize_team_name(s.team_name) == target or target in normalize_team_name(s.team_name) or normalize_team_name(s.team_name) in target),
-            None,
-        )
+        row = next((s for s in standings_table if same_team(s.team_name, r.opponent)), None)
         if not row or row.position >= own_position:
             continue
         sample_size += 1
@@ -286,6 +288,7 @@ def _build_h2h_meeting(meeting, details) -> HeadToHeadMeeting:
         venue=_h2h_meeting_venue(meeting.venue, details),
         home_formation=details.home_formation, away_formation=details.away_formation,
         home_xg=home_xg, away_xg=away_xg, home_lineup=details.home_lineup, away_lineup=details.away_lineup,
+        home_team=details.home_team, away_team=details.away_team,
     )
 
 
@@ -300,17 +303,14 @@ async def compute_recent_meetings(
     those matches. Capped at 3."""
     from .orchestrate import SCRAPERS
 
-    target = normalize_team_name(opponent_name)
-    meetings = [
-        r for r in form_results if (opp := normalize_team_name(r.opponent)) == target or target in opp or opp in target
-    ]
+    meetings = [r for r in form_results if same_team(r.opponent, opponent_name)]
     if not meetings:
         return None
 
     out: list[HeadToHeadMeeting] = []
     for meeting in meetings[:3]:
         raw = next(
-            (m for m in raw_matches if m.kickoff_utc == meeting.date and (normalize_team_name(m.home_team) == target or normalize_team_name(m.away_team) == target)),
+            (m for m in raw_matches if m.kickoff_utc == meeting.date and (same_team(m.home_team, opponent_name) or same_team(m.away_team, opponent_name))),
             None,
         )
         if raw is None:
@@ -318,8 +318,8 @@ async def compute_recent_meetings(
         try:
             details = await SCRAPERS[source].details(raw)
             out.append(_build_h2h_meeting(meeting, details))
-        except Exception:  # noqa: BLE001,S110 - best-effort per past meeting
-            pass
+        except Exception as err:  # noqa: BLE001 - best-effort per past meeting
+            record_step_failure("past meeting details", err)
     return out if out else None
 
 
@@ -340,7 +340,16 @@ def apply_usage_pattern(squad: list[SquadMember] | None, usage_by_player: dict[s
     return result
 
 
-def compute_squad_strength(squad: list[SquadMember] | None, injuries: list[SquadMember] | None, suspended: list[str] | None) -> SquadStrengthInfo | None:
+def compute_squad_strength(
+    squad: list[SquadMember] | None,
+    injuries: list[SquadMember] | None,
+    suspended: list[str] | None,
+    missing_players: list | None = None,
+) -> SquadStrengthInfo | None:
+    """missing_players: the match-level MissingPlayer list -- a player
+    ruled out for a non-injury reason (e.g. "coach_decision") is on this
+    list but not in `injuries`, and must still come off available_value
+    (confirmed live: Richarlison was listed missing yet still counted)."""
     if not squad:
         return None
 
@@ -348,7 +357,11 @@ def compute_squad_strength(squad: list[SquadMember] | None, injuries: list[Squad
         values = [m.market_value for m in members if m.market_value is not None]
         return sum(values) if values else None
 
-    unavailable = {normalize_team_name(m.name) for m in (injuries or [])} | {normalize_team_name(n) for n in (suspended or [])}
+    unavailable = (
+        {normalize_team_name(m.name) for m in (injuries or [])}
+        | {normalize_team_name(n) for n in (suspended or [])}
+        | {normalize_team_name(p.name) for p in (missing_players or [])}
+    )
     available = [m for m in squad if normalize_team_name(m.name) not in unavailable]
     return SquadStrengthInfo(
         total_value=total(squad),
@@ -419,6 +432,57 @@ def _note_injury_reasons(
             if m.name.lower() in note_lower and norm not in already_known:
                 result[norm] = note_entry.note
     return result
+
+
+def fill_standings_form(
+    standings_table: list[StandingsTableRow] | None, position: int | None, results: list[FormResult] | None, competition: str | None
+) -> None:
+    """Sofascore's standings response has no `form` column, so it's null
+    for every row. For the teams this report actually has results for, fill
+    it from those real results: their last 5 matches in the fixture's own
+    competition, oldest first ("WWDLW"), matched to the row by table
+    POSITION. Only the row(s) we have data for are filled -- the other
+    teams' rows stay None rather than being guessed."""
+    if not standings_table or position is None or not results or not competition:
+        return
+    row = next((r for r in standings_table if r.position == position), None)
+    if row is None or row.form is not None:
+        return
+    league_results = [r for r in results if r.competition == competition][:5]
+    if league_results:
+        row.form = "".join(r.result for r in reversed(league_results))
+
+
+_PROJECTED_XI_SIZE = 11
+
+
+def mark_projected_starters(presence: list[PresenceEntry] | None, squad: list[SquadMember] | None) -> bool:
+    """Marks the likely XI on `presence` in place: one goalkeeper plus the
+    ten outfield players with the most starts in the recent matches whose
+    lineups we read (recent_usage), among players currently available.
+    Returns True when a projection was made. Skipped when a real lineup is
+    already marked, and when there's no usage history -- a projection
+    needs evidence, not a guess. Position balance is NOT enforced beyond
+    the keeper: it reflects who has actually been starting."""
+    if not presence or not squad or any(p.starting for p in presence):
+        return False
+    from .merge import normalize_team_name as _normalize
+
+    usage = {_normalize(m.name): m for m in squad if m.recent_usage and m.recent_usage.starts > 0}
+    available = [(p, usage[_normalize(p.name)]) for p in presence if p.status == "P" and _normalize(p.name) in usage]
+    if not available:
+        return False
+
+    def strength(pair):
+        u = pair[1].recent_usage
+        return (u.starts, u.total_minutes)
+
+    keepers = sorted((pair for pair in available if is_goalkeeper_role(pair[1].role)), key=strength, reverse=True)
+    outfield = sorted((pair for pair in available if not is_goalkeeper_role(pair[1].role)), key=strength, reverse=True)
+    chosen = keepers[:1] + outfield[: _PROJECTED_XI_SIZE - len(keepers[:1])]
+    for entry, _ in chosen:
+        entry.projected_starter = True
+    return True
 
 
 def compute_presence(
@@ -547,7 +611,8 @@ async def compute_rotation_info(team_name: str, source: Source, matches: list[Ma
         last_details = await SCRAPERS[source].details(last)
         prev_details = await SCRAPERS[source].details(prev)
         return _build_rotation_info(team_name, last, prev, last_details, prev_details)
-    except Exception:  # noqa: BLE001 - mirrors TS's catch { return null }
+    except Exception as err:  # noqa: BLE001 - mirrors TS's catch { return null }
+        record_step_failure("rotation info", err)
         return None
 
 
@@ -771,6 +836,15 @@ def _median(values: list[float]) -> float:
     return s[mid] if len(s) % 2 else (s[mid - 1] + s[mid]) / 2
 
 
+def _is_mainly_central_back(member: SquadMember) -> bool:
+    """True when the recent lineups show this defender starting more often
+    in a central back-line slot than a wide one. No usage data (or none in
+    a readable back line) leaves the player in, since nothing says
+    otherwise."""
+    usage = member.recent_usage
+    return bool(usage and usage.central_back_starts > usage.wide_back_starts)
+
+
 def compute_fullback_exposure(squad: list[SquadMember] | None, count: int = 3) -> list[FullbackExposureInfo] | None:
     """Above-own-team-median chances created AND below-55% ground duel
     success -- uses each team's own defenders as the baseline.
@@ -779,18 +853,22 @@ def compute_fullback_exposure(squad: list[SquadMember] | None, count: int = 3) -
     checked [] meaning "no defender exposed". Both used to return the
     same [].
 
-    Despite the name, this covers ANY defender (is_defender_role), not
-    specifically fullbacks/wing-backs -- confirmed live a centre-back
-    (Harry Maguire) can appear here. No source this project scrapes
-    publishes fullback-vs-centre-back position granularity, only the
-    broad G/D/M/F role every SquadMember carries, so there's no data to
-    filter more precisely on. Not fixable without a finer position
-    taxonomy; named to match the Android app's existing "Fullback"
-    section (ProfileTab.kt) rather than renamed, since that's a
-    cross-repo JSON contract, not a pure Python-side naming choice."""
+    Squad positions are only G/D/M/F, so fullbacks are told apart from
+    centre-backs using where each defender actually lined up in recent
+    matches (PlayerUsagePattern.wide_back_starts/central_back_starts, read
+    from lineup order + formation): a defender who mostly starts in a
+    central slot is excluded -- confirmed live a centre-back (Harry
+    Maguire) used to appear here. Defenders with no readable lineup
+    history stay in, as before. Named to match the Android app's existing
+    "Fullback" section (ProfileTab.kt), not renamed -- that's a cross-repo
+    JSON contract."""
     if not squad:
         return None
-    defenders = [m for m in squad if is_defender_role(m.role) and m.defensive_stats and m.defensive_stats.chances_created is not None and m.defensive_stats.ground_duel_success_pct is not None]
+    defenders = [
+        m for m in squad
+        if is_defender_role(m.role) and not _is_mainly_central_back(m)
+        and m.defensive_stats and m.defensive_stats.chances_created is not None and m.defensive_stats.ground_duel_success_pct is not None
+    ]
     if len(defenders) < 2:
         return None
     median_chances = _median([d.defensive_stats.chances_created for d in defenders])
@@ -1106,8 +1184,8 @@ async def _accumulate_one_match_stats(acc: _SeasonStatsAccumulator, m: MatchInfo
         _accumulate_big_chances(acc, stats, home)
         _accumulate_passing(acc, stats, home)
         _accumulate_fouls(acc, stats, home)
-    except Exception:  # noqa: BLE001,S110 - one match's detail fetch failing shouldn't drop the whole estimate
-        pass
+    except Exception as err:  # noqa: BLE001 - one match's detail fetch failing shouldn't drop the whole estimate
+        record_step_failure("season match stats (Fotmob)", err)
 
 
 def _build_xg_estimate(acc: _SeasonStatsAccumulator) -> SeasonXGEstimate | None:
@@ -1271,8 +1349,8 @@ async def _accumulate_one_possession_match(
         details = await get_goal_match_details(m, client)
         _accumulate_possession_stat(acc, details, m, home)
         _accumulate_corners_and_errors(acc, details, home)
-    except Exception:  # noqa: BLE001,S110 - one match's detail fetch failing shouldn't drop the whole estimate
-        pass
+    except Exception as err:  # noqa: BLE001 - one match's detail fetch failing shouldn't drop the whole estimate
+        record_step_failure("possession and corners (Goal.com)", err)
 
 
 async def compute_possession_matchup(team_name: str, goal_matches: list[MatchInfo]) -> PossessionAndCornersEstimate:
@@ -1328,7 +1406,7 @@ async def compute_possession_matchup(team_name: str, goal_matches: list[MatchInf
 _COMPLETENESS_EXCLUDE = {
     "source", "source_url", "competition", "kickoff_utc", "status", "home_team", "away_team",
     "home_score", "away_score", "home_score_ht", "away_score_ht", "venue", "note",
-    "base_source", "field_sources", "additional_notes", "opponent_context_error",
+    "base_source", "field_sources", "additional_notes", "opponent_context_error", "source_conflicts",
 }
 
 # MatchDetails fields that can only be known during or after the match
@@ -1412,7 +1490,7 @@ def is_empty_value(value) -> bool:
     return value is None or value == [] or value == ""
 
 
-def compute_data_completeness(merged: MatchDetails, insights: MatchInsights | None) -> dict[str, int]:
+def compute_data_completeness(merged: MatchDetails, insights: MatchInsights | None) -> dict[str, Any]:
     """How much of the *available* schema this particular run actually
     got real data for -- coverage varies a lot match-to-match, so this is
     a per-run signal, not a fixed target.
@@ -1436,47 +1514,53 @@ def compute_data_completeness(merged: MatchDetails, insights: MatchInsights | No
     means "checked, genuinely nothing flagged" (e.g. no player currently
     at card risk), which is real data, not a gap."""
     not_started = merged.status in _NOT_STARTED_STATUSES
-    merged_populated, merged_total = _count_merged_completeness(merged, not_started)
-    insights_populated, insights_total = _count_insights_completeness(insights)
-    return {"populated": merged_populated + insights_populated, "total": merged_total + insights_total}
+    merged_total, merged_missing = _count_merged_completeness(merged, not_started)
+    insights_total, insights_missing = _count_insights_completeness(insights)
+    missing = merged_missing + insights_missing
+    total = merged_total + insights_total
+    # `missing` names every counted field that had no data this run, so a
+    # consumer sees WHICH fields make up the gap, not just how many.
+    return {"populated": total - len(missing), "total": total, "missing": missing}
 
 
-def _count_merged_completeness(merged: MatchDetails, not_started: bool) -> tuple[int, int]:
-    """populated, total across MatchDetails' own fields -- extracted from
+def _count_merged_completeness(merged: MatchDetails, not_started: bool) -> tuple[int, list[str]]:
+    """total, names of fields with no data across MatchDetails' own fields -- extracted from
     compute_data_completeness (which had two similar loops, one over
     `merged`'s fields and one over `insights`'s, both accumulating
     branching complexity in a single function) purely to keep that
     function's cognitive complexity readable; behavior is unchanged."""
     from dataclasses import fields as _fields
 
-    populated = total = 0
+    total = 0
+    missing: list[str] = []
     for f in _fields(merged):
         if f.name in _COMPLETENESS_EXCLUDE:
             continue
         if not_started and f.name in _MATCH_OUTCOME_ONLY_FIELDS:
             continue
         total += 1
-        if _is_populated(getattr(merged, f.name)):
-            populated += 1
-    return populated, total
+        value = getattr(merged, f.name)
+        populated = value is not None if f.name in CONFIRMED_EMPTY_FIELDS else _is_populated(value)
+        if not populated:
+            missing.append(f.name)
+    return total, missing
 
 
-def _count_insights_completeness(insights: MatchInsights | None) -> tuple[int, int]:
-    """populated, total across MatchInsights' own fields -- see
+def _count_insights_completeness(insights: MatchInsights | None) -> tuple[int, list[str]]:
+    """total, names of fields with no data across MatchInsights' own fields -- see
     _count_merged_completeness's doc comment for why this is split out."""
     from dataclasses import fields as _fields
 
     if not insights:
-        return 0, 0
-    populated = total = 0
+        return 0, []
+    total = 0
+    missing: list[str] = []
     for f in _fields(insights):
         if f.name in _COMPLETENESS_EXCLUDE:
             continue
         total += 1
         value = getattr(insights, f.name)
-        if f.name in _CHECKED_EMPTY_LIST_FIELDS:
-            if value is not None:
-                populated += 1
-        elif _is_populated(value):
-            populated += 1
-    return populated, total
+        populated = value is not None if f.name in _CHECKED_EMPTY_LIST_FIELDS else _is_populated(value)
+        if not populated:
+            missing.append(f.name)
+    return total, missing

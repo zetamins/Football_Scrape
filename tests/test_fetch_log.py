@@ -61,6 +61,14 @@ def test_source_is_derived_from_the_hostname():
     assert [f.source for f in seen] == ["fotmob", "365scores", "sofascore"]
 
 
+def test_source_label_handles_country_code_second_level_domains():
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        record_failure("https://www.football-data.co.uk/mmz4281/2627/E0.csv", "HTTP 500")
+        record_failure("https://www.example.com.br/x", "HTTP 500")
+    assert [f.source for f in seen] == ["football-data", "example"]
+
+
 def test_same_url_is_reported_once_even_if_it_fails_repeatedly():
     seen: list[FetchFailure] = []
     with capture_failures(seen.append):
@@ -163,7 +171,8 @@ def test_sofascore_403_block_body_is_recorded_but_still_returned(no_retry_sleep)
     with capture_failures(seen.append):
         data = asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/team/1"))
     assert data == {"error": {"code": 403, "reason": "Forbidden"}}
-    assert [(f.source, f.reason) for f in seen] == [("sofascore", "HTTP 403 Forbidden")]
+    assert [f.source for f in seen] == ["sofascore"]
+    assert seen[0].reason.startswith("HTTP 403 Forbidden")
 
 
 def test_sofascore_404_not_published_yet_is_not_a_failure(no_retry_sleep):
@@ -186,3 +195,193 @@ def test_sofascore_exhausted_retries_are_recorded_then_raised(no_retry_sleep):
     assert len(seen) == 1
     assert "navigation failed" in seen[0].reason
 
+
+
+# --- record_step_failure -----------------------------------------------------------------
+
+
+def test_step_failure_uses_the_step_name_as_source_and_a_step_pseudo_url():
+    from football.fetch_log import record_step_failure
+
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        record_step_failure("weather (wttr.in)", KeyError("current_condition"))
+    assert seen == [FetchFailure(source="weather (wttr.in)", url="step:weather (wttr.in)", reason="KeyError: 'current_condition'")]
+
+
+def test_step_failure_skips_an_error_a_request_helper_already_recorded():
+    from football.fetch_log import record_step_failure
+
+    err = httpx.ConnectError("refused")
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        record_failure("https://wttr.in/London", err)
+        record_step_failure("weather (wttr.in)", err)
+    assert [f.source for f in seen] == ["wttr"]
+
+
+def test_step_failure_is_a_noop_without_an_active_capture():
+    from football.fetch_log import record_step_failure
+
+    record_step_failure("anything", ValueError("x"))  # must not raise
+
+
+# --- previously silent fetchers ---------------------------------------------------------------
+
+
+def _mock_client_factory(handler):
+    def factory():
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    return factory
+
+
+@pytest.mark.parametrize(("status", "recorded"), [(200, False), (404, False), (403, True), (429, True), (500, True)])
+def test_wikipedia_article_fetch_records_only_real_failures(monkeypatch, status, recorded):
+    from football.sites import wikipedia
+
+    monkeypatch.setattr(wikipedia, "new_client", _mock_client_factory(lambda _r: httpx.Response(status, text="x")))
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        asyncio.run(wikipedia._fetch_article_html("Some Manager"))
+    assert bool(seen) is recorded
+    if recorded:
+        assert seen[0].reason == f"HTTP {status}"
+
+
+@pytest.mark.parametrize(("status", "recorded"), [(200, False), (404, False), (403, True), (503, True)])
+def test_footballdata_csv_fetch_records_only_real_failures(monkeypatch, status, recorded):
+    from football.sites import footballdata
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(lambda _r: httpx.Response(status, text="x")))
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        asyncio.run(footballdata._fetch_csv_or_none("https://www.football-data.co.uk/mmz4281/2627/E0.csv"))
+    assert bool(seen) is recorded
+
+
+def test_footballdata_csv_network_error_is_recorded_then_raised(monkeypatch):
+    from football.sites import footballdata
+
+    def boom(_r):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(boom))
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append), pytest.raises(httpx.ConnectError):
+        asyncio.run(footballdata._fetch_csv_or_none("https://www.football-data.co.uk/x.csv"))
+    assert seen[0].source == "football-data"
+
+
+def test_soccerdesk_fetch_json_records_the_url_after_retries_are_exhausted(monkeypatch):
+    from football.sites import soccerdesk
+
+    async def instant(_s):
+        return None
+
+    monkeypatch.setattr(soccerdesk.asyncio, "sleep", instant)
+    monkeypatch.setattr(soccerdesk, "new_client", _mock_client_factory(lambda _r: httpx.Response(500)))
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append), pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(soccerdesk._fetch_json("https://www.soccerdesk.com/v1/en/x"))
+    assert seen == [FetchFailure(source="soccerdesk", url="https://www.soccerdesk.com/v1/en/x", reason="HTTP 500")]
+
+
+def test_a_swallowed_enrichment_step_reports_itself(monkeypatch):
+    from football import orchestrate
+
+    async def broken(*_a, **_k):
+        raise KeyError("weather")
+
+    monkeypatch.setattr(orchestrate.wttrin, "get_wttr_weather_detail", broken)
+    merged = type("M", (), {"venue_city": "Manchester", "venue_name": None, "kickoff_utc": "2026-10-10T16:30:00.000Z", "venue_country": "England"})()
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        asyncio.run(orchestrate._enrich_weather(merged))
+    assert [f.source for f in seen] == ["weather (wttr.in)"]
+
+
+# --- Sofascore circuit breaker -----------------------------------------------------------------
+
+
+class _CountingPage(_Page):
+    def __init__(self, body):
+        super().__init__(body)
+        self.requests = 0
+
+    async def goto(self, *_a, **_k):
+        self.requests += 1
+
+
+def test_first_403_trips_the_breaker_and_later_requests_make_no_network_call(no_retry_sleep):
+    from football.sites.sofascore import SofascoreBlockedError, _fetch_json
+
+    page = _CountingPage('{"error":{"code":403,"reason":"Forbidden"}}')
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/team/1"))
+        assert page.requests == 1
+        for n in range(2, 8):
+            with pytest.raises(SofascoreBlockedError):
+                asyncio.run(_fetch_json(page, f"https://www.sofascore.com/api/v1/team/{n}"))
+    assert page.requests == 1  # nothing further was sent to the blocked connection
+    assert len(seen) == 1  # ...and the list shows the block once, not once per skipped call
+    assert "remaining Sofascore requests skipped" in seen[0].reason
+
+
+def test_a_404_does_not_trip_the_breaker(no_retry_sleep):
+    from football.sites.sofascore import _fetch_json
+
+    page = _CountingPage('{"error":{"code":404,"reason":"Not Found"}}')
+    asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/event/1/lineups"))
+    asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/event/2/lineups"))
+    assert page.requests == 2
+
+
+def test_429_also_trips_the_breaker(no_retry_sleep):
+    from football.sites.sofascore import SofascoreBlockedError, _fetch_json
+
+    page = _CountingPage('{"error":{"code":429,"reason":"Too Many Requests"}}')
+    asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/x"))
+    with pytest.raises(SofascoreBlockedError):
+        asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/y"))
+
+
+def test_reset_block_state_lets_the_next_run_use_sofascore_again(no_retry_sleep):
+    from football.sites.sofascore import _fetch_json, reset_block_state
+
+    page = _CountingPage('{"error":{"code":403,"reason":"Forbidden"}}')
+    asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/a"))
+    reset_block_state()
+    asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/b"))
+    assert page.requests == 2
+
+
+def test_a_skipped_request_is_not_listed_again_by_an_outer_step_handler(no_retry_sleep):
+    from football.fetch_log import record_step_failure
+    from football.sites.sofascore import SofascoreBlockedError, _fetch_json
+
+    page = _CountingPage('{"error":{"code":403,"reason":"Forbidden"}}')
+    seen: list[FetchFailure] = []
+    with capture_failures(seen.append):
+        asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/a"))
+        try:
+            asyncio.run(_fetch_json(page, "https://www.sofascore.com/api/v1/b"))
+        except SofascoreBlockedError as err:
+            record_step_failure("form enrichment (own team)", err)
+    assert len(seen) == 1
+
+
+def test_run_search_resets_the_breaker_at_the_start(monkeypatch):
+    from football import orchestrate
+    from football.sites import sofascore
+
+    sofascore._block_reason = "HTTP 403 Forbidden"
+
+    async def boom(_team):
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(orchestrate, "SCRAPERS", {s: orchestrate._Scraper(run=boom, details=boom, profile=boom) for s in orchestrate.SOURCE_ORDER})
+    with pytest.raises(RuntimeError):
+        asyncio.run(orchestrate.run_search("X"))
+    assert sofascore._block_reason is None

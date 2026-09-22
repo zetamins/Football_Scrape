@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
+from ..fetch_log import record_failure, record_step_failure
 from ..http import USER_AGENT, new_client
 from ..team_aliases import known_aliases_for
 from ..team_name_match import (
@@ -65,6 +66,7 @@ async def _fetch_json(url: str, attempts: int = 3) -> Any:
             if i < attempts - 1:
                 await asyncio.sleep(1 * (i + 1))
     assert last_err is not None
+    record_failure(url, last_err)
     raise last_err
 
 
@@ -418,6 +420,8 @@ def _extract_recent_meetings(h2h_matches: list[dict[str, Any]], own_team_name: s
                 away_xg=None,
                 home_lineup=None,
                 away_lineup=None,
+                home_team=home["name"],
+                away_team=away["name"],
             )
         )
     return out if out else None
@@ -476,7 +480,8 @@ async def _fetch_standings_and_h2h(meta, match: MatchInfo):
     try:
         head_to_head_summary, h2h_matches = await _fetch_h2h(meta.home_id, meta.away_id)
         recent_meetings = _extract_recent_meetings(h2h_matches, own_team_name=match.home_team)
-    except Exception:  # noqa: BLE001 - mirrors TS's .catch(() => null)
+    except Exception as err:  # noqa: BLE001 - mirrors TS's .catch(() => null)
+        record_step_failure("head-to-head (SoccerDesk)", err)
         head_to_head_summary = None
     if meta.stage_id:
         try:
@@ -569,8 +574,10 @@ async def get_soccerdesk_match_details(match: MatchInfo) -> MatchDetails:
         home_manager_vs_away_club=None,
         away_manager_vs_home_club=None,
         standings_table=None,
-        home_suspended_players=(home_suspended_names or None),
-        away_suspended_players=(away_suspended_names or None),
+        # An explicit empty list (the site published a suspended list and it
+        # was empty) is "checked, nobody suspended"; None stays "unknown".
+        home_suspended_players=(home_suspended_names if home.get("suspended") is not None else None),
+        away_suspended_players=(away_suspended_names if away.get("suspended") is not None else None),
         home_team_standing=home_team_standing,
         away_team_standing=away_team_standing,
         home_team_season_stats=None,

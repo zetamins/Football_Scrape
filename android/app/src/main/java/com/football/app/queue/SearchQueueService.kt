@@ -75,8 +75,8 @@ class SearchQueueService : Service() {
         }
         Python.getInstance().getModule("football.android_bridge").callAttr("set_application_context", applicationContext)
 
-        repository = ReportRepository()
         historyRepository = HistoryRepository(File(filesDir, "history"))
+        repository = ReportRepository(pastPredictions = { historyRepository.predictionRecordsJson() })
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
     }

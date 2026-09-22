@@ -337,6 +337,8 @@ def _h2h_meeting_from(m: dict[str, Any], target: str) -> HeadToHeadMeeting | Non
         away_xg=None,
         home_lineup=None,
         away_lineup=None,
+        home_team=home["name"],
+        away_team=away["name"],
     )
 
 

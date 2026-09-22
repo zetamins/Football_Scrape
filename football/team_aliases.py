@@ -36,6 +36,11 @@ from .team_name_match import normalize_for_match as normalize
 _RAW_ALIASES: dict[str, list[str]] = {
     # ---- EPL ----
     "manchester city": ["man city"],
+    # Squawka (exact-match only) lists the club as "Tottenham Hotspur";
+    # searching the bare "Tottenham" previously expanded to no alias at
+    # all, so every Tottenham squad member silently got zero Squawka
+    # defensive stats (confirmed: 0 of the squad vs 22 for Man Utd).
+    "tottenham hotspur": ["tottenham", "spurs"],
     # "manchester utd" confirmed live via StatsUltra ("Manchester Utd" --
     # keeps "Manchester" in full, unlike "Man Utd" -- doesn't substring-
     # match either "manchester united" or the "man utd" alias).
@@ -101,7 +106,10 @@ _RAW_ALIASES: dict[str, list[str]] = {
     # confirmed live.
     "olympique de marseille": ["marseille", "olympique marseille"],
     # "brest" confirmed live via SoccerDesk.
-    "stade brestois": ["brest"],
+    # "stade brestois 29" is Sofascore-style (with the club number).
+    "stade brestois": ["brest", "stade brestois 29"],
+    # Squawka lists it as plain "Lille"; "LOSC Lille" is the official name.
+    "lille": ["losc lille"],
     # "lyon" (football-data.co.uk's short name) confirmed live against
     # Squawka's own embedded team name "Olympique Lyonnais" -- Squawka's
     # matching is exact-equality only (no substring fallback, the
@@ -130,7 +138,7 @@ _RAW_ALIASES: dict[str, list[str]] = {
     # bare, collision-risky "racing" (see the earlier StadiumDB finding
     # for why that alone was deliberately left out).
     # "racing de santander" (Squawka's own literal) confirmed live.
-    "racing santander": ["real racing club", "racing de santander"],
+    "racing santander": ["real racing club", "racing de santander", "real racing club de santander"],
     # "celta de vigo" (StadiumDB's own name, "de" in the middle) vs
     # Sofascore's "Celta Vigo" -- confirmed live, breaks the substring
     # match either direction.
@@ -376,6 +384,18 @@ def known_aliases_for(name: str) -> list[str]:
     belongs to, or just [normalize(name)] if it isn't in the table."""
     canonical = canonical_for(name)
     return [canonical, *TEAM_ALIASES.get(canonical, [])]
+
+
+def same_team(name_a: str, name_b: str) -> bool:
+    """Do two spellings refer to the same club? True when they share any
+    known alias (so "Man Utd" and "Manchester United" match even though
+    neither contains the other), or when one normalized name contains the
+    other -- the substring rule the callers used on its own before, kept
+    as the fallback for names the alias table doesn't cover."""
+    if set(known_aliases_for(name_a)) & set(known_aliases_for(name_b)):
+        return True
+    normalized_a, normalized_b = normalize(name_a), normalize(name_b)
+    return bool(normalized_a and normalized_b and (normalized_a in normalized_b or normalized_b in normalized_a))
 
 
 class SlugIndexed(Protocol):

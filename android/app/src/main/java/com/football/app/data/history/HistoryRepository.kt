@@ -3,8 +3,12 @@ package com.football.app.data.history
 import com.football.app.data.model.ReportJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.util.UUID
@@ -27,6 +31,11 @@ import java.util.UUID
 class HistoryRepository(
     private val historyDir: File,
 ) {
+    private companion object {
+        const val MAX_PREDICTION_RECORDS = 100
+        val PREDICTION_METHODS = listOf("blended", "market_implied", "heuristic_blend", "xg_model")
+    }
+
     private val indexFile = File(historyDir, "index.json")
     private val entrySerializer = ListSerializer(HistoryEntry.serializer())
     private val json = Json { ignoreUnknownKeys = true }
@@ -80,6 +89,38 @@ class HistoryRepository(
     fun load(id: String): String? {
         val file = File(historyDir, "$id.json")
         return if (file.exists()) file.readText() else null
+    }
+
+    /**
+     * The predictions saved so far, as a compact JSON array for the
+     * backend's calibration scoring (see football/calibration.py): one
+     * record per saved report with the two teams, kickoff, when it was
+     * generated, and just the four probability blocks -- not the whole
+     * report, which can be hundreds of KB each. Newest [limit] entries;
+     * an entry with no readable prediction is skipped.
+     */
+    @Synchronized
+    fun predictionRecordsJson(limit: Int = MAX_PREDICTION_RECORDS): String =
+        JsonArray(list().take(limit).mapNotNull { predictionRecord(load(it.id)) }).toString()
+
+    @Suppress("SwallowedException", "TooGenericExceptionCaught")
+    private fun predictionRecord(raw: String?): JsonObject? {
+        if (raw == null) return null
+        val root = try { json.parseToJsonElement(raw).jsonObject } catch (e: Exception) { return null }
+        val match = root["match"] as? JsonObject ?: return null
+        val prediction = (root["insights"] as? JsonObject)?.get("prediction") as? JsonObject ?: return null
+        val fields: List<JsonElement?> = listOf(match["home_team"], match["away_team"], match["kickoff_utc"], root["generatedAt"])
+        if (fields.any { it == null }) return null
+        return buildJsonObject {
+            put("home_team", fields[0]!!)
+            put("away_team", fields[1]!!)
+            put("kickoff_utc", fields[2]!!)
+            put("generated_at", fields[3]!!)
+            put(
+                "prediction",
+                buildJsonObject { PREDICTION_METHODS.forEach { name -> prediction[name]?.let { put(name, it) } } },
+            )
+        }
     }
 
     private fun writeIndex(entries: List<HistoryEntry>) {

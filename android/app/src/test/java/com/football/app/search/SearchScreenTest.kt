@@ -249,10 +249,19 @@ class SearchScreenTest {
         composeTestRule.setContent {
             SingleSearchProgress(QueueState.Running(currentTeam = "Arsenal", index = 0, total = 1, message = "Working", failures = failures))
         }
-        composeTestRule.onNodeWithText("2 links failed").assertExists()
+        composeTestRule.onNodeWithText("2 failures").assertExists()
         composeTestRule.onNodeWithText("fotmob — HTTP 403").assertExists()
         composeTestRule.onNodeWithText("https://api.fotmob.com/matches").assertExists()
         composeTestRule.onNodeWithText("sofascore — timed out").assertExists()
+    }
+
+    @Test
+    fun `a failed processing step shows its source and reason but no url line`() {
+        composeTestRule.setContent {
+            FailedLinksList(listOf(FetchFailure("weather (wttr.in)", "step:weather (wttr.in)", "KeyError: 'current_condition'")))
+        }
+        composeTestRule.onNodeWithText("weather (wttr.in) — KeyError: 'current_condition'").assertExists()
+        composeTestRule.onNodeWithText("step:weather (wttr.in)").assertDoesNotExist()
     }
 
     @Test
@@ -260,7 +269,7 @@ class SearchScreenTest {
         composeTestRule.setContent {
             FailedLinksList(listOf(FetchFailure("goal", "https://api.goal.com/x", "HTTP 500")))
         }
-        composeTestRule.onNodeWithText("1 link failed").assertExists()
+        composeTestRule.onNodeWithText("1 failure").assertExists()
     }
 
     @Test
@@ -269,7 +278,7 @@ class SearchScreenTest {
             SingleSearchProgress(QueueState.Running(currentTeam = "Arsenal", index = 0, total = 1, message = "Working"))
         }
         composeTestRule.onNodeWithText("Arsenal", substring = true).assertExists()
-        composeTestRule.onNodeWithText("failed", substring = true).assertDoesNotExist()
+        composeTestRule.onNodeWithText("failure", substring = true).assertDoesNotExist()
     }
 
     @Test

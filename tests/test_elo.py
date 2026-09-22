@@ -80,3 +80,73 @@ def test_none_competition_is_not_treated_as_a_friendly():
     rating = compute_elo_rating(results)
     assert rating is not None
     assert rating.elo > 1500.0
+
+
+# --- league_elo_rank / with_league_rank -----------------------------------------------------
+
+
+def _row(position, wins, draws, losses, goal_difference=0, points=None):
+    from football.types import StandingsTableRow
+
+    played = wins + draws + losses
+    return StandingsTableRow(
+        team_name=f"Team{position}", position=position, points=points if points is not None else 3 * wins + draws,
+        played=played, wins=wins, draws=draws, losses=losses, goal_difference=goal_difference,
+    )
+
+
+def test_league_elo_rank_orders_by_season_score_fraction():
+    from football.elo import league_elo_rank
+
+    table = [_row(1, 6, 1, 1), _row(2, 4, 2, 2), _row(3, 1, 1, 6)]
+    assert league_elo_rank(table, 1) == (1, 3, 8)
+    assert league_elo_rank(table, 2) == (2, 3, 8)
+    assert league_elo_rank(table, 3) == (3, 3, 8)
+
+
+def test_league_elo_rank_can_differ_from_table_position():
+    from football.elo import league_elo_rank
+
+    # A team below in points-per-match terms... position 1 has a worse
+    # W/D/L record than position 2 here (fewer matches played, more draws).
+    table = [_row(1, 2, 4, 0), _row(2, 5, 0, 1)]
+    assert league_elo_rank(table, 2)[0] == 1
+
+
+def test_league_elo_rank_breaks_ties_by_goal_difference():
+    from football.elo import league_elo_rank
+
+    table = [_row(1, 3, 0, 1, goal_difference=2), _row(2, 3, 0, 1, goal_difference=6)]
+    assert league_elo_rank(table, 2)[0] == 1
+
+
+def test_league_elo_rank_none_without_usable_data():
+    from football.elo import league_elo_rank
+    from football.types import StandingsTableRow
+
+    assert league_elo_rank(None, 1) is None
+    assert league_elo_rank([_row(1, 1, 0, 0)], None) is None
+    assert league_elo_rank([_row(1, 1, 0, 0)], 9) is None  # position not in table
+    no_wdl = StandingsTableRow(team_name="X", position=1, points=3)
+    assert league_elo_rank([no_wdl], 1) is None
+    assert league_elo_rank([_row(1, 0, 0, 0)], 1) is None  # nothing played yet
+
+
+def test_with_league_rank_attaches_rank_and_an_honest_basis():
+    from football.elo import with_league_rank
+    from football.types import EloRating
+
+    elo = EloRating(elo=1500.0, as_of="2026-09-21")
+    result = with_league_rank(elo, [_row(1, 6, 1, 1), _row(2, 4, 2, 2)], 2)
+    assert (result.rank, result.rank_of) == (2, 2)
+    assert "not a world rank" in result.rank_basis
+    assert result.elo == 1500.0
+
+
+def test_with_league_rank_leaves_elo_untouched_without_a_table_and_passes_none_through():
+    from football.elo import with_league_rank
+    from football.types import EloRating
+
+    elo = EloRating(elo=1500.0, as_of="2026-09-21")
+    assert with_league_rank(elo, None, 1).rank is None
+    assert with_league_rank(None, [_row(1, 1, 0, 0)], 1) is None

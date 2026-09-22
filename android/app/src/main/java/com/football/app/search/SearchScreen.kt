@@ -229,8 +229,9 @@ internal fun SingleSearchProgress(running: QueueState.Running) {
     }
 }
 
-/** Live list of every link/API request that failed so far this search --
- * source + reason on one line, the URL beneath. Shows nothing until the
+/** Live list of every link/API request (or processing step) that failed
+ * so far this search -- source + reason on one line, the URL beneath for
+ * requests. Shows nothing until the
  * first failure. Height-capped and scrollable so a run where a whole
  * source is down can't push the rest of the screen off-screen. */
 @Composable
@@ -238,7 +239,7 @@ internal fun FailedLinksList(failures: List<FetchFailure>) {
     if (failures.isEmpty()) return
     Spacer(Modifier.height(16.dp))
     Text(
-        "${failures.size} link${if (failures.size == 1) "" else "s"} failed",
+        "${failures.size} failure${if (failures.size == 1) "" else "s"}",
         style = MaterialTheme.typography.titleSmall,
         color = AppTheme.colors.statusCritical,
     )
@@ -246,12 +247,16 @@ internal fun FailedLinksList(failures: List<FetchFailure>) {
         failures.forEach { failure ->
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Text("${failure.source} — ${failure.reason}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                Text(
-                    failure.url,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // A processing step (not a request) has a "step:" pseudo-URL
+                // with nothing to show -- only real links get the URL line.
+                if (failure.url.startsWith("http")) {
+                    Text(
+                        failure.url,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

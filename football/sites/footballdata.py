@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 import httpx
 
 from .._jsmath import js_number_or, js_round_to
+from ..fetch_log import record_failure
 from ..http import USER_AGENT, new_client
 from ..odds_math import implied_and_fair_percentages, implied_and_fair_percentages_2way
 from ..team_aliases import canonical_for
@@ -46,8 +47,16 @@ def _season_code(offset: int) -> str:
 
 async def _fetch_csv_or_none(url: str) -> str | None:
     async with new_client() as client:
-        resp = await client.get(url, headers={"User-Agent": USER_AGENT})
+        try:
+            resp = await client.get(url, headers={"User-Agent": USER_AGENT})
+        except httpx.HTTPError as err:
+            record_failure(url, err)
+            raise
         if resp.status_code != 200:
+            # 404 = that season's file isn't published (normal early/late
+            # in a season); anything else is a real failure.
+            if resp.status_code != 404:
+                record_failure(url, f"HTTP {resp.status_code}")
             return None
         return resp.text
 

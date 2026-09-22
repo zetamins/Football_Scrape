@@ -844,3 +844,139 @@ def test_get_sofascore_team_profile_builds_squad_and_transfers(monkeypatch):
     assert profile.recent_transfers is not None
     assert {t.player_name for t in profile.recent_transfers} == {"New Signing", "Departed Player"}
     assert any(t.direction == "out" for t in profile.recent_transfers)
+
+
+def test_team_standing_derives_numeric_goal_difference_from_the_string():
+    from football.types import TeamStanding
+
+    def standing(gd):
+        return TeamStanding(position=1, played=1, wins=1, draws=0, losses=0, points=3, goal_diff=gd, total_teams=20)
+
+    assert standing("+8").goal_difference == 8
+    assert standing("-6").goal_difference == -6
+    assert standing("0").goal_difference == 0
+    assert standing("n/a").goal_difference is None
+    assert standing("+8").goal_diff == "+8"
+
+
+# --- _pick_team_hit --------------------------------------------------------------------------------
+
+
+def _hit(name, gender=None, kind="team"):
+    entity = {"id": 1, "name": name, "slug": name.lower().replace(" ", "-")}
+    if gender:
+        entity["gender"] = gender
+    return {"type": kind, "entity": entity}
+
+
+def test_pick_team_hit_prefers_the_hit_matching_the_searched_club_over_a_higher_ranked_other():
+    from football.sites.sofascore import _pick_team_hit
+
+    results = [_hit("Tottenham Hotspur Academy"), _hit("Tottenham Hotspur")]
+    # both contain "tottenham": the alias-table exact match (the club itself) wins
+    assert _pick_team_hit(results, "Tottenham", "tottenham hotspur")["entity"]["name"] == "Tottenham Hotspur"
+
+
+def test_pick_team_hit_prefers_a_mens_team_over_a_womens_team():
+    from football.sites.sofascore import _pick_team_hit
+
+    results = [_hit("Arsenal Women", gender="F"), _hit("Arsenal", gender="M")]
+    assert _pick_team_hit(results, "Arsenal", "arsenal")["entity"]["name"] == "Arsenal"
+
+
+def test_pick_team_hit_falls_back_to_the_first_team_and_ignores_non_team_results():
+    from football.sites.sofascore import _pick_team_hit
+
+    results = [_hit("Some Player", kind="player"), _hit("Completely Different FC"), _hit("Other FC")]
+    assert _pick_team_hit(results, "Xyz", "xyz")["entity"]["name"] == "Completely Different FC"
+    assert _pick_team_hit([_hit("Some Player", kind="player")], "Xyz", "xyz") is None
+    assert _pick_team_hit([], "Xyz", "xyz") is None
+
+
+# --- older-meeting venue lookup ----------------------------------------------------------------
+
+
+def _full_event(id_, home, away, home_country, away_country, venue_country, day, round_name=None):
+    e = _sofascore_event(id_=id_, home=home, away=away, start=datetime.fromisoformat(day + "T19:00:00+00:00"))
+    e["homeTeam"] = {"name": home, "country": {"name": home_country}}
+    e["awayTeam"] = {"name": away, "country": {"name": away_country}}
+    e["venue"] = {"name": "Some Stadium", "country": {"name": venue_country}}
+    e["roundInfo"] = {"name": round_name} if round_name else {}
+    return e
+
+
+def test_older_meeting_info_marks_a_third_country_venue_neutral():
+    from football.sites.sofascore import _older_meeting_info
+
+    info = _older_meeting_info(_full_event(7, "Tottenham Hotspur", "Manchester United", "England", "England", "Spain", "2025-05-21", "Final"))
+    assert info.neutral is True
+    assert (info.home_team, info.away_team, info.venue_country, info.round_name) == ("Tottenham Hotspur", "Manchester United", "Spain", "Final")
+
+
+def test_older_meeting_info_is_not_neutral_at_one_teams_own_country_and_unknown_when_a_country_is_missing():
+    from football.sites.sofascore import _older_meeting_info
+
+    assert _older_meeting_info(_full_event(1, "A", "B", "England", "England", "England", "2026-02-07")).neutral is False
+    missing = _full_event(2, "A", "B", "England", "England", "England", "2026-02-07")
+    missing["venue"] = {"name": "X"}
+    assert _older_meeting_info(missing).neutral is None
+
+
+def test_older_meeting_lookup_pages_back_and_reads_only_the_events_it_needs(monkeypatch):
+    from football.sites.sofascore import get_sofascore_older_meeting_info
+
+    monkeypatch.setattr(sofascore, "launch_browser", lambda: _FakeBrowserCM())
+    monkeypatch.setattr(sofascore, "_sleep", _no_sleep)
+    final = _full_event(50, "Tottenham Hotspur", "Manchester United", "England", "England", "Spain", "2025-05-21", "Final")
+    other = _full_event(51, "Tottenham Hotspur", "Chelsea", "England", "England", "England", "2025-06-01")
+    requested: list[str] = []
+
+    async def fake_fetch(_page, url):
+        requested.append(url)
+        if "search/all" in url:
+            return {"results": [{"type": "team", "entity": {"id": 9, "name": "Tottenham Hotspur", "slug": "tottenham"}}]}
+        if "events/last/1" in url:
+            return {"events": [other], "hasNextPage": True}
+        if "events/last/2" in url:
+            return {"events": [final], "hasNextPage": True}
+        if "/event/50" in url:
+            return {"event": final}
+        raise AssertionError(f"unexpected request {url}")
+
+    monkeypatch.setattr(sofascore, "_fetch_json", fake_fetch)
+    result = asyncio.run(get_sofascore_older_meeting_info("Tottenham", "Man Utd", {"2025-05-21"}))
+    assert list(result) == ["2025-05-21"]
+    assert result["2025-05-21"].neutral is True
+    assert not any("events/last/3" in u for u in requested)  # stopped once everything wanted was found
+    assert sum("/event/" in u for u in requested) == 1  # only the one meeting's own record
+
+
+def test_older_meeting_lookup_stops_paging_once_past_the_oldest_wanted_day(monkeypatch):
+    from football.sites.sofascore import get_sofascore_older_meeting_info
+
+    monkeypatch.setattr(sofascore, "launch_browser", lambda: _FakeBrowserCM())
+    monkeypatch.setattr(sofascore, "_sleep", _no_sleep)
+    old = _full_event(60, "Tottenham Hotspur", "Arsenal", "England", "England", "England", "2020-01-01")
+    pages: list[str] = []
+
+    async def fake_fetch(_page, url):
+        if "search/all" in url:
+            return {"results": [{"type": "team", "entity": {"id": 9, "name": "Tottenham Hotspur", "slug": "t"}}]}
+        pages.append(url)
+        return {"events": [old], "hasNextPage": True}
+
+    monkeypatch.setattr(sofascore, "_fetch_json", fake_fetch)
+    assert asyncio.run(get_sofascore_older_meeting_info("Tottenham", "Man Utd", {"2025-05-21"})) == {}
+    assert len(pages) == 1  # page 1 already ended before the wanted day -> no point going further
+
+
+def test_older_meeting_lookup_makes_no_request_when_nothing_is_wanted_and_handles_an_unknown_team(monkeypatch):
+    from football.sites.sofascore import get_sofascore_older_meeting_info
+
+    monkeypatch.setattr(sofascore, "launch_browser", lambda: _FakeBrowserCM())
+    monkeypatch.setattr(sofascore, "_sleep", _no_sleep)
+    monkeypatch.setattr(sofascore, "_fetch_json", lambda *_a: (_ for _ in ()).throw(AssertionError("no request expected")))
+    assert asyncio.run(get_sofascore_older_meeting_info("X", "Y", set())) == {}
+
+    monkeypatch.setattr(sofascore, "_fetch_json", _mock_fetch_json({"results": []}, []))
+    assert asyncio.run(get_sofascore_older_meeting_info("Nobody", "Y", {"2025-05-21"})) == {}
