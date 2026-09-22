@@ -1670,6 +1670,24 @@ def test_run_search_raises_a_specific_message_when_team_recognized_but_no_upcomi
         asyncio.run(run_search("Some Team"))
 
 
+def test_run_search_strips_the_searched_team_name(monkeypatch):
+    # Confirmed live: a trailing space typed into the app's search box
+    # propagated all the way through to result.team ("Tottenham ").
+    async def empty_matches(_team_name):
+        return []
+
+    async def working_profile(_team_name):
+        from football.types import TeamProfile
+
+        return _all_none(TeamProfile, source="sofascore", team_name="Tottenham", squad=None)
+
+    fake_scrapers = {source: _Scraper(run=empty_matches, details=None, profile=working_profile) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    with pytest.raises(RuntimeError, match='Found "Tottenham"'):
+        asyncio.run(run_search("  Tottenham  "))
+
+
 def test_run_search_returns_a_fully_populated_result_on_success(monkeypatch):
     _mock_full_pipeline(monkeypatch)
 

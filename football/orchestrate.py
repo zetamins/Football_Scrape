@@ -724,8 +724,8 @@ def _apply_standings_derived_insights(
 
     ins.fill_standings_form(merged.standings_table, own_position, own_results, merged.competition)
     ins.fill_standings_form(merged.standings_table, opponent_position, opponent_results, merged.competition)
-    ins.add_clean_sheets_recent_check(merged.home_team_season_stats if own_is_home else merged.away_team_season_stats, own_results)
-    ins.add_clean_sheets_recent_check(merged.away_team_season_stats if own_is_home else merged.home_team_season_stats, opponent_results)
+    ins.add_clean_sheets_recent_check(merged.home_team_season_stats if own_is_home else merged.away_team_season_stats, own_results, form_source)
+    ins.add_clean_sheets_recent_check(merged.away_team_season_stats if own_is_home else merged.home_team_season_stats, opponent_results, opponent_matches_source)
 
     own_elo = with_league_rank(compute_elo_rating(own_results or []), merged.standings_table, own_position)
     opponent_elo = with_league_rank(compute_elo_rating(opponent_results), merged.standings_table, opponent_position)
@@ -1214,6 +1214,12 @@ async def run_search(
     profile_error), for a caller that needs real per-source state (e.g.
     a UI showing "Sofascore blocked / Fotmob: 42 fixtures" -- see
     android_report.py) rather than parsing on_progress's free text."""
+    # Confirmed live: a trailing/leading space typed into the app's search
+    # box (or pasted) propagated all the way through to result.team in the
+    # final JSON ("Tottenham " with a trailing space) -- stripped once
+    # here, at the top, rather than wherever `team` happens to get read
+    # out later.
+    team_name = team_name.strip()
     sofascore_site.reset_block_state()  # a block from a previous run says nothing about this one
     on_progress(f'Searching for "{team_name}" (base: Sofascore, supplemented by Fotmob, SoccerDesk, Goal.com, 365Scores)...')
 

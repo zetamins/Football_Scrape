@@ -1360,6 +1360,40 @@ def test_presence_none_without_squad():
     assert compute_presence(None, None, None, None, None) is None
 
 
+def test_presence_recognizes_a_real_starter_even_when_the_lineup_spells_the_name_differently():
+    # Confirmed live: match.home_lineup listed "Youri Tielemans" (from one
+    # source) while merged_profile.squad had him as "Tielemans" (from a
+    # different source, after a mid-pipeline fallback) -- exact-match-only
+    # `starting` detection missed this, made mark_projected_starters think
+    # no real lineup existed, and it derived its own competing, different
+    # 11 (picking someone else instead) that then sat alongside the real
+    # lineup showing Tielemans in it.
+    from football.types import LineupPlayer
+
+    tielemans = _all_none(SquadMember, name="Tielemans")
+    other = _all_none(SquadMember, name="Other Player")
+    entries = compute_presence(
+        squad=[tielemans, other],
+        lineup=[_all_none(LineupPlayer, name="Youri Tielemans")],
+        bench=[_all_none(LineupPlayer, name="Some Sub")],
+        injuries=None,
+        suspended=None,
+    )
+    by_name = {e.name: e for e in entries}
+    assert by_name["Tielemans"].starting is True
+    assert by_name["Other Player"].starting is False
+
+
+def test_presence_on_bench_also_uses_the_containment_fallback():
+    from football.types import LineupPlayer
+
+    squad_member = _all_none(SquadMember, name="Tielemans")
+    entries = compute_presence(
+        squad=[squad_member], lineup=[], bench=[_all_none(LineupPlayer, name="Youri Tielemans")], injuries=None, suspended=None,
+    )
+    assert entries[0].on_bench is True
+
+
 def test_presence_marks_missing_players_absent_even_without_injury():
     """Regression: confirmed live -- Richarlison was ruled out for
     "coach_decision" (in match.away_missing_players), not an injury, so
@@ -2147,6 +2181,21 @@ def test_add_clean_sheets_recent_check_counts_competitive_clean_sheets():
     assert stats.clean_sheets == 0  # the source's own number is never overwritten
 
 
+def test_add_clean_sheets_recent_check_records_which_source_the_results_came_from():
+    # A swing in this count between two runs is usually the results
+    # coming from a different source (e.g. a Sofascore block falling back
+    # to Fotmob) -- record which one, same reasoning as EloRating.
+    # sample_source, so that swing is explained rather than a mystery.
+    from football.insights import add_clean_sheets_recent_check
+    from football.types import FormResult, TeamSeasonStats
+
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=None)
+    results = [_all_none(FormResult, scoreline="0-0", venue="home", competition="Premier League")]
+    add_clean_sheets_recent_check(stats, results, "fotmob")
+    assert stats.clean_sheets_recent_check_source == "fotmob"
+    assert stats.clean_sheets_recent_check == 1
+
+
 def test_add_clean_sheets_recent_check_noop_without_stats_or_results():
     from football.insights import add_clean_sheets_recent_check
     from football.types import FormResult, TeamSeasonStats
@@ -2155,3 +2204,19 @@ def test_add_clean_sheets_recent_check_noop_without_stats_or_results():
     add_clean_sheets_recent_check(stats, None)
     assert stats.clean_sheets_recent_check is None
     add_clean_sheets_recent_check(None, [_all_none(FormResult, scoreline="0-0", venue="home", competition="Premier League")])  # must not raise
+
+
+def test_a_real_lineup_with_a_spelling_mismatch_still_blocks_the_competing_projection():
+    # End-to-end version of the two tests above: once `starting` is
+    # correctly detected despite the spelling gap, mark_projected_starters'
+    # own guard (any(p.starting for p in presence)) must prevent it from
+    # deriving a second, competing, different XI.
+    from football.insights import mark_projected_starters
+    from football.types import LineupPlayer, PlayerUsagePattern
+
+    tielemans = _all_none(SquadMember, name="Tielemans", role="M", recent_usage=_all_none(PlayerUsagePattern, starts=1, total_minutes=90))
+    other = _all_none(SquadMember, name="Preferred By Usage", role="M", recent_usage=_all_none(PlayerUsagePattern, starts=10, total_minutes=900))
+    squad = [tielemans, other]
+    presence = compute_presence(squad=squad, lineup=[_all_none(LineupPlayer, name="Youri Tielemans")], bench=None, injuries=None, suspended=None)
+    assert mark_projected_starters(presence, squad) is None
+    assert all(p.projected_starter is False for p in presence)

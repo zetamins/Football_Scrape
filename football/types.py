@@ -331,6 +331,12 @@ class TeamSeasonStats:
     # against yet (e.g. this team's own form wasn't computed at this
     # point in the pipeline).
     clean_sheets_recent_check: int | None = None
+    # Which source's recent match results fed clean_sheets_recent_check --
+    # that count can legitimately swing between two runs of the same team
+    # (e.g. Sofascore blocked one run, Fotmob used as a fallback the next,
+    # each with its own recent-match sample), same reasoning as EloRating.
+    # sample_source; this says why, instead of leaving a swing unexplained.
+    clean_sheets_recent_check_source: str | None = None
 
 
 @dataclass

@@ -437,15 +437,19 @@ def _note_injury_reasons(
     return result
 
 
-def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results: list[FormResult] | None) -> None:
+def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results: list[FormResult] | None, source: str | None = None) -> None:
     """Mutates season_stats in place: counts clean sheets among the real
     competitive results in `results` (form.last20_overall), so a consumer
     can see whether the source's own season aggregate (clean_sheets) is
     keeping up with recent results -- see TeamSeasonStats' own doc comment
-    for why this is a separate field, not a silent override."""
+    for why this is a separate field, not a silent override. `source`
+    (the results' own form_source) is recorded alongside so a run-to-run
+    swing in this count can be attributed to a source change, not treated
+    as an unexplained contradiction."""
     if not season_stats or not results:
         return
     season_stats.clean_sheets_recent_check = sum(1 for r in results if not is_friendly_competition(r.competition) and result_goals(r)["against"] == 0)
+    season_stats.clean_sheets_recent_check_source = source
 
 
 def fill_standings_form(
@@ -550,6 +554,26 @@ def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember]
     ]
 
 
+def _in_name_set(name: str, name_set: dict[str, bool] | None) -> bool | None:
+    """Exact match first, then the same containment fallback used
+    elsewhere for cross-source name spelling gaps (e.g. "Youri Tielemans"
+    in the match-level lineup vs "Tielemans" in the squad profile, when
+    the two came from different sources) -- confirmed live this
+    previously made `starting` False for every real starter whenever the
+    two sources spelled names differently, which let mark_projected_
+    starters run anyway and compute its own, uncoordinated projection
+    alongside a REAL published lineup. Extracted from compute_presence to
+    keep its own cognitive complexity down (python:S3776). None when
+    `name_set` itself is None (distinct from an empty dict, which means
+    "checked, not present")."""
+    if name_set is None:
+        return None
+    from .merge import find_by_name_containment
+    from .merge import normalize_team_name as _normalize
+
+    return _normalize(name) in name_set or find_by_name_containment(name, name_set) is not None
+
+
 def compute_presence(
     squad: list[SquadMember] | None,
     lineup: list[LineupPlayer] | None,
@@ -580,8 +604,8 @@ def compute_presence(
         return None
     from .merge import normalize_team_name as _normalize
 
-    lineup_names = {_normalize(p.name) for p in (lineup or [])}
-    bench_names = {_normalize(p.name) for p in bench} if bench is not None else None
+    lineup_names = {_normalize(p.name): True for p in (lineup or [])}
+    bench_names = {_normalize(p.name): True for p in bench} if bench is not None else None
     injury_by_name = {_normalize(p.name): p.injury for p in (injuries or [])}
     suspended_names = {_normalize(n) for n in (suspended or [])}
     note_injury_by_name = _note_injury_reasons(squad, additional_notes, set(injury_by_name))
@@ -598,8 +622,8 @@ def compute_presence(
         )
         result.append(
             PresenceEntry(
-                name=m.name, status=("A" if reason else "P"), starting=(norm in lineup_names),
-                on_bench=(norm in bench_names if bench_names is not None else None), reason=reason,
+                name=m.name, status=("A" if reason else "P"), starting=bool(_in_name_set(m.name, lineup_names)),
+                on_bench=_in_name_set(m.name, bench_names), reason=reason,
             )
         )
     return result
