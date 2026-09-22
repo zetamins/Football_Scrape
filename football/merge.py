@@ -49,7 +49,10 @@ _TEXT_CONFLICT_FIELDS = ("venue_name", "venue_city", "venue_country", "referee",
 # wttr.in isn't a per-team Source (it has no fixtures/lineups/squad to
 # search) -- it only ever fills the single `weather` field, as a post-merge
 # supplemental fetch, so field_sources needs to name it too.
-FieldSource = Literal["sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in"]
+# "derived" (not a real site) marks a field this project computed itself
+# from other data rather than any source actually publishing it -- e.g.
+# orchestrate.derive_lineup_and_formation's projected pre-match lineup.
+FieldSource = Literal["sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in", "derived"]
 
 
 def is_empty(v: Any) -> bool:
@@ -97,6 +100,26 @@ _MATCH_MERGE_FIELDS = [
 ]
 
 _PROFILE_MERGE_FIELDS = ["squad", "average_age", "injuries", "key_injuries", "recent_transfers"]
+
+
+def is_match_details_complete(details: MatchDetails) -> bool:
+    """True when the base source's own MatchDetails already has every
+    field a fallback source could otherwise fill in (_MATCH_MERGE_FIELDS)
+    -- lets a caller skip fetching another source's match details entirely
+    once there is genuinely nothing left for it to contribute, instead of
+    always scraping every source and discarding most of what comes back.
+    A pre-match fixture will rarely satisfy this (referee/odds/lineups
+    aren't published yet) -- that's correct, not a bug: those fields are
+    still worth trying other sources for until kickoff nears."""
+    return all(not _is_unfilled(name, getattr(details, name, None)) for name in _MATCH_MERGE_FIELDS)
+
+
+def is_profile_complete(profile: TeamProfile) -> bool:
+    """Same idea as is_match_details_complete, for a team profile
+    (_PROFILE_MERGE_FIELDS) -- squad/injuries are usually always available
+    from an established team's base-source profile, so this one triggers
+    far more often in practice."""
+    return all(not _is_unfilled(name, getattr(profile, name, None)) for name in _PROFILE_MERGE_FIELDS)
 
 
 def _deduplicate_transfers(transfers: list | None) -> list | None:
@@ -425,6 +448,32 @@ def reconcile_missing_by_role(
     return result
 
 
+_MIN_CONTAINMENT_NAME_LEN = 3
+
+
+def find_by_name_containment(name: str, candidates: dict[str, Any]) -> Any | None:
+    """Fallback for two sources spelling the same player's name to
+    different lengths -- confirmed live: Sofascore's "Chido Obi-Martin"
+    vs Fotmob's "Chido Obi" for the same Man Utd player. Neither an exact
+    normalized match nor surname() (which would compare "obi-martin" to
+    "obi", still unequal) catches this; a normalized-substring check in
+    either direction does: "chido obi" in "chido obi-martin".
+
+    Same safety rule as enrich_squad_with_season_stats' surname fallback:
+    only returned when exactly one candidate key overlaps, so a short or
+    common fragment ("obi" alone would risk matching an unrelated
+    "Obiora") doesn't silently attach the wrong player's data -- ambiguous
+    or too-short names return None rather than guessing."""
+    normalized = normalize_team_name(name)
+    if len(normalized) < _MIN_CONTAINMENT_NAME_LEN:
+        return None
+    hits = [
+        value for key, value in candidates.items()
+        if len(key) >= _MIN_CONTAINMENT_NAME_LEN and (key in normalized or normalized in key)
+    ]
+    return hits[0] if len(hits) == 1 else None
+
+
 def surname(name: str) -> str:
     """Only Goal.com's squad carries per-player season stats, and it
     abbreviates first names ("A. Becker"), so it can't be matched against
@@ -505,6 +554,8 @@ def enrich_squad_with_season_stats(squad: list[SquadMember], by_source: dict[Sou
         found = stats_by_name.get(normalize_team_name(m.name))
         if not found and surname_counts[surname(m.name)] == 1:
             found = stats_by_surname.get(surname(m.name))
+        if not found:
+            found = find_by_name_containment(m.name, stats_by_name)
         if found:
             stats, src = found
             result.append(_replace(m, season_stats=stats, season_stats_source=src))
@@ -536,10 +587,11 @@ async def enrich_squad_with_defensive_stats(
         stats_by_name: dict[str, DefensiveStats] = {}
     if not stats_by_name:
         return squad
-    return [
-        (_replace(m, defensive_stats=stats_by_name[normalize_team_name(m.name)]) if normalize_team_name(m.name) in stats_by_name else m)
-        for m in squad
-    ]
+    result = []
+    for m in squad:
+        stats = stats_by_name.get(normalize_team_name(m.name)) or find_by_name_containment(m.name, stats_by_name)
+        result.append(_replace(m, defensive_stats=stats) if stats else m)
+    return result
 
 
 @dataclass

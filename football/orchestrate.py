@@ -14,6 +14,7 @@ from .calibration import compute_calibration
 from .elo import compute_elo_rating, with_league_rank
 from .fetch_log import record_step_failure
 from .form import (
+    NOT_STARTED_STATUSES,
     all_form_results,
     compute_form_summary,
     enrich_form_with_venue_classification,
@@ -36,7 +37,9 @@ from .merge import (
     is_attacker_role,
     is_defender_role,
     is_goalkeeper_role,
+    is_match_details_complete,
     is_midfield_role,
+    is_profile_complete,
     merge_match_details,
     merge_team_profile,
     reconcile_missing_by_role,
@@ -224,6 +227,10 @@ class SourceStatus:
     matches_error: str | None = None
     details_error: str | None = None
     profile_error: str | None = None
+    # True when this source was never queried because the base source
+    # (first in SOURCE_ORDER, normally Sofascore) already had everything
+    # a fallback source could have contributed -- see _scrape_all_sources.
+    skipped: bool = False
 
 
 @dataclass
@@ -301,6 +308,56 @@ def _home_away(own_is_home: bool, own_val, opponent_val):
     return (own_val, opponent_val) if own_is_home else (opponent_val, own_val)
 
 
+def _base_source_already_complete(
+    base_source: Source, matches_by_source: dict, details_by_source: dict, profile_by_source: dict
+) -> bool:
+    """True once the base source (SOURCE_ORDER[0], normally Sofascore) has
+    fixtures AND a fully-populated upcoming match's details AND a fully-
+    populated team profile -- at that point no other source has anything
+    left to contribute (see is_match_details_complete/is_profile_complete),
+    so _scrape_all_sources skips them entirely rather than scraping and
+    then discarding all five sources' worth of data every run."""
+    return (
+        bool(matches_by_source.get(base_source))
+        and base_source in details_by_source and is_match_details_complete(details_by_source[base_source])
+        and base_source in profile_by_source and is_profile_complete(profile_by_source[base_source])
+    )
+
+
+async def _scrape_one_source(
+    source: Source, team_name: str, matches_by_source: dict, details_by_source: dict, profile_by_source: dict
+) -> SourceStatus:
+    """The single-source fetch body of _scrape_all_sources, extracted to
+    keep that function's own cognitive complexity down (python:S3776);
+    behavior unchanged."""
+    scraper = SCRAPERS[source]
+    status = SourceStatus(source=source)
+
+    try:
+        matches = await scraper.run(team_name)
+        matches_by_source[source] = matches
+        status.fixtures_scraped = len(matches)
+
+        next_m = next_match(matches)
+        if next_m:
+            try:
+                details_by_source[source] = await scraper.details(next_m)
+            except Exception as err:  # noqa: BLE001
+                status.details_error = _error_text(err)
+                record_step_failure(f"{source} match details", err)
+    except Exception as err:  # noqa: BLE001
+        status.matches_error = _error_text(err)
+        record_step_failure(f"{source} matches", err)
+
+    try:
+        profile_by_source[source] = await scraper.profile(team_name)
+    except Exception as err:  # noqa: BLE001
+        status.profile_error = _error_text(err)
+        record_step_failure(f"{source} team profile", err)
+
+    return status
+
+
 async def _scrape_all_sources(
     team_name: str,
     on_progress: Callable[[str], None],
@@ -308,43 +365,32 @@ async def _scrape_all_sources(
 ) -> tuple[dict[Source, list[MatchInfo]], dict[Source, MatchDetails], dict[Source, TeamProfile], list[SourceStatus]]:
     """The sequential-not-parallel per-source scrape loop -- extracted
     from run_search purely to keep its own cognitive complexity low
-    (python:S3776); behavior unchanged. Sequential, not parallel --
-    Sofascore is rate-sensitive (Cloudflare), so we never want another
-    source's traffic overlapping with its requests."""
+    (python:S3776). Sequential, not parallel -- Sofascore is rate-
+    sensitive (Cloudflare), so we never want another source's traffic
+    overlapping with its requests.
+
+    Sofascore (SOURCE_ORDER[0], always tried first) is the base source;
+    every source after it is skipped entirely once Sofascore's own
+    fixtures/details/profile already cover everything a fallback source
+    exists to fill in (see _base_source_already_complete) -- there is
+    nothing left for another source to contribute, so there is no reason
+    to fetch and then discard its data."""
     matches_by_source: dict[Source, list[MatchInfo]] = {}
     details_by_source: dict[Source, MatchDetails] = {}
     profile_by_source: dict[Source, TeamProfile] = {}
     statuses: list[SourceStatus] = []
+    base_source = SOURCE_ORDER[0]
 
     for source in SOURCE_ORDER:
-        on_progress(f"Scraping {source}...")
-        scraper = SCRAPERS[source]
-        status = SourceStatus(source=source)
-
-        try:
-            matches = await scraper.run(team_name)
-            matches_by_source[source] = matches
-            status.fixtures_scraped = len(matches)
-
-            next_m = next_match(matches)
-            if next_m:
-                try:
-                    details_by_source[source] = await scraper.details(next_m)
-                except Exception as err:  # noqa: BLE001
-                    status.details_error = _error_text(err)
-                    record_step_failure(f"{source} match details", err)
-        except Exception as err:  # noqa: BLE001
-            status.matches_error = _error_text(err)
-            record_step_failure(f"{source} matches", err)
-
-        try:
-            profile_by_source[source] = await scraper.profile(team_name)
-        except Exception as err:  # noqa: BLE001
-            status.profile_error = _error_text(err)
-            record_step_failure(f"{source} team profile", err)
+        if source != base_source and _base_source_already_complete(base_source, matches_by_source, details_by_source, profile_by_source):
+            status = SourceStatus(source=source, skipped=True)
+            on_progress(f"{source}: skipped -- {base_source} already has everything needed")
+        else:
+            on_progress(f"Scraping {source}...")
+            status = await _scrape_one_source(source, team_name, matches_by_source, details_by_source, profile_by_source)
+            on_progress(f"{source}: {status.fixtures_scraped} fixtures" + (f" -- {status.matches_error}" if status.matches_error else ""))
 
         statuses.append(status)
-        on_progress(f"{source}: {status.fixtures_scraped} fixtures" + (f" -- {status.matches_error}" if status.matches_error else ""))
         on_source_progress(status)
 
     return matches_by_source, details_by_source, profile_by_source, statuses
@@ -721,6 +767,44 @@ def _apply_projected_xi(insights_result, own_presence, opponent_presence, merged
         insights_result.projected_xi_basis = "Projected, not a published lineup: one goalkeeper plus the ten available outfield players with the most starts in the recent matches whose lineups were read"
 
 
+def _derive_side_lineup(existing_lineup, presence, squad):
+    """None when a real lineup already exists (nothing to derive) or when
+    derive_lineup_and_formation itself has nothing to project from."""
+    if existing_lineup:
+        return None
+    return ins.derive_lineup_and_formation(presence, squad)
+
+
+def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile) -> None:
+    """Fills merged.home_lineup/away_lineup/home_formation/away_formation
+    from insights_result's own projected XI when NO source (real or
+    predicted) has published a lineup at all -- confirmed live, Sofascore
+    doesn't publish even a prediction until close to kickoff and real
+    lineups only appear ~1 hour before it, so a report generated further
+    out than that would otherwise show null lineups for the whole
+    pre-match window. Only for a not-yet-started fixture; a played/live
+    match's missing lineup is a real data gap, not something to paper
+    over with a guess."""
+    if merged.status not in NOT_STARTED_STATUSES:
+        return
+    own_squad = merged_profile.squad if merged_profile else None
+    opponent_squad = opponent_profile.squad if opponent_profile else None
+    home_presence, away_presence = insights_result.home_presence, insights_result.away_presence
+    home_squad, away_squad = _home_away(own_is_home, own_squad, opponent_squad)
+
+    home_derived = _derive_side_lineup(merged.home_lineup, home_presence, home_squad)
+    away_derived = _derive_side_lineup(merged.away_lineup, away_presence, away_squad)
+    if home_derived:
+        merged.home_lineup, merged.home_formation = home_derived
+        merged.field_sources["home_lineup"] = merged.field_sources["home_formation"] = "derived"
+    if away_derived:
+        merged.away_lineup, merged.away_formation = away_derived
+        merged.field_sources["away_lineup"] = merged.field_sources["away_formation"] = "derived"
+    if home_derived or away_derived:
+        prefix = f"{insights_result.projected_xi_basis}; " if insights_result.projected_xi_basis else ""
+        insights_result.projected_xi_basis = prefix + "home_lineup/away_lineup below is this same projection, shown because no source has published a real lineup yet"
+
+
 def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile) -> None:
     own_presence = ins.compute_presence(
         merged_profile.squad if merged_profile else None,
@@ -742,6 +826,7 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
     )
     insights_result.home_presence, insights_result.away_presence = _home_away(own_is_home, own_presence, opponent_presence)
     _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile)
+    _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile)
 
     insights_result.home_bench_info = ins.compute_bench_info(merged.home_bench, merged.home_lineup, _squad_for_bench_info(own_is_home, merged_profile, opponent_profile))
     insights_result.away_bench_info = ins.compute_bench_info(merged.away_bench, merged.away_lineup, _squad_for_bench_info(not own_is_home, merged_profile, opponent_profile))
@@ -761,6 +846,20 @@ def _apply_squad_strength_insights(insights_result, own_is_home, merged, merged_
         merged.away_missing_players if own_is_home else merged.home_missing_players,
     )
     insights_result.home_squad_strength, insights_result.away_squad_strength = _home_away(own_is_home, own_squad_strength, opponent_squad_strength)
+    insights_result.squad_value_basis_note = _squad_value_basis_note(own_squad_strength, opponent_squad_strength, merged_profile, opponent_profile)
+
+
+def _squad_value_basis_note(own_strength, opponent_strength, merged_profile, opponent_profile) -> str | None:
+    if not (own_strength and opponent_strength and merged_profile and opponent_profile):
+        return None
+    own_source, opponent_source = getattr(merged_profile, "base_source", None), getattr(opponent_profile, "base_source", None)
+    if not own_source or not opponent_source or own_source == opponent_source:
+        return None
+    return (
+        f"home/away squad market values came from different sources ({own_source} vs {opponent_source}, "
+        "see teamProfile/opponentProfile field_sources) -- each runs its own valuation model, so the two "
+        "totals are not directly comparable or summable"
+    )
 
 
 def _apply_squad_derived_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile) -> None:

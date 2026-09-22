@@ -980,6 +980,10 @@ class SeasonDefensiveErrorsEstimate:
 @dataclass
 class SeasonAdvancedStatsEstimate:
     sample_size: int
+    # Names (ADVANCED_STAT_NAMES keys) whose *_for/*_against below are a
+    # structural 0 -- this run's source never reported that stat at all,
+    # not "zero of these events happened". None when every stat had data.
+    unavailable_stats: list[str] | None
     touches_in_box_for: int
     touches_in_box_against: int
     crosses_for: int
@@ -1580,3 +1584,10 @@ class MatchInsights:
     # How PresenceEntry.projected_starter was chosen; None when no
     # projection was made (a real lineup is out, or no usage history).
     projected_xi_basis: str | None = None
+    # Set when home_squad_strength/away_squad_strength's market values came
+    # from two DIFFERENT sources (e.g. one team's own Sofascore search
+    # failed, so its squad fell back to Fotmob) -- each source runs its own
+    # valuation model, not just a currency difference, so the two totals
+    # are not directly comparable or summable. None when both came from
+    # the same source, or when either squad strength is unavailable.
+    squad_value_basis_note: str | None = None

@@ -63,7 +63,7 @@ def test_run_report_serializes_source_status_to_json(monkeypatch):
     first = json.loads(seen[0])
     assert first == {
         "source": "fotmob", "fixtures_scraped": 42,
-        "matches_error": None, "details_error": None, "profile_error": None,
+        "matches_error": None, "details_error": None, "profile_error": None, "skipped": False,
     }
     second = json.loads(seen[1])
     assert second["source"] == "sofascore"

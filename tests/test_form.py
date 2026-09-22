@@ -899,6 +899,100 @@ def test_finalize_usage_computes_averages_and_per90_rates():
     assert pattern.goals_per_90 == 1.0
 
 
+# --- stat-name synonyms / distance-unit fix / big-chances-scored derivation ----------------
+
+
+def test_stat_for_any_falls_back_to_a_later_source_synonym():
+    from football.form import _stat_for_any
+    from football.types import MatchStatItem
+
+    stats = [MatchStatItem(name="Tackles", home="16", away="15")]  # Fotmob's own label, not Sofascore's "Total tackles"
+    assert _stat_for_any(stats, ("Total tackles", "Tackles"), "home") == 16
+    assert _stat_for_any(stats, ("Total tackles", "Tackles"), "away") == 15
+    assert _stat_for_any(stats, ("Total tackles",), "home") is None  # no synonym listed -> genuinely absent
+
+
+def test_stat_for_any_prefers_the_first_matching_name():
+    from football.form import _stat_for_any
+    from football.types import MatchStatItem
+
+    stats = [MatchStatItem(name="Total tackles", home="10", away="9"), MatchStatItem(name="Tackles", home="99", away="99")]
+    assert _stat_for_any(stats, ("Total tackles", "Tackles"), "home") == 10
+
+
+def test_km_from_distance_stat_converts_a_meters_scale_value_but_leaves_km_alone():
+    from football.form import _km_from_distance_stat
+
+    assert _km_from_distance_stat(118485) == 118  # Fotmob: meters, confirmed live
+    assert _km_from_distance_stat(108) == 108  # Sofascore: already km
+    assert _km_from_distance_stat(None) is None
+    assert _km_from_distance_stat(200) == 200  # exactly at the plausible-max boundary
+
+
+def test_big_chances_scored_derives_from_big_chances_minus_missed():
+    from football.form import _big_chances_scored
+    from football.types import MatchStatItem
+
+    stats = [MatchStatItem(name="Big chances", home="3", away="1"), MatchStatItem(name="Big chances missed", home="1", away="1")]
+    assert _big_chances_scored(stats, "home") == 2
+    assert _big_chances_scored(stats, "away") == 0
+    assert _big_chances_scored([MatchStatItem(name="Big chances", home="3", away="1")], "home") is None  # missing half the pair
+
+
+def test_accumulate_stat_totals_reads_fotmob_labels_and_fixes_distance_units():
+    from football.form import ADVANCED_STAT_NAMES, _accumulate_stat_totals
+    from football.types import MatchStatItem
+
+    fotmob_shaped = [
+        MatchStatItem(name="Tackles", home="16", away="15"),
+        MatchStatItem(name="Touches in opposition box", home="11", away="10"),
+        MatchStatItem(name="Corners", home="8", away="4"),
+        MatchStatItem(name="Fouls committed", home="9", away="11"),
+        MatchStatItem(name="Distance covered", home="118485", away="116595"),
+        MatchStatItem(name="Interceptions", home="10", away="9"),
+        MatchStatItem(name="Big chances", home="3", away="1"),
+        MatchStatItem(name="Big chances missed", home="1", away="1"),
+    ]
+    details = _match_details_for_enrichment(match_stats=fotmob_shaped)
+    result = _result(venue="home")
+    stat_totals = {key: {"for": 0, "against": 0, "n": 0} for key in ADVANCED_STAT_NAMES}
+    _accumulate_stat_totals(stat_totals, details, result, "away")
+
+    assert stat_totals["team_tackles"] == {"for": 16, "against": 15, "n": 1}
+    assert stat_totals["touches_in_box"] == {"for": 11, "against": 10, "n": 1}
+    assert stat_totals["corner_kicks"] == {"for": 8, "against": 4, "n": 1}
+    assert stat_totals["fouls"] == {"for": 9, "against": 11, "n": 1}
+    assert stat_totals["distance_covered_km"] == {"for": 118, "against": 117, "n": 1}  # not 118485/116595
+    assert stat_totals["big_chances_scored"] == {"for": 2, "against": 0, "n": 1}
+    assert stat_totals["through_balls"] == {"for": 0, "against": 0, "n": 0}  # genuinely absent from Fotmob
+
+
+def test_compute_advanced_stats_names_the_stats_this_sources_sample_never_reported():
+    from football.form import (
+        ADVANCED_STAT_NAMES,
+        _compute_advanced_stats,
+        _SetPieceAccumulator,
+    )
+
+    stat_totals = {key: {"for": 1, "against": 1, "n": 3} for key in ADVANCED_STAT_NAMES}
+    stat_totals["through_balls"] = {"for": 0, "against": 0, "n": 0}
+    stat_totals["recoveries"] = {"for": 0, "against": 0, "n": 0}
+    estimate = _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "fotmob")
+    assert estimate.unavailable_stats == ["recoveries", "through_balls"]
+    assert estimate.through_balls_for == 0  # structural 0 -- unavailable_stats says why
+
+
+def test_compute_advanced_stats_unavailable_stats_none_when_every_stat_had_data():
+    from football.form import (
+        ADVANCED_STAT_NAMES,
+        _compute_advanced_stats,
+        _SetPieceAccumulator,
+    )
+
+    stat_totals = {key: {"for": 1, "against": 1, "n": 3} for key in ADVANCED_STAT_NAMES}
+    assert _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "sofascore").unavailable_stats is None
+
+
 # --- _compute_advanced_stats -----------------------------------------------------
 
 

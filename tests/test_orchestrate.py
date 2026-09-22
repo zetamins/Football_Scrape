@@ -26,6 +26,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from football import insights as ins
 from football import orchestrate
 from football.merge import SOURCE_ORDER
 from football.orchestrate import (
@@ -281,6 +282,23 @@ def test_apply_squad_strength_insights_computes_for_both_sides():
     assert result.away_squad_strength.total_value == 20.0
 
 
+def test_squad_value_basis_note_set_only_when_the_two_profiles_used_different_sources():
+    from football.orchestrate import _squad_value_basis_note
+    from football.types import SquadStrengthInfo
+
+    strength = SquadStrengthInfo(total_value=10.0, attack_value=10.0, midfield_value=0.0, defense_value=0.0, goalkeeper_value=0.0, available_value=10.0)
+    own = _all_none(orchestrate.MergedProfile, base_source="sofascore", field_sources={}, team_name="Own")
+    fotmob = _all_none(orchestrate.MergedProfile, base_source="fotmob", field_sources={}, team_name="Opp")
+    also_sofascore = _all_none(orchestrate.MergedProfile, base_source="sofascore", field_sources={}, team_name="Opp")
+
+    note = _squad_value_basis_note(strength, strength, own, fotmob)
+    assert "sofascore vs fotmob" in note
+    assert "not directly comparable" in note
+    assert _squad_value_basis_note(strength, strength, own, also_sofascore) is None
+    assert _squad_value_basis_note(None, strength, own, fotmob) is None
+    assert _squad_value_basis_note(strength, strength, None, fotmob) is None
+
+
 def test_apply_squad_derived_insights_runs_all_three_without_error():
     merged = _all_none(
         orchestrate.MergedMatch, home_lineup=None, away_lineup=None, home_bench=None, away_bench=None,
@@ -386,6 +404,71 @@ def test_fetch_opponent_matches_error_falls_back_to_class_name_when_message_empt
 
 
 # --- _scrape_all_sources: details() failure branch --------------------------------
+
+
+def test_scrape_all_sources_skips_fallback_sources_once_sofascore_alone_is_complete(monkeypatch):
+    from football.merge import _MATCH_MERGE_FIELDS, _PROFILE_MERGE_FIELDS
+    from football.orchestrate import _scrape_all_sources
+    from football.types import TeamProfile
+
+    calls: list[str] = []
+    complete_details = _all_none(orchestrate.MatchDetails, **{**dict.fromkeys(_MATCH_MERGE_FIELDS, "x"), "source": "sofascore"})
+    complete_profile = _all_none(TeamProfile, **{**dict.fromkeys(_PROFILE_MERGE_FIELDS, "x"), "source": "sofascore", "team_name": "X"})
+
+    def scraper_for(source):
+        async def run(_team_name):
+            calls.append(f"{source}.run")
+            return [_match(kickoff_utc=(datetime.now(tz=UTC) + timedelta(days=3)).isoformat(), status="scheduled")]
+
+        async def details(_match_info):
+            calls.append(f"{source}.details")
+            return complete_details if source == "sofascore" else _all_none(orchestrate.MatchDetails, source=source)
+
+        async def profile(_team_name):
+            calls.append(f"{source}.profile")
+            return complete_profile if source == "sofascore" else _all_none(TeamProfile, source=source, team_name="X")
+
+        return _Scraper(run=run, details=details, profile=profile)
+
+    monkeypatch.setattr(orchestrate, "SCRAPERS", {source: scraper_for(source) for source in SOURCE_ORDER})
+
+    matches_by_source, details_by_source, profile_by_source, statuses = asyncio.run(
+        _scrape_all_sources("Some Team", lambda _msg: None, lambda _status: None)
+    )
+
+    assert calls == ["sofascore.run", "sofascore.details", "sofascore.profile"]  # nothing else was ever called
+    assert set(matches_by_source) == {"sofascore"}
+    assert set(details_by_source) == {"sofascore"}
+    assert set(profile_by_source) == {"sofascore"}
+    by_source = {s.source: s for s in statuses}
+    assert by_source["sofascore"].skipped is False
+    for source in SOURCE_ORDER[1:]:
+        assert by_source[source].skipped is True
+        assert by_source[source].fixtures_scraped == 0
+        assert by_source[source].matches_error is None
+
+
+def test_scrape_all_sources_still_consults_fallbacks_when_sofascore_is_incomplete(monkeypatch):
+    from football.orchestrate import _scrape_all_sources
+
+    calls: list[str] = []
+
+    def scraper_for(source):
+        async def run(_team_name):
+            calls.append(f"{source}.run")
+            return [_match(kickoff_utc=(datetime.now(tz=UTC) + timedelta(days=3)).isoformat(), status="scheduled")]
+
+        async def details(_match_info):
+            return _all_none(orchestrate.MatchDetails, source=source)  # never fully populated
+
+        async def profile(_team_name):
+            return _all_none(TeamProfile, source=source, team_name="X")
+
+        return _Scraper(run=run, details=details, profile=profile)
+
+    monkeypatch.setattr(orchestrate, "SCRAPERS", {source: scraper_for(source) for source in SOURCE_ORDER})
+    asyncio.run(_scrape_all_sources("Some Team", lambda _msg: None, lambda _status: None))
+    assert calls == [f"{s}.run" for s in SOURCE_ORDER]  # every source was actually tried
 
 
 def test_scrape_all_sources_records_details_error_when_next_match_details_fails(monkeypatch):
@@ -1720,3 +1803,73 @@ def test_matching_stadiumdb_capacity_records_no_conflict():
     merged = _all_none(orchestrate.MergedMatch, base_source="sofascore", venue_capacity=74310, field_sources={}, additional_notes=[], source_conflicts=[])
     _reconcile_venue_capacity(merged, SimpleNamespace(capacity=74310))
     assert merged.source_conflicts == []
+
+
+# --- _apply_derived_lineup_if_none_published --------------------------------------------------
+
+
+def _projected_squad_and_presence():
+    from football.types import PlayerUsagePattern, PresenceEntry, SquadMember
+
+    rows = [("GK", "G", 8, 720)] + [(f"D{i}", "D", 6, 540) for i in range(4)] + [(f"M{i}", "M", 6, 540) for i in range(3)] + [(f"F{i}", "F", 6, 540) for i in range(3)]
+    squad = [
+        _all_none(SquadMember, name=n, role=r, recent_usage=_all_none(PlayerUsagePattern, starts=st, total_minutes=mins))
+        for n, r, st, mins in rows
+    ]
+    presence = [PresenceEntry(name=n, status="P", starting=False, on_bench=None, reason=None) for n, *_ in rows]
+    return squad, presence
+
+
+def test_derived_lineup_fills_home_lineup_and_formation_when_nothing_was_published():
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    result.away_presence = []
+    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=None, away_lineup=None, field_sources={}, additional_notes=[])
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None)
+
+    assert merged.home_lineup is not None
+    assert len(merged.home_lineup) == 11
+    assert merged.home_formation == "4-3-3"
+    assert "no source has published a real lineup yet" in result.projected_xi_basis
+    assert merged.field_sources["home_lineup"] == "derived"
+    assert merged.field_sources["home_formation"] == "derived"
+
+
+def test_derived_lineup_leaves_a_real_published_lineup_untouched():
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    result.away_presence = []
+    real_lineup = [object()]
+    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=real_lineup, away_lineup=None, home_formation="4-4-2", field_sources={}, additional_notes=[])
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None)
+
+    assert merged.home_lineup is real_lineup
+    assert merged.home_formation == "4-4-2"
+    assert result.projected_xi_basis is None
+
+
+def test_derived_lineup_skipped_once_the_match_has_started():
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    merged = _all_none(orchestrate.MergedMatch, status="finished", home_lineup=None, field_sources={}, additional_notes=[])
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None)
+
+    assert merged.home_lineup is None

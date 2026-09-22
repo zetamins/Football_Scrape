@@ -328,9 +328,11 @@ def apply_usage_pattern(squad: list[SquadMember] | None, usage_by_player: dict[s
         return squad
     from dataclasses import fields as _fields
 
+    from .merge import find_by_name_containment
+
     result = []
     for m in squad:
-        usage = usage_by_player.get(normalize_team_name(m.name))
+        usage = usage_by_player.get(normalize_team_name(m.name)) or find_by_name_containment(m.name, usage_by_player)
         if usage:
             kwargs = {f.name: getattr(m, f.name) for f in _fields(m)}
             kwargs["recent_usage"] = usage
@@ -483,6 +485,41 @@ def mark_projected_starters(presence: list[PresenceEntry] | None, squad: list[Sq
     for entry, _ in chosen:
         entry.projected_starter = True
     return True
+
+
+def derive_lineup_and_formation(presence: list[PresenceEntry] | None, squad: list[SquadMember] | None) -> tuple[list[LineupPlayer], str] | None:
+    """Builds a starting XI + a rough formation shape from
+    mark_projected_starters' own selection -- used only once no source has
+    published a real lineup at all (Sofascore's own predicted lineup, when
+    it exists, is used as-is and this is never reached; confirmed live
+    Sofascore doesn't publish even a prediction until close to kickoff,
+    real lineups only ~1 hour before). Every LineupPlayer field beyond
+    name/position/substitute stays None -- exactly how a genuine
+    unconfirmed prediction already looks pre-match (no minutes/stats
+    exist yet either way), so this isn't visually distinguishable in
+    shape from real data, only in the accompanying note that says so.
+
+    Formation is just a D-M-F headcount ("4-3-3") among the derived XI,
+    not a real tactical read -- there's no source for actual shape this
+    far out, so this is the honest amount of structure to claim."""
+    if not presence or not squad:
+        return None
+    starters = [p for p in presence if p.projected_starter]
+    if not starters:
+        return None
+    role_by_name = {normalize_team_name(m.name): m.role for m in squad}
+    lineup = [
+        LineupPlayer(
+            name=p.name, position=role_by_name.get(normalize_team_name(p.name)), substitute=False,
+            minutes_played=None, goals=None, assists=None, xg=None, xa=None, shots=None,
+            shots_on_target=None, tackles=None, interceptions=None, fouls=None, rating=None, key_passes=None,
+        )
+        for p in starters
+    ]
+    outfield_roles = [p.position for p in lineup if p.position != "G"]
+    counts = {role: outfield_roles.count(role) for role in ("D", "M", "F")}
+    formation = "-".join(str(counts[role]) for role in ("D", "M", "F") if counts[role])
+    return lineup, formation
 
 
 def compute_presence(

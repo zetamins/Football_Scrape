@@ -791,3 +791,105 @@ def test_source_weights_rank_the_base_highest_and_a_single_other_source_below_it
     assert SOURCE_WEIGHTS[SOURCE_ORDER[0]] == max(SOURCE_WEIGHTS.values())
     assert SOURCE_WEIGHTS[SOURCE_ORDER[0]] < SOURCE_WEIGHTS["fotmob"] + SOURCE_WEIGHTS["goal"]
     assert all(SOURCE_WEIGHTS[SOURCE_ORDER[0]] > w for s, w in SOURCE_WEIGHTS.items() if s != SOURCE_ORDER[0])
+
+
+# --- find_by_name_containment --------------------------------------------------------------------
+
+
+def test_find_by_name_containment_matches_a_shortened_hyphenated_surname():
+    # Confirmed live: Sofascore's "Chido Obi-Martin" vs Fotmob's "Chido Obi"
+    # for the same Man Utd player -- neither exact match nor surname()
+    # (comparing "obi-martin" to "obi") catches this.
+    from football.merge import find_by_name_containment
+
+    candidates = {"chido obi martin": "real-stats"}
+    assert find_by_name_containment("Chido Obi", candidates) == "real-stats"
+
+
+def test_find_by_name_containment_works_in_either_direction():
+    from football.merge import find_by_name_containment
+
+    assert find_by_name_containment("Chido Obi Martin", {"chido obi": "x"}) == "x"
+
+
+def test_find_by_name_containment_none_when_ambiguous_or_too_short():
+    from football.merge import find_by_name_containment
+
+    # "obi" alone would risk matching an unrelated "Obiora" -- two
+    # candidates both containing it must not silently pick either.
+    assert find_by_name_containment("Obi", {"chido obi martin": "a", "sam obiora": "b"}) is None
+    assert find_by_name_containment("Al", {"al smith": "x"}) is None  # below the length floor
+
+
+def test_enrich_squad_with_season_stats_falls_back_to_containment_after_surname_fails():
+    # Confirmed live: Sofascore's own squad has "Chido Obi-Martin" but the
+    # own team's squad here (whichever source lacks his stats) has just
+    # "Chido Obi" -- surname() alone ("obi martin" vs "obi") still misses it.
+    fotmob_named = SquadMember(name="Chido Obi", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
+    full_stats = SeasonPlayerStats(appearances=5, goals=5, assists=1, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
+    sourced = SquadMember(name="Chido Obi-Martin", role="F", injury=None, age=None, market_value=None, season_stats=full_stats, season_stats_source="sofascore", defensive_stats=None, recent_usage=None)
+    result = enrich_squad_with_season_stats([fotmob_named], {"sofascore": _team_profile("sofascore", squad=[sourced])})
+    assert result[0].season_stats.goals == 5
+
+
+def test_enrich_squad_with_defensive_stats_falls_back_to_containment(monkeypatch):
+    async def fake(_team_name, _competitions):
+        return {"chido obi martin": DefensiveStats(tackles_made=3, interceptions=None, ball_recoveries=None, clearances=None, ground_duel_success_pct=None, chances_created=None)}
+
+    monkeypatch.setattr("football.sites.squawka.get_squawka_defensive_stats", fake)
+    squad = [SquadMember(name="Chido Obi", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    result = asyncio.run(enrich_squad_with_defensive_stats(squad, "Man Utd", ["Premier League"]))
+    assert result[0].defensive_stats.tackles_made == 3
+
+
+# --- is_match_details_complete / is_profile_complete ---------------------------------------------
+
+
+def test_is_match_details_complete_false_for_a_pre_match_fixture_missing_referee_lineups_etc():
+    from football.merge import is_match_details_complete
+
+    details = _match_details("sofascore")  # every merge field left None by the fixture
+    assert is_match_details_complete(details) is False
+
+
+def test_is_match_details_complete_true_once_every_merge_field_is_populated():
+    from football.merge import _MATCH_MERGE_FIELDS, is_match_details_complete
+
+    details = _match_details("sofascore", **dict.fromkeys(_MATCH_MERGE_FIELDS, "x"))
+    assert is_match_details_complete(details) is True
+
+
+def test_is_match_details_complete_true_when_confirmed_empty_suspended_lists_count_as_filled():
+    from football.merge import _MATCH_MERGE_FIELDS, is_match_details_complete
+
+    overrides = dict.fromkeys(_MATCH_MERGE_FIELDS, "x")
+    overrides["home_suspended_players"] = []
+    overrides["away_suspended_players"] = []
+    assert is_match_details_complete(_match_details("sofascore", **overrides)) is True
+
+
+def test_is_profile_complete_false_until_every_profile_field_is_populated_then_true():
+    from football.merge import _PROFILE_MERGE_FIELDS, is_profile_complete
+
+    empty = _team_profile("sofascore")
+    assert is_profile_complete(empty) is False
+    full = _team_profile("sofascore", **dict.fromkeys(_PROFILE_MERGE_FIELDS, "x"))
+    assert is_profile_complete(full) is True
+
+
+# --- _base_source_already_complete ----------------------------------------------------------------
+
+
+def test_base_source_already_complete_requires_matches_details_and_profile_all_populated():
+    from football.merge import _MATCH_MERGE_FIELDS, _PROFILE_MERGE_FIELDS
+    from football.orchestrate import _base_source_already_complete
+
+    complete_details = _match_details("sofascore", **dict.fromkeys(_MATCH_MERGE_FIELDS, "x"))
+    complete_profile = _team_profile("sofascore", **dict.fromkeys(_PROFILE_MERGE_FIELDS, "x"))
+    matches = {"sofascore": [object()]}
+
+    assert _base_source_already_complete("sofascore", matches, {"sofascore": complete_details}, {"sofascore": complete_profile}) is True
+    assert _base_source_already_complete("sofascore", {}, {"sofascore": complete_details}, {"sofascore": complete_profile}) is False  # no fixtures
+    assert _base_source_already_complete("sofascore", matches, {}, {"sofascore": complete_profile}) is False  # no details at all
+    assert _base_source_already_complete("sofascore", matches, {"sofascore": _match_details("sofascore")}, {"sofascore": complete_profile}) is False  # details incomplete
+    assert _base_source_already_complete("sofascore", matches, {"sofascore": complete_details}, {}) is False  # no profile at all

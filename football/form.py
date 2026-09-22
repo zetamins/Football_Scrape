@@ -521,39 +521,55 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
 
 # Sofascore's own per-match statistics endpoint's stat names, mapped to our
 # field-name suffixes -- see SeasonAdvancedStatsEstimate's doc comment.
-ADVANCED_STAT_NAMES: dict[str, str] = {
-    "touches_in_box": "Touches in penalty area",
-    "crosses": "Crosses",
-    "dribbles": "Dribbles",
-    "through_balls": "Through balls",
-    "final_third_entries": "Final third entries",
-    "recoveries": "Recoveries",
-    "errors_lead_to_shot": "Errors lead to a shot",
-    "errors_lead_to_goal": "Errors lead to a goal",
-    "shots_inside_box": "Shots inside box",
-    "shots_outside_box": "Shots outside box",
-    "shots_off_target": "Shots off target",
-    "blocked_shots": "Blocked shots",
-    "offsides": "Offsides",
-    "big_chances_scored": "Big chances scored",
-    "dispossessed": "Dispossessed",
-    "team_tackles": "Total tackles",
-    "team_interceptions": "Interceptions",
-    "goals_prevented": "Goals prevented",
-    "big_saves": "Big saves",
-    "high_claims": "High claims",
-    "distance_covered_km": "Distance covered",
-    "sprints": "Number of sprints",
-    "team_clearances": "Clearances",
-    "free_kicks": "Free kicks",
-    "total_shots": "Total shots",
-    "shots_on_target": "Shots on target",
-    "corner_kicks": "Corner kicks",
-    "fouls": "Fouls",
-    "yellow_cards": "Yellow cards",
-    "red_cards": "Red cards",
-    "big_chances": "Big chances",
-    "ball_possession": "Ball possession",
+# Each key maps to every real stat-category title seen to carry that
+# quantity -- Sofascore's own label first (unchanged from before), then
+# any other source's synonym confirmed live to report the same thing
+# under a different title (Fotmob: "Tackles" not "Total tackles",
+# "Touches in opposition box" not "Touches in penalty area", "Corners"
+# not "Corner kicks", "Fouls committed" not "Fouls", "Successful
+# dribbles"/"Accurate crosses" -- the leading count before Fotmob's own
+# "(NN%)" suffix, not the same denominator as Sofascore's plain count, but
+# real data rather than a silent 0). Stats with NO confirmed synonym
+# (through_balls, final_third_entries, recoveries, errors_lead_to_shot/
+# goal, dispossessed, free_kicks, goals_prevented, big_saves, high_claims)
+# genuinely aren't in Fotmob's own stat set -- see _unavailable_stat_keys.
+_BIG_CHANCES_STAT_NAME = "Big chances"
+_BIG_CHANCES_MISSED_STAT_NAME = "Big chances missed"
+
+
+ADVANCED_STAT_NAMES: dict[str, tuple[str, ...]] = {
+    "touches_in_box": ("Touches in penalty area", "Touches in opposition box"),
+    "crosses": ("Crosses", "Accurate crosses"),
+    "dribbles": ("Dribbles", "Successful dribbles"),
+    "through_balls": ("Through balls",),
+    "final_third_entries": ("Final third entries",),
+    "recoveries": ("Recoveries",),
+    "errors_lead_to_shot": ("Errors lead to a shot",),
+    "errors_lead_to_goal": ("Errors lead to a goal",),
+    "shots_inside_box": ("Shots inside box",),
+    "shots_outside_box": ("Shots outside box",),
+    "shots_off_target": ("Shots off target",),
+    "blocked_shots": ("Blocked shots",),
+    "offsides": ("Offsides",),
+    "big_chances_scored": ("Big chances scored",),  # derived from "Big chances"/"Big chances missed" when absent -- see _big_chances_scored
+    "dispossessed": ("Dispossessed",),
+    "team_tackles": ("Total tackles", "Tackles"),
+    "team_interceptions": ("Interceptions",),
+    "goals_prevented": ("Goals prevented",),
+    "big_saves": ("Big saves",),
+    "high_claims": ("High claims",),
+    "distance_covered_km": ("Distance covered",),  # unit varies by source -- see _km_from_distance_stat
+    "sprints": ("Number of sprints",),
+    "team_clearances": ("Clearances",),
+    "free_kicks": ("Free kicks",),
+    "total_shots": ("Total shots",),
+    "shots_on_target": ("Shots on target",),
+    "corner_kicks": ("Corner kicks", "Corners"),
+    "fouls": ("Fouls", "Fouls committed"),
+    "yellow_cards": ("Yellow cards",),
+    "red_cards": ("Red cards",),
+    "big_chances": (_BIG_CHANCES_STAT_NAME,),
+    "ball_possession": ("Ball possession",),
 }
 
 
@@ -596,6 +612,39 @@ def stat_for(match_stats: list[MatchStatItem] | None, name: str, own_venue: str)
     if not item:
         return None
     return parse_leading_int(item.home if own_venue == "home" else item.away)
+
+
+def _stat_for_any(match_stats: list[MatchStatItem] | None, names: tuple[str, ...], own_venue: str) -> int | None:
+    """First of `names` (see ADVANCED_STAT_NAMES) actually present in
+    `match_stats`, from whichever source provided it."""
+    for name in names:
+        value = stat_for(match_stats, name, own_venue)
+        if value is not None:
+            return value
+    return None
+
+
+# A per-match team total covering ~90 minutes at match pace is always in
+# roughly this range regardless of source -- Sofascore's own "Distance
+# covered" is already km ("108.5"), confirmed live Fotmob's is meters as a
+# plain integer ("118485"); nothing this large is a real km figure.
+_PLAUSIBLE_MAX_KM_PER_MATCH = 200
+
+
+def _km_from_distance_stat(raw_value: int | None) -> int | None:
+    if raw_value is None or raw_value <= _PLAUSIBLE_MAX_KM_PER_MATCH:
+        return raw_value
+    return round(raw_value / 1000)
+
+
+def _big_chances_scored(match_stats: list[MatchStatItem] | None, own_venue: str) -> int | None:
+    """Fotmob has no direct "Big chances scored" stat, but "Big chances"
+    minus "Big chances missed" is exactly that (every big chance is either
+    scored or missed) -- confirmed both are present together whenever
+    Fotmob's stats appear at all."""
+    total = stat_for(match_stats, _BIG_CHANCES_STAT_NAME, own_venue)
+    missed = stat_for(match_stats, _BIG_CHANCES_MISSED_STAT_NAME, own_venue)
+    return None if total is None or missed is None else total - missed
 
 
 def stat_for_float(match_stats: list[MatchStatItem] | None, name: str, own_venue: str) -> float | None:
@@ -804,9 +853,14 @@ def _accumulate_stat_totals(
 ) -> None:
     """Extracted from _process_one_result -- see _build_enriched_result's
     own doc comment for why."""
-    for key, stat_name in ADVANCED_STAT_NAMES.items():
-        for_val = stat_for(details.match_stats, stat_name, result.venue)
-        against_val = stat_for(details.match_stats, stat_name, opp_venue)
+    for key, stat_names in ADVANCED_STAT_NAMES.items():
+        for_val = _stat_for_any(details.match_stats, stat_names, result.venue)
+        against_val = _stat_for_any(details.match_stats, stat_names, opp_venue)
+        if key == "big_chances_scored" and for_val is None and against_val is None:
+            for_val = _big_chances_scored(details.match_stats, result.venue)
+            against_val = _big_chances_scored(details.match_stats, opp_venue)
+        if key == "distance_covered_km":
+            for_val, against_val = _km_from_distance_stat(for_val), _km_from_distance_stat(against_val)
         if for_val is not None and against_val is not None:
             stat_totals[key]["for"] += for_val
             stat_totals[key]["against"] += against_val
@@ -857,7 +911,7 @@ def _accumulate_venue_bucket(
     red_f, red_a = both_sides("Red cards")
     bucket["red_cards_for"] += red_f
     bucket["red_cards_against"] += red_a
-    big_f, big_a = both_sides("Big chances")
+    big_f, big_a = both_sides(_BIG_CHANCES_STAT_NAME)
     bucket["big_chances_created_for"] += big_f
     bucket["big_chances_created_against"] += big_a
 
@@ -1026,9 +1080,16 @@ def _compute_advanced_stats(
     if not max_n:
         return None
     st = stat_totals
+    # A key whose own n stayed 0 across a sample where OTHER keys did find
+    # data means this specific stat is absent from the source used this
+    # run (e.g. Fotmob has no "Through balls") -- its for/against below are
+    # a structural 0, not "zero events happened". Named here so a consumer
+    # doesn't read that 0 as real.
+    unavailable_stats = sorted(key for key, totals in st.items() if totals["n"] == 0) or None
     final_third_total = st["final_third_entries"]["for"] + st["final_third_entries"]["against"]
     return SeasonAdvancedStatsEstimate(
         sample_size=int(max_n),
+        unavailable_stats=unavailable_stats,
         touches_in_box_for=int(st["touches_in_box"]["for"]), touches_in_box_against=int(st["touches_in_box"]["against"]),
         crosses_for=int(st["crosses"]["for"]), crosses_against=int(st["crosses"]["against"]),
         dribbles_for=int(st["dribbles"]["for"]), dribbles_against=int(st["dribbles"]["against"]),

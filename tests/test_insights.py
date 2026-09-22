@@ -2069,3 +2069,36 @@ def test_compute_recent_meetings_matches_the_opponent_by_alias(monkeypatch):
     results = [_form_result(opponent="Man Utd", date="2026-01-01T15:00:00.000Z", scoreline="1-0")]
     meetings = asyncio.run(compute_recent_meetings([raw_match], results, "Manchester United", "sofascore"))
     assert len(meetings) == 1
+
+
+# --- derive_lineup_and_formation ------------------------------------------------------------------
+
+
+def test_derive_lineup_builds_eleven_players_and_a_dmf_formation_from_the_projected_xi():
+    from football.insights import derive_lineup_and_formation, mark_projected_starters
+
+    rows = [("GK", "G", 8, 720)] + [(f"D{i}", "D", 6, 540) for i in range(4)] + [(f"M{i}", "M", 6, 540) for i in range(3)] + [(f"F{i}", "F", 6, 540) for i in range(3)] + [("Bench", "M", 1, 90)]
+    squad = _squad_with_starts(rows)
+    presence = _presence([r[0] for r in rows])
+    mark_projected_starters(presence, squad)
+
+    result = derive_lineup_and_formation(presence, squad)
+    assert result is not None
+    lineup, formation = result
+    assert len(lineup) == 11
+    assert formation == "4-3-3"
+    positions = {p.name: p.position for p in lineup}
+    assert positions["GK"] == "G"
+    assert positions["D0"] == "D"
+    assert all(p.substitute is False for p in lineup)
+    assert all(p.minutes_played is None and p.goals is None for p in lineup)  # no fabricated stats
+
+
+def test_derive_lineup_none_without_a_projection_or_input():
+    from football.insights import derive_lineup_and_formation
+
+    squad = _squad_with_starts([("GK", "G", 8, 720)])
+    presence = _presence(["GK"])  # never marked -- no recent_usage-derived projection exists
+    assert derive_lineup_and_formation(presence, squad) is None
+    assert derive_lineup_and_formation(None, squad) is None
+    assert derive_lineup_and_formation(presence, None) is None
