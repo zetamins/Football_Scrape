@@ -451,8 +451,13 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
     # `all_results` can be shorter than `played` when isTeamHome() returns
     # None for some entries (ambiguous team-name match), so the two aren't
     # interchangeable here even though they're both "recent matches".
-    # dict.fromkeys preserves first-seen order the same way JS's Set does.
-    recent_competitions = list(dict.fromkeys(m.competition for m in competitive_played[:10] if m.competition is not None))
+    # Same _FORM_WINDOW as form_by_competition/half_split/venue_split_form
+    # (see above) -- confirmed live a 10-match window here disagreed with
+    # form_by_competition's 20 whenever a competition (a Champions League
+    # tie, say) fell between the two: recent_competitions silently omitted
+    # it while form_by_competition listed it. dict.fromkeys preserves
+    # first-seen order the same way JS's Set does.
+    recent_competitions = list(dict.fromkeys(m.competition for m in competitive_played[:_FORM_WINDOW] if m.competition is not None))
     # Also include competitions from upcoming fixtures so consumers know
     # what's coming (e.g. a cup match in next5 that isn't in recent
     # played results yet).

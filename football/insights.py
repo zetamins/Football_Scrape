@@ -13,7 +13,7 @@ from ._jsmath import js_round, js_round_to
 from .elo import is_friendly_competition
 from .fetch_log import record_step_failure
 from .form import NOT_STARTED_STATUSES as _NOT_STARTED_STATUSES
-from .form import day_diff, is_team_home, normalize_team_name, parse_leading_int
+from .form import day_diff, is_team_home, normalize_team_name, parse_leading_int, result_goals
 from .geo import country_distance_km, country_timezone_diff_hours, travel_time_hours
 from .merge import (
     CONFIRMED_EMPTY_FIELDS,
@@ -32,6 +32,7 @@ from .types import (
     ExperienceH2HNote,
     FatigueFlag,
     FormResult,
+    TeamSeasonStats,
     FullbackExposureInfo,
     HeadToHeadMeeting,
     HeadToHeadSummary,
@@ -436,6 +437,17 @@ def _note_injury_reasons(
     return result
 
 
+def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results: list[FormResult] | None) -> None:
+    """Mutates season_stats in place: counts clean sheets among the real
+    competitive results in `results` (form.last20_overall), so a consumer
+    can see whether the source's own season aggregate (clean_sheets) is
+    keeping up with recent results -- see TeamSeasonStats' own doc comment
+    for why this is a separate field, not a silent override."""
+    if not season_stats or not results:
+        return
+    season_stats.clean_sheets_recent_check = sum(1 for r in results if not is_friendly_competition(r.competition) and result_goals(r)["against"] == 0)
+
+
 def fill_standings_form(
     standings_table: list[StandingsTableRow] | None, position: int | None, results: list[FormResult] | None, competition: str | None
 ) -> None:
@@ -458,22 +470,37 @@ def fill_standings_form(
 _PROJECTED_XI_SIZE = 11
 
 
-def mark_projected_starters(presence: list[PresenceEntry] | None, squad: list[SquadMember] | None) -> bool:
+def mark_projected_starters(presence: list[PresenceEntry] | None, squad: list[SquadMember] | None) -> list[PresenceEntry] | None:
     """Marks the likely XI on `presence` in place: one goalkeeper plus the
     ten outfield players with the most starts in the recent matches whose
     lineups we read (recent_usage), among players currently available.
-    Returns True when a projection was made. Skipped when a real lineup is
-    already marked, and when there's no usage history -- a projection
-    needs evidence, not a guess. Position balance is NOT enforced beyond
-    the keeper: it reflects who has actually been starting."""
+    Returns the exact PresenceEntry objects marked (None when no
+    projection was made) -- derive_lineup_and_formation takes this return
+    value directly rather than re-scanning `presence` for
+    `projected_starter == True` afterwards, so the two can never
+    disagree, whatever squad/presence data produced them. Skipped when a
+    real lineup is already marked, and when there's no usage history -- a
+    projection needs evidence, not a guess. Position balance is NOT
+    enforced beyond the keeper: it reflects who has actually been
+    starting.
+
+    Deduplicates by normalized name first (keeps the first occurrence) --
+    a squad member appearing twice (a merge artifact) must count as one
+    player toward the XI, not silently consume two of its eleven slots."""
     if not presence or not squad or any(p.starting for p in presence):
-        return False
+        return None
     from .merge import normalize_team_name as _normalize
 
     usage = {_normalize(m.name): m for m in squad if m.recent_usage and m.recent_usage.starts > 0}
-    available = [(p, usage[_normalize(p.name)]) for p in presence if p.status == "P" and _normalize(p.name) in usage]
+    seen: set[str] = set()
+    available = []
+    for p in presence:
+        norm = _normalize(p.name)
+        if p.status == "P" and norm in usage and norm not in seen:
+            seen.add(norm)
+            available.append((p, usage[norm]))
     if not available:
-        return False
+        return None
 
     def strength(pair):
         u = pair[1].recent_usage
@@ -484,42 +511,43 @@ def mark_projected_starters(presence: list[PresenceEntry] | None, squad: list[Sq
     chosen = keepers[:1] + outfield[: _PROJECTED_XI_SIZE - len(keepers[:1])]
     for entry, _ in chosen:
         entry.projected_starter = True
-    return True
+    return [entry for entry, _ in chosen]
 
 
-def derive_lineup_and_formation(presence: list[PresenceEntry] | None, squad: list[SquadMember] | None) -> tuple[list[LineupPlayer], str] | None:
-    """Builds a starting XI + a rough formation shape from
-    mark_projected_starters' own selection -- used only once no source has
-    published a real lineup at all (Sofascore's own predicted lineup, when
-    it exists, is used as-is and this is never reached; confirmed live
-    Sofascore doesn't publish even a prediction until close to kickoff,
-    real lineups only ~1 hour before). Every LineupPlayer field beyond
-    name/position/substitute stays None -- exactly how a genuine
-    unconfirmed prediction already looks pre-match (no minutes/stats
-    exist yet either way), so this isn't visually distinguishable in
-    shape from real data, only in the accompanying note that says so.
+def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember] | None) -> list[LineupPlayer] | None:
+    """Converts mark_projected_starters' own selection into LineupPlayer
+    entries -- used only once no source has published a real lineup at
+    all (Sofascore's own predicted lineup, when it exists, is used as-is
+    and this is never reached; confirmed live Sofascore doesn't publish
+    even a prediction until close to kickoff, real lineups only ~1 hour
+    before).
 
-    Formation is just a D-M-F headcount ("4-3-3") among the derived XI,
-    not a real tactical read -- there's no source for actual shape this
-    far out, so this is the honest amount of structure to claim."""
-    if not presence or not squad:
+    Deliberately does NOT derive a formation string ("4-3-3"): the
+    selection is ranked purely by recent starts/minutes with no positional
+    balancing, so the resulting D/M/F headcount is often not a real
+    football shape (confirmed live: "6-2-2") -- home_formation/
+    away_formation stay whatever a real source published, or null.
+
+    age comes straight from the matching SquadMember (real data already
+    on hand); shirt_number stays null -- no source publishes a team
+    profile's per-player shirt number, only per-match lineups do, so
+    there is nothing honest to put there for a derived entry. Every other
+    field beyond name/position/substitute/age stays None -- exactly how a
+    genuine unconfirmed prediction already looks pre-match (no minutes/
+    stats exist yet either way)."""
+    if not selected or not squad:
         return None
-    starters = [p for p in presence if p.projected_starter]
-    if not starters:
-        return None
-    role_by_name = {normalize_team_name(m.name): m.role for m in squad}
-    lineup = [
+    by_name = {normalize_team_name(m.name): m for m in squad}
+    return [
         LineupPlayer(
-            name=p.name, position=role_by_name.get(normalize_team_name(p.name)), substitute=False,
+            name=p.name, position=(by_name[norm].role if norm in by_name else None), substitute=False,
             minutes_played=None, goals=None, assists=None, xg=None, xa=None, shots=None,
             shots_on_target=None, tackles=None, interceptions=None, fouls=None, rating=None, key_passes=None,
+            age=(by_name[norm].age if norm in by_name else None),
         )
-        for p in starters
+        for p in selected
+        for norm in [normalize_team_name(p.name)]
     ]
-    outfield_roles = [p.position for p in lineup if p.position != "G"]
-    counts = {role: outfield_roles.count(role) for role in ("D", "M", "F")}
-    formation = "-".join(str(counts[role]) for role in ("D", "M", "F") if counts[role])
-    return lineup, formation
 
 
 def compute_presence(
@@ -1444,6 +1472,13 @@ _COMPLETENESS_EXCLUDE = {
     "source", "source_url", "competition", "kickoff_utc", "status", "home_team", "away_team",
     "home_score", "away_score", "home_score_ht", "away_score_ht", "venue", "note",
     "base_source", "field_sources", "additional_notes", "opponent_context_error", "source_conflicts",
+    # Null whenever home/away squad values came from the SAME source (the
+    # common case) -- a real "nothing to flag" result, not an unknown gap;
+    # see squad_value_basis_note's own doc comment on MatchInsights.
+    "squad_value_basis_note",
+    # Same reasoning -- null whenever a real lineup already exists (no
+    # projection was needed), not a gap.
+    "projected_xi_basis",
 }
 
 # MatchDetails fields that can only be known during or after the match

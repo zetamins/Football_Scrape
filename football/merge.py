@@ -771,10 +771,20 @@ def compute_recent_form_leaders(squad: list[SquadMember] | None, count: int = 3)
     the venue-classification enrichment produces -- distinct from the
     season-wide totals top_performers already show, this is specifically
     recent form. Uses recent_usage data (from the venue-enrichment
-    per-match fetch loop), not season_stats from any source."""
+    per-match fetch loop), not season_stats from any source.
+
+    Excludes a currently-injured squad member (m.injury) -- confirmed
+    live: a player out for months (a cruciate ligament injury, in one
+    case) still topped this list on the strength of matches played before
+    getting hurt, presenting someone who literally cannot play the
+    upcoming fixture as the team's most in-form asset for it. Does not
+    check suspension or the match-specific missing_players list (neither
+    is available on SquadMember itself) -- a suspended-but-fit player
+    genuinely was in recent form, so that omission is a narrower,
+    deliberate scope, not an oversight."""
     if not squad:
         return []
-    candidates = [m for m in squad if m.recent_usage and (m.recent_usage.total_goals + m.recent_usage.total_assists) > 0]
+    candidates = [m for m in squad if m.recent_usage and not m.injury and (m.recent_usage.total_goals + m.recent_usage.total_assists) > 0]
     candidates.sort(key=lambda m: m.recent_usage.total_goals + m.recent_usage.total_assists, reverse=True)
     return [
         RecentFormLeader(

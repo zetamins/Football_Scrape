@@ -662,7 +662,7 @@ async def _compute_and_apply_match_stat_estimates(team_name, opponent_name, own_
     return own_xg_estimate, opponent_xg_estimate
 
 
-async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result):
+async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result, form_source):
     """Opponent's own venue-classified form, plus the rank/Elo comparisons
     against the searched team. Returns the (possibly re-enriched)
     opponent_form, since later steps (resilience, fatigue flag, home
@@ -706,13 +706,34 @@ async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_contex
     opponent_rank_record = ins.compute_opponent_rank_record(opponent_form.last20_overall, merged.competition, merged.standings_table, opponent_position)
     insights_result.home_opponent_rank_record, insights_result.away_opponent_rank_record = _home_away(own_is_home, own_rank_record, opponent_rank_record)
 
-    ins.fill_standings_form(merged.standings_table, own_position, form.last20_overall if form else None, merged.competition)
-    ins.fill_standings_form(merged.standings_table, opponent_position, opponent_form.last20_overall, merged.competition)
-    own_elo = with_league_rank(compute_elo_rating(form.last20_overall if form else []), merged.standings_table, own_position)
-    opponent_elo = with_league_rank(compute_elo_rating(opponent_form.last20_overall), merged.standings_table, opponent_position)
-    insights_result.home_elo_rating, insights_result.away_elo_rating = _home_away(own_is_home, own_elo, opponent_elo)
+    _apply_standings_derived_insights(
+        merged, insights_result, own_is_home, form, opponent_form, own_position, opponent_position, form_source, opponent_context.matches_source
+    )
 
     return opponent_form
+
+
+def _apply_standings_derived_insights(
+    merged, insights_result, own_is_home, form, opponent_form, own_position, opponent_position, form_source, opponent_matches_source
+) -> None:
+    """Standings-form filling, the clean-sheets cross-check, and Elo --
+    extracted from _enrich_opponent_form_and_ranks to keep its own
+    cognitive complexity down (python:S3776); behavior unchanged."""
+    own_results = form.last20_overall if form else None
+    opponent_results = opponent_form.last20_overall
+
+    ins.fill_standings_form(merged.standings_table, own_position, own_results, merged.competition)
+    ins.fill_standings_form(merged.standings_table, opponent_position, opponent_results, merged.competition)
+    ins.add_clean_sheets_recent_check(merged.home_team_season_stats if own_is_home else merged.away_team_season_stats, own_results)
+    ins.add_clean_sheets_recent_check(merged.away_team_season_stats if own_is_home else merged.home_team_season_stats, opponent_results)
+
+    own_elo = with_league_rank(compute_elo_rating(own_results or []), merged.standings_table, own_position)
+    opponent_elo = with_league_rank(compute_elo_rating(opponent_results), merged.standings_table, opponent_position)
+    if own_elo:
+        own_elo.sample_source = form_source
+    if opponent_elo:
+        opponent_elo.sample_source = opponent_matches_source
+    insights_result.home_elo_rating, insights_result.away_elo_rating = _home_away(own_is_home, own_elo, opponent_elo)
 
 
 def _compute_squad_leaderboards(profiles) -> None:
@@ -758,48 +779,53 @@ def _apply_duel_and_fullback_insights(insights_result, own_is_home, merged_profi
     insights_result.home_fullback_exposure, insights_result.away_fullback_exposure = _home_away(own_is_home, own_fullback_exposure, opponent_fullback_exposure)
 
 
-def _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile) -> None:
+def _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile) -> tuple[list | None, list | None]:
     """Extracted from _apply_presence_and_bench_insights to keep its own
-    cognitive complexity down (python:S3776)."""
-    own_projected = ins.mark_projected_starters(own_presence, merged_profile.squad if merged_profile else None)
-    opponent_projected = ins.mark_projected_starters(opponent_presence, opponent_profile.squad if opponent_profile else None)
-    if own_projected or opponent_projected:
+    cognitive complexity down (python:S3776). Returns the (own, opponent)
+    selected-starter lists so _apply_derived_lineup_if_none_published can
+    build home_lineup/away_lineup from the exact same selection, rather
+    than re-scanning presence for projected_starter afterwards."""
+    own_selected = ins.mark_projected_starters(own_presence, merged_profile.squad if merged_profile else None)
+    opponent_selected = ins.mark_projected_starters(opponent_presence, opponent_profile.squad if opponent_profile else None)
+    if own_selected or opponent_selected:
         insights_result.projected_xi_basis = "Projected, not a published lineup: one goalkeeper plus the ten available outfield players with the most starts in the recent matches whose lineups were read"
+    return own_selected, opponent_selected
 
 
-def _derive_side_lineup(existing_lineup, presence, squad):
+def _derive_side_lineup(existing_lineup, selected, squad):
     """None when a real lineup already exists (nothing to derive) or when
-    derive_lineup_and_formation itself has nothing to project from."""
+    derive_lineup itself has nothing to project from."""
     if existing_lineup:
         return None
-    return ins.derive_lineup_and_formation(presence, squad)
+    return ins.derive_lineup(selected, squad)
 
 
-def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile) -> None:
-    """Fills merged.home_lineup/away_lineup/home_formation/away_formation
-    from insights_result's own projected XI when NO source (real or
-    predicted) has published a lineup at all -- confirmed live, Sofascore
-    doesn't publish even a prediction until close to kickoff and real
-    lineups only appear ~1 hour before it, so a report generated further
-    out than that would otherwise show null lineups for the whole
-    pre-match window. Only for a not-yet-started fixture; a played/live
-    match's missing lineup is a real data gap, not something to paper
-    over with a guess."""
+def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile, own_selected, opponent_selected) -> None:
+    """Fills merged.home_lineup/away_lineup (NOT home_formation/
+    away_formation -- see derive_lineup's own docstring for why) from the
+    exact projected XI _apply_projected_xi already selected, when NO
+    source (real or predicted) has published a lineup at all -- confirmed
+    live, Sofascore doesn't publish even a prediction until close to
+    kickoff and real lineups only appear ~1 hour before it, so a report
+    generated further out than that would otherwise show null lineups for
+    the whole pre-match window. Only for a not-yet-started fixture; a
+    played/live match's missing lineup is a real data gap, not something
+    to paper over with a guess."""
     if merged.status not in NOT_STARTED_STATUSES:
         return
     own_squad = merged_profile.squad if merged_profile else None
     opponent_squad = opponent_profile.squad if opponent_profile else None
-    home_presence, away_presence = insights_result.home_presence, insights_result.away_presence
+    home_selected, away_selected = _home_away(own_is_home, own_selected, opponent_selected)
     home_squad, away_squad = _home_away(own_is_home, own_squad, opponent_squad)
 
-    home_derived = _derive_side_lineup(merged.home_lineup, home_presence, home_squad)
-    away_derived = _derive_side_lineup(merged.away_lineup, away_presence, away_squad)
+    home_derived = _derive_side_lineup(merged.home_lineup, home_selected, home_squad)
+    away_derived = _derive_side_lineup(merged.away_lineup, away_selected, away_squad)
     if home_derived:
-        merged.home_lineup, merged.home_formation = home_derived
-        merged.field_sources["home_lineup"] = merged.field_sources["home_formation"] = "derived"
+        merged.home_lineup = home_derived
+        merged.field_sources["home_lineup"] = "derived"
     if away_derived:
-        merged.away_lineup, merged.away_formation = away_derived
-        merged.field_sources["away_lineup"] = merged.field_sources["away_formation"] = "derived"
+        merged.away_lineup = away_derived
+        merged.field_sources["away_lineup"] = "derived"
     if home_derived or away_derived:
         prefix = f"{insights_result.projected_xi_basis}; " if insights_result.projected_xi_basis else ""
         insights_result.projected_xi_basis = prefix + "home_lineup/away_lineup below is this same projection, shown because no source has published a real lineup yet"
@@ -825,8 +851,8 @@ def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, mer
         missing_players=merged.away_missing_players if own_is_home else merged.home_missing_players,
     )
     insights_result.home_presence, insights_result.away_presence = _home_away(own_is_home, own_presence, opponent_presence)
-    _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile)
-    _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile)
+    own_selected, opponent_selected = _apply_projected_xi(insights_result, own_presence, opponent_presence, merged_profile, opponent_profile)
+    _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile, own_selected, opponent_selected)
 
     insights_result.home_bench_info = ins.compute_bench_info(merged.home_bench, merged.home_lineup, _squad_for_bench_info(own_is_home, merged_profile, opponent_profile))
     insights_result.away_bench_info = ins.compute_bench_info(merged.away_bench, merged.away_lineup, _squad_for_bench_info(not own_is_home, merged_profile, opponent_profile))
@@ -1126,7 +1152,7 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
         team_name, opponent_name, own_is_home, insights_result, matches_by_source, on_progress
     )
 
-    opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result)
+    opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result, form_source)
 
     merged.betting_odds = await _get_upcoming_match_odds_safe(merged)
 

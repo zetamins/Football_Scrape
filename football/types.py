@@ -315,10 +315,22 @@ class WeatherDetail:
 class TeamSeasonStats:
     goals_scored: int
     goals_conceded: int
+    # The source's own season aggregate -- confirmed live this can lag a
+    # recent result (e.g. showing 0 the same week a 0-0 was actually
+    # played), since it's whatever the source's own backend last computed,
+    # not something this project derives. clean_sheets_recent_check is an
+    # independent cross-check against real recent results, kept separate
+    # rather than silently overriding this field with our own number.
     clean_sheets: int
     yellow_cards: int
     red_cards: int
     average_ball_possession: float | None
+    # Clean sheets among the competitive matches in form.last20_overall
+    # (real results this run actually fetched), for comparing against
+    # clean_sheets above -- None when there's no recent form to check
+    # against yet (e.g. this team's own form wasn't computed at this
+    # point in the pipeline).
+    clean_sheets_recent_check: int | None = None
 
 
 @dataclass
@@ -1203,6 +1215,14 @@ class SquadStrengthInfo:
 class EloRating:
     elo: float
     as_of: str
+    # Which source's match results this was computed from -- compute_elo_
+    # rating uses whatever source succeeded for this team's own recent
+    # form (form_source/opponent_context.matches_source), which can
+    # legitimately differ run to run (e.g. Sofascore blocked one run,
+    # available the next). A genuine source change is the most common
+    # reason `elo` jumps between two runs of the same team -- not a bug,
+    # but worth being able to tell apart from one.
+    sample_source: str | None = None
     # Rank among the teams in the same league table (1 = strongest), NOT
     # a world rank -- ClubElo's global network is gone (see elo.py). Every
     # team in the table is rated the same way (season W/D/L record vs an

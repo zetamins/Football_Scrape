@@ -1046,6 +1046,18 @@ def test_recent_competitions_excludes_friendlies_like_form_by_competition():
     assert [r.competition for r in summary.form_by_competition] == ["UEFA Champions League"]
 
 
+def test_recent_competitions_uses_the_same_window_as_form_by_competition():
+    # Confirmed live: recent_competitions used a 10-match window while
+    # form_by_competition used 20, so a competition (a Champions League
+    # tie) falling between the two was silently missing from one but not
+    # the other.
+    older_cup_match = _played_series(1, competition="UEFA Champions League", start_day=15)
+    recent_league = _played_series(14, competition="Premier League", start_day=1)
+    summary = compute_form_summary("Home FC", older_cup_match + recent_league)
+    assert "UEFA Champions League" in summary.recent_competitions
+    assert "UEFA Champions League" in [r.competition for r in summary.form_by_competition]
+
+
 # --- _back_line_slots: real lineups (Sofascore order: GK, back line right-to-left) ---
 
 

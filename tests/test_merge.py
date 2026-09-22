@@ -427,6 +427,20 @@ def test_compute_recent_form_leaders_ranks_by_goals_plus_assists():
     assert [r.name for r in result] == ["Salah"]
 
 
+def test_compute_recent_form_leaders_excludes_a_currently_injured_player():
+    # Confirmed live: a player out for months on a cruciate ligament
+    # injury still topped this list on the strength of matches played
+    # before getting hurt.
+    injured_top = SquadMember(
+        name="Xavi Simons", role="M", injury="Cruciate Ligament Injury", age=None, market_value=None,
+        season_stats=None, season_stats_source=None, defensive_stats=None,
+        recent_usage=_usage(total_goals=3, total_assists=1),
+    )
+    fit = _squad_member_with_usage("Richarlison", "F", total_goals=4, total_assists=0)
+    result = compute_recent_form_leaders([injured_top, fit])
+    assert [r.name for r in result] == ["Richarlison"]
+
+
 # --- merge_team_profile squad enrichment branch ---------------------------------------------
 
 

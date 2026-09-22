@@ -1133,6 +1133,27 @@ def _opponent_context(**overrides):
     return OpponentContext(**base)
 
 
+def test_enrich_opponent_form_and_ranks_labels_elo_with_its_own_sample_source(monkeypatch):
+    from football.orchestrate import _enrich_opponent_form_and_ranks
+    from football.types import FormResult
+
+    async def no_op_enrich(_matches, form, _source):
+        return SimpleNamespace(form=form, advanced_stats=None, usage_by_player={})
+
+    monkeypatch.setattr(orchestrate, "enrich_form_with_venue_classification", no_op_enrich)
+
+    result_w = _all_none(FormResult, result="W", competition="Premier League", margin=1)
+    own_form = _form_summary(last20_overall=[result_w])
+    merged = _all_none(orchestrate.MergedMatch, home_team_standing=None, away_team_standing=None, competition=None, standings_table=None)
+    ctx = _opponent_context(matches=[_match(home_team="Opponent", away_team="Rival")], matches_source="fotmob")
+    insights_result = _insights_result()
+
+    asyncio.run(_enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, own_form, None, insights_result, "sofascore"))
+
+    assert insights_result.home_elo_rating.sample_source == "sofascore"
+    assert insights_result.away_elo_rating.sample_source == "fotmob"
+
+
 def test_enrich_opponent_form_and_ranks_uses_matches_source_when_present(monkeypatch):
     from football.orchestrate import _enrich_opponent_form_and_ranks
 
@@ -1157,7 +1178,7 @@ def test_enrich_opponent_form_and_ranks_uses_matches_source_when_present(monkeyp
     form = _form_summary()
 
     result = asyncio.run(
-        _enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, form, None, insights_result)
+        _enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, form, None, insights_result, "sofascore")
     )
     assert result is enriched_form
     assert called_with["source"] == "sofascore"
@@ -1189,7 +1210,7 @@ def test_enrich_opponent_form_and_ranks_no_enrichment_when_matches_source_is_non
     insights_result = _insights_result()
 
     result = asyncio.run(
-        _enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, None, None, insights_result)
+        _enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, None, None, insights_result, None)
     )
     assert result is computed_form
 
@@ -1213,7 +1234,7 @@ def test_enrich_opponent_form_and_ranks_tolerates_enrichment_failure(monkeypatch
     insights_result = _insights_result()
 
     result = asyncio.run(
-        _enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, None, None, insights_result)
+        _enrich_opponent_form_and_ranks(merged, "Opponent", ctx, None, True, None, None, insights_result, None)
     )
     assert result is computed_form
 
@@ -1247,7 +1268,7 @@ def test_enrich_opponent_form_and_ranks_updates_opponent_profile_squad_usage(mon
     squad_member = SquadMember(name="Opp Player", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)
     opponent_profile = _all_none(orchestrate.MergedProfile, source="sofascore", team_name="Opp", squad=[squad_member], field_sources={})
 
-    asyncio.run(_enrich_opponent_form_and_ranks(merged, "Opponent", ctx, opponent_profile, True, None, None, insights_result))
+    asyncio.run(_enrich_opponent_form_and_ranks(merged, "Opponent", ctx, opponent_profile, True, None, None, insights_result, None))
     assert opponent_profile.squad[0].recent_usage is not None
 
 
@@ -1820,32 +1841,32 @@ def _projected_squad_and_presence():
     return squad, presence
 
 
-def test_derived_lineup_fills_home_lineup_and_formation_when_nothing_was_published():
+def test_derived_lineup_fills_home_lineup_but_never_a_fabricated_formation():
     from football.orchestrate import _apply_derived_lineup_if_none_published
 
     squad, presence = _projected_squad_and_presence()
-    ins.mark_projected_starters(presence, squad)
+    selected = ins.mark_projected_starters(presence, squad)
     result = _insights_result()
     result.home_presence = presence
     result.away_presence = []
-    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=None, away_lineup=None, field_sources={}, additional_notes=[])
+    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=None, away_lineup=None, home_formation=None, field_sources={}, additional_notes=[])
     own_profile = _profile_with_squad("Own", squad)
 
-    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None)
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
 
     assert merged.home_lineup is not None
     assert len(merged.home_lineup) == 11
-    assert merged.home_formation == "4-3-3"
+    assert merged.home_formation is None  # never fabricated -- see derive_lineup's own docstring
     assert "no source has published a real lineup yet" in result.projected_xi_basis
     assert merged.field_sources["home_lineup"] == "derived"
-    assert merged.field_sources["home_formation"] == "derived"
+    assert "home_formation" not in merged.field_sources
 
 
 def test_derived_lineup_leaves_a_real_published_lineup_untouched():
     from football.orchestrate import _apply_derived_lineup_if_none_published
 
     squad, presence = _projected_squad_and_presence()
-    ins.mark_projected_starters(presence, squad)
+    selected = ins.mark_projected_starters(presence, squad)
     result = _insights_result()
     result.home_presence = presence
     result.away_presence = []
@@ -1853,7 +1874,7 @@ def test_derived_lineup_leaves_a_real_published_lineup_untouched():
     merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=real_lineup, away_lineup=None, home_formation="4-4-2", field_sources={}, additional_notes=[])
     own_profile = _profile_with_squad("Own", squad)
 
-    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None)
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
 
     assert merged.home_lineup is real_lineup
     assert merged.home_formation == "4-4-2"
@@ -1864,12 +1885,35 @@ def test_derived_lineup_skipped_once_the_match_has_started():
     from football.orchestrate import _apply_derived_lineup_if_none_published
 
     squad, presence = _projected_squad_and_presence()
-    ins.mark_projected_starters(presence, squad)
+    selected = ins.mark_projected_starters(presence, squad)
     result = _insights_result()
     result.home_presence = presence
     merged = _all_none(orchestrate.MergedMatch, status="finished", home_lineup=None, field_sources={}, additional_notes=[])
     own_profile = _profile_with_squad("Own", squad)
 
-    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None)
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
 
     assert merged.home_lineup is None
+
+
+def test_derived_lineup_uses_exactly_the_selection_projected_xi_chose_never_a_mismatched_rescan():
+    # Regression: home_lineup must come from the SAME selection presence's
+    # projected_starter flags reflect -- never independently re-derived,
+    # which could otherwise drift (confirmed live: a real run once showed
+    # 12 players flagged projected_starter but only 11 in home_lineup).
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    selected = ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    result.away_presence = []
+    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=None, away_lineup=None, field_sources={}, additional_notes=[])
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
+
+    lineup_names = {p.name for p in merged.home_lineup}
+    projected_names = {p.name for p in presence if p.projected_starter}
+    assert lineup_names == projected_names
+    assert len(lineup_names) == len(merged.home_lineup)  # no duplicates either

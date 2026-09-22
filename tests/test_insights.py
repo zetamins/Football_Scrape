@@ -425,6 +425,17 @@ def test_completeness_missing_names_exactly_the_fields_without_data():
     assert result["populated"] + len(result["missing"]) == result["total"]
 
 
+def test_completeness_excludes_notes_that_are_null_by_design_when_theres_nothing_to_flag():
+    # squad_value_basis_note/projected_xi_basis are null in the common
+    # case (both squads from the same source; a real lineup already
+    # exists) -- that's a checked "nothing to report", not an unknown gap.
+    merged = _all_none(MatchDetails, status="finished")
+    insights = _all_none(MatchInsights, squad_value_basis_note=None, projected_xi_basis=None)
+    result = compute_data_completeness(merged, insights)
+    assert "squad_value_basis_note" not in result["missing"]
+    assert "projected_xi_basis" not in result["missing"]
+
+
 def test_completeness_counts_a_real_populated_scalar_insights_field():
     merged = _all_none(MatchDetails, status="finished")
     insights_with = _all_none(MatchInsights, match_type="competitive")
@@ -1956,7 +1967,9 @@ def test_projected_xi_is_one_keeper_plus_the_ten_outfield_players_with_most_star
     rows = [("GK Regular", "G", 9, 810), ("GK Backup", "G", 1, 90)] + [(f"P{i}", "M", 10 - i, 900 - i) for i in range(12)]
     squad = _squad_with_starts(rows)
     presence = _presence([r[0] for r in rows])
-    assert mark_projected_starters(presence, squad) is True
+    selected = mark_projected_starters(presence, squad)
+    assert selected is not None
+    assert len(selected) == 11
     chosen = {p.name for p in presence if p.projected_starter}
     assert len(chosen) == 11
     assert "GK Regular" in chosen
@@ -1981,13 +1994,13 @@ def test_projected_xi_is_not_made_once_a_real_lineup_is_marked_or_without_usage_
 
     squad = _squad_with_starts([("GK", "G", 8, 720), ("A", "M", 5, 450)])
     confirmed = [PresenceEntry(name="GK", status="P", starting=True, on_bench=None, reason=None)]
-    assert mark_projected_starters(confirmed, squad) is False
+    assert mark_projected_starters(confirmed, squad) is None
     assert confirmed[0].projected_starter is False
 
     no_history = [_all_none(SquadMember, name="GK", role="G", recent_usage=None)]
-    assert mark_projected_starters(_presence(["GK"]), no_history) is False
-    assert mark_projected_starters(None, squad) is False
-    assert mark_projected_starters(_presence(["GK"]), None) is False
+    assert mark_projected_starters(_presence(["GK"]), no_history) is None
+    assert mark_projected_starters(None, squad) is None
+    assert mark_projected_starters(_presence(["GK"]), None) is None
 
 
 def test_projected_xi_tie_on_starts_is_broken_by_minutes():
@@ -2074,19 +2087,17 @@ def test_compute_recent_meetings_matches_the_opponent_by_alias(monkeypatch):
 # --- derive_lineup_and_formation ------------------------------------------------------------------
 
 
-def test_derive_lineup_builds_eleven_players_and_a_dmf_formation_from_the_projected_xi():
-    from football.insights import derive_lineup_and_formation, mark_projected_starters
+def test_derive_lineup_builds_eleven_players_from_the_projected_xi_with_no_fabricated_formation():
+    from football.insights import derive_lineup, mark_projected_starters
 
     rows = [("GK", "G", 8, 720)] + [(f"D{i}", "D", 6, 540) for i in range(4)] + [(f"M{i}", "M", 6, 540) for i in range(3)] + [(f"F{i}", "F", 6, 540) for i in range(3)] + [("Bench", "M", 1, 90)]
     squad = _squad_with_starts(rows)
     presence = _presence([r[0] for r in rows])
-    mark_projected_starters(presence, squad)
+    selected = mark_projected_starters(presence, squad)
 
-    result = derive_lineup_and_formation(presence, squad)
-    assert result is not None
-    lineup, formation = result
+    lineup = derive_lineup(selected, squad)
+    assert lineup is not None
     assert len(lineup) == 11
-    assert formation == "4-3-3"
     positions = {p.name: p.position for p in lineup}
     assert positions["GK"] == "G"
     assert positions["D0"] == "D"
@@ -2094,11 +2105,53 @@ def test_derive_lineup_builds_eleven_players_and_a_dmf_formation_from_the_projec
     assert all(p.minutes_played is None and p.goals is None for p in lineup)  # no fabricated stats
 
 
-def test_derive_lineup_none_without_a_projection_or_input():
-    from football.insights import derive_lineup_and_formation
+def test_derive_lineup_uses_the_squad_members_real_age_but_never_a_shirt_number():
+    from football.insights import derive_lineup, mark_projected_starters
+    from football.types import PlayerUsagePattern
+
+    squad = [
+        _all_none(SquadMember, name="GK", role="G", age=29, recent_usage=_all_none(PlayerUsagePattern, starts=8, total_minutes=720)),
+    ]
+    presence = _presence(["GK"])
+    selected = mark_projected_starters(presence, squad)
+    lineup = derive_lineup(selected, squad)
+    assert lineup[0].age == 29
+    assert lineup[0].shirt_number is None
+
+
+def test_derive_lineup_none_without_a_selection_or_squad():
+    from football.insights import derive_lineup
 
     squad = _squad_with_starts([("GK", "G", 8, 720)])
-    presence = _presence(["GK"])  # never marked -- no recent_usage-derived projection exists
-    assert derive_lineup_and_formation(presence, squad) is None
-    assert derive_lineup_and_formation(None, squad) is None
-    assert derive_lineup_and_formation(presence, None) is None
+    assert derive_lineup(None, squad) is None
+    assert derive_lineup([], squad) is None
+    assert derive_lineup([object()], None) is None
+
+
+# --- add_clean_sheets_recent_check --------------------------------------------------------------
+
+
+def test_add_clean_sheets_recent_check_counts_competitive_clean_sheets():
+    from football.insights import add_clean_sheets_recent_check
+    from football.types import FormResult, TeamSeasonStats
+
+    stats = TeamSeasonStats(goals_scored=8, goals_conceded=8, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=None)
+    results = [
+        _all_none(FormResult, scoreline="0-0", venue="home", competition="Premier League"),
+        _all_none(FormResult, scoreline="0-0", venue="away", competition="Premier League"),
+        _all_none(FormResult, scoreline="1-1", venue="home", competition="Premier League"),
+        _all_none(FormResult, scoreline="0-0", venue="home", competition="Club Friendly Games"),
+    ]
+    add_clean_sheets_recent_check(stats, results)
+    assert stats.clean_sheets_recent_check == 2  # the friendly clean sheet doesn't count
+    assert stats.clean_sheets == 0  # the source's own number is never overwritten
+
+
+def test_add_clean_sheets_recent_check_noop_without_stats_or_results():
+    from football.insights import add_clean_sheets_recent_check
+    from football.types import FormResult, TeamSeasonStats
+
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=None)
+    add_clean_sheets_recent_check(stats, None)
+    assert stats.clean_sheets_recent_check is None
+    add_clean_sheets_recent_check(None, [_all_none(FormResult, scoreline="0-0", venue="home", competition="Premier League")])  # must not raise
