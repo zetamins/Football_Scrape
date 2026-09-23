@@ -1503,6 +1503,14 @@ _COMPLETENESS_EXCLUDE = {
     # Same reasoning -- null whenever a real lineup already exists (no
     # projection was needed), not a gap.
     "projected_xi_basis",
+    # compute_losing_streak_context returns None for the common case (the
+    # team isn't currently on a losing streak of 2+) exactly the same way
+    # it returns None for "no streak data at all" -- there's no separate
+    # "checked, team is fine" value the type can hold. Counting the common,
+    # healthy case as a completeness gap would understate every team not
+    # currently struggling.
+    "home_losing_streak_context",
+    "away_losing_streak_context",
 }
 
 # MatchDetails fields that can only be known during or after the match

@@ -436,6 +436,14 @@ def test_completeness_excludes_notes_that_are_null_by_design_when_theres_nothing
     assert "projected_xi_basis" not in result["missing"]
 
 
+def test_completeness_excludes_losing_streak_context_since_null_usually_means_the_team_is_fine():
+    merged = _all_none(MatchDetails, status="finished")
+    insights = _all_none(MatchInsights, home_losing_streak_context=None, away_losing_streak_context=None)
+    result = compute_data_completeness(merged, insights)
+    assert "home_losing_streak_context" not in result["missing"]
+    assert "away_losing_streak_context" not in result["missing"]
+
+
 def test_completeness_counts_a_real_populated_scalar_insights_field():
     merged = _all_none(MatchDetails, status="finished")
     insights_with = _all_none(MatchInsights, match_type="competitive")
