@@ -386,7 +386,8 @@ def _append_match_odds_and_standings(d, lines: list[str]) -> None:
     _append_match_odds(d, lines)
     if d.head_to_head_summary:
         h = d.head_to_head_summary
-        lines.append(f"- H2H: {d.home_team} {h.home_wins}W - {h.draws}D - {h.away_wins}W {d.away_team}")
+        detail = f" (detailed list below shows {len(d.recent_meetings)} of {h.sample_size})" if d.recent_meetings and h.sample_size and h.sample_size > len(d.recent_meetings) else ""
+        lines.append(f"- H2H: {d.home_team} {h.home_wins}W - {h.draws}D - {h.away_wins}W {d.away_team}{detail}")
     if d.head_to_head_streaks:
         lines.append(f"- H2H streaks: {'; '.join(d.head_to_head_streaks)}")
     if d.recent_meetings:
@@ -399,6 +400,18 @@ def _append_match_odds_and_standings(d, lines: list[str]) -> None:
         s = d.away_team_standing
         gd = f", GD {s.goal_diff}" if s.goal_diff is not None else ""
         lines.append(f"- {d.away_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L{gd})")
+    # Standings form is filled only for the two teams this report has real
+    # results for (fill_standings_form) -- Sofascore's table has no form
+    # column for anyone else, and guessing the other 18 rows would be fake
+    # data. Say so rather than leaving a reader to wonder why 18 of 20
+    # form cells are null.
+    if d.standings_table:
+        filled = [r for r in d.standings_table if r.form]
+        if filled and len(filled) < len(d.standings_table):
+            names = ", ".join(f"{r.team_name} {r.form}" for r in filled)
+            lines.append(
+                f"- Standings form (only teams in this fixture; other rows have no source form column): {names}"
+            )
     _append_match_season_stats(d, lines)
 
 
@@ -420,40 +433,39 @@ def _append_match_season_stats(d, lines: list[str]) -> None:
 
 
 def _append_possession_cross_check(team: str, s, lines: list[str]) -> None:
-    """Surfaces possession_venue_split_check when the form-window average
-    diverges from season average_ball_possession by >5pp -- large enough
-    that a reader comparing the two lines side-by-side would call it a
-    contradiction, which is exactly the N5 report. Windows differ by
-    design (season-to-date vs last-20 venue buckets), so the note names
-    both figures and both windows rather than picking a winner. Silent
-    when either side is missing or the gap is within normal rounding."""
+    """Renders the single reconciled possession figure when the source's
+    season-to-date average and the form-window venue-split average diverged
+    by >5pp (add_possession_venue_split_check already replaced
+    average_ball_possession with the form-window figure and preserved the
+    original in average_ball_possession_source_season). Names both windows
+    so a reader knows which number won and why, instead of seeing two bare
+    percentages that look like a contradiction. Silent when there was no
+    reconciliation (gap within normal rounding, or one side missing)."""
+    original = s.average_ball_possession_source_season
     season = s.average_ball_possession
-    check = s.possession_venue_split_check
-    if season is None or check is None or abs(season - check) <= 5.0:
+    if original is None or season is None:
         return
     src = f" ({s.possession_venue_split_check_source})" if s.possession_venue_split_check_source else ""
     lines.append(
-        f"- {team} possession cross-check: season {js_number_to_string(season)}% vs "
-        f"last-20 venue-split {js_number_to_string(check)}%{src} -- different windows "
-        f"(season-to-date vs form), not necessarily an error"
+        f"- {team} possession cross-check: using last-20 venue-split {js_number_to_string(season)}%{src} "
+        f"(season-to-date source figure was {js_number_to_string(original)}%; windows differ, form window preferred for this fixture)"
     )
 
 
 def _append_clean_sheet_discrepancy(team: str, s, lines: list[str]) -> None:
-    """Surfaces clean_sheets_recent_check only when it exceeds the source's
-    own season aggregate -- an impossibility if the source were current
-    (recent competitive results are a subset of the season), i.e. the
-    exact lag TeamSeasonStats documents ("showing 0 the same week a 0-0
-    was actually played"). The field existed only in JSON before, so
-    markdown readers saw a bare "0 clean sheets" with no signal. When
-    recent_check <= clean_sheets (the normal case: fewer clean sheets in
-    the last 20 than over the whole season) nothing is appended."""
-    if s.clean_sheets_recent_check is None or s.clean_sheets_recent_check <= s.clean_sheets:
+    """Renders the reconciliation note when clean_sheets was raised to match
+    clean_sheets_recent_check (the source aggregate lagged a real 0-0).
+    add_clean_sheets_recent_check already closed the contradiction on the
+    numbers themselves; this only explains the bump so a consumer comparing
+    against an external source's still-stale aggregate isn't confused.
+    Silent when clean_sheets_source_aggregate is None (no reconciliation)."""
+    original = s.clean_sheets_source_aggregate
+    if original is None or original >= s.clean_sheets:
         return
     src = f" ({s.clean_sheets_recent_check_source})" if s.clean_sheets_recent_check_source else ""
     lines.append(
-        f"- {team} clean-sheet cross-check: source reports {s.clean_sheets}, "
-        f"recent competitive results show {s.clean_sheets_recent_check}{src} -- source aggregate may be lagging"
+        f"- {team} clean-sheet cross-check: source originally reported {original}, "
+        f"recent competitive results show {s.clean_sheets}{src} -- raised to match (source aggregate was lagging)"
     )
 
 
@@ -558,9 +570,9 @@ def _append_profile_performers(p, lines: list[str]) -> None:
     top_scorers = compute_top_performers(p.squad, "goals")
     top_assists = compute_top_performers(p.squad, "assists")
     if top_scorers:
-        lines.append(f"- Top scorers: {', '.join(performer_str(t) for t in top_scorers)}")
+        lines.append(f"- Top scorers (season to date): {', '.join(performer_str(t) for t in top_scorers)}")
     if top_assists:
-        lines.append(f"- Top assists: {', '.join(performer_str(t) for t in top_assists)}")
+        lines.append(f"- Top assists (season to date): {', '.join(performer_str(t) for t in top_assists)}")
     top_defenders = compute_top_defenders(p.squad)
     if top_defenders:
         lines.append(f"- Top defenders: {', '.join(defender_str(d) for d in top_defenders)}")
@@ -569,7 +581,7 @@ def _append_profile_performers(p, lines: list[str]) -> None:
         lines.append(f"- Bench regulars (last 20): {', '.join(bench_regular_str(b) for b in bench_regulars)}")
     recent_form_leaders = compute_recent_form_leaders(p.squad)
     if recent_form_leaders:
-        lines.append(f"- Recent form (last 20): {', '.join(recent_form_leader_str(r) for r in recent_form_leaders)}")
+        lines.append(f"- Recent form leaders (last 20): {', '.join(recent_form_leader_str(r) for r in recent_form_leaders)}")
     midfielders_form = compute_role_form_breakdown(p.squad, is_midfield_role)
     if midfielders_form:
         lines.append(f"- Midfielders (last 20, by minutes): {', '.join(role_form_entry_str(r) for r in midfielders_form)}")
@@ -587,19 +599,24 @@ def merged_profile_markdown(p, lines: list[str]) -> None:
 
 
 def elo_str(e: EloRating, label: str) -> str:
-    return f"{label} Elo: {e.elo} (computed from recent form, as of {e.as_of})"
+    rank = f", league-table rank #{e.rank}/{e.rank_of}" if e.rank is not None and e.rank_of else ""
+    basis = f" -- {e.rank_basis}" if e.rank_basis else ""
+    return f"{label} Elo: {e.elo} (computed from recent form, as of {e.as_of}{rank}){basis}"
 
 
 def club_strength_str(s: ClubStrengthRating, label: str) -> str:
-    rank = f", global rank #{s.rank}" if s.rank is not None else ""
+    # StatsUltra publishes a flat ~480-club global table, not a
+    # domestic-league position -- spell that out so a rank like #10 is
+    # never read as "10th in a 24-team league".
+    rank = f", StatsUltra global rank #{s.rank} of ~480 clubs (not a league-table position)" if s.rank is not None else ""
     if s.strength_change is not None:
         sign = "+" if s.strength_change >= 0 else ""
         change = f", {sign}{js_number_to_string(s.strength_change)} vs last check"
     else:
         change = ""
     return (
-        f"{label} strength: {js_number_to_string(s.overall)} overall (attack {js_number_to_string(s.attack)}, "
-        f"defense {js_number_to_string(s.defense)}{rank}{change})"
+        f"{label} strength (StatsUltra rating, different scale from Elo): {js_number_to_string(s.overall)} overall "
+        f"(attack {js_number_to_string(s.attack)}, defense {js_number_to_string(s.defense)}{rank}{change})"
     )
 
 
@@ -840,9 +857,12 @@ def card_risks_str(risks: list[PlayerCardRisk], label: str) -> str:
 
 
 def referee_card_risk_note_str(n: RefereeCardRiskNote, home_team: str, away_team: str) -> str:
-    parts = [f"{p.name} ({home_team if p.side == 'home' else away_team}" + (", prior dismissal" if p.prior_dismissal else "") + ")" for p in n.flagged_players]
     elevated = " (elevated)" if n.elevated_card_referee else ""
-    return f"Referee {n.referee_name} books {js_number_to_string(n.yellow_cards_per_game)} yellow/game{elevated} -- already-flagged players: {', '.join(parts)}"
+    base = f"Referee {n.referee_name} books {js_number_to_string(n.yellow_cards_per_game)} yellow/game{elevated}"
+    if not n.flagged_players:
+        return f"{base} -- no players currently flagged for accumulation or prior dismissal"
+    parts = [f"{p.name} ({home_team if p.side == 'home' else away_team}" + (", prior dismissal" if p.prior_dismissal else "") + ")" for p in n.flagged_players]
+    return f"{base} -- already-flagged players: {', '.join(parts)}"
 
 
 def duel_vulnerabilities_str(vulns: list[DuelVulnerability], label: str) -> str:
@@ -919,6 +939,12 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
                 "not squad quality, injuries, or how tough their opponents were -- treat the market-implied figure "
                 "as the more reliable one when they diverge."
             )
+    if p.blended is not None:
+        conf = f"{js_number_to_string(p.confidence)}" if p.confidence is not None else "n/a"
+        out.append(f"- Prediction (blended): {home_team} {p.blended.home_win_pct}% / Draw {p.blended.draw_pct}% / {away_team} {p.blended.away_win_pct}%")
+        out.append(f"- Confidence: {conf} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})")
+    elif p.confidence is not None:
+        out.append(f"- Confidence: {js_number_to_string(p.confidence)} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})")
     return out
 
 

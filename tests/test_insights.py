@@ -411,7 +411,11 @@ def test_completeness_none_insights_contributes_zero():
 
     merged_total, merged_missing = _count_merged_completeness(merged, not_started=False)
     result = compute_data_completeness(merged, None)
-    assert result == {"populated": merged_total - len(merged_missing), "total": merged_total, "missing": merged_missing}
+    assert result["populated"] == merged_total - len(merged_missing)
+    assert result["total"] == merged_total
+    assert result["missing"] == merged_missing
+    assert result["denominator"]  # documents what total counts
+    assert result["outcome_fields_excluded_pre_match"] == []  # finished match: nothing excluded
 
 
 def test_completeness_missing_names_exactly_the_fields_without_data():
@@ -1103,8 +1107,14 @@ def test_referee_card_risk_note_elevated_when_high_yellow_rate():
 
 
 def test_referee_card_risk_note_none_without_flagged_players():
+    # Empty flagged list is a real "checked, nobody at risk" result now --
+    # the note still returns so the field is present whenever a referee
+    # and stats exist; only a missing referee/stats stays None.
     stats = _all_none(RefereeStats, yellow_cards_per_game="3.2")
-    assert compute_referee_card_risk_note("Ref", stats, [], []) is None
+    note = compute_referee_card_risk_note("Ref", stats, [], [])
+    assert note is not None
+    assert note.flagged_players == []
+    assert note.elevated_card_referee is True
 
 
 def test_referee_card_risk_note_none_without_referee():
@@ -2144,6 +2154,22 @@ def test_fill_standings_form_leaves_an_existing_value_and_no_op_without_data():
     assert empty[0].form is None
 
 
+def test_fill_standings_form_matches_stage_suffixed_competitions():
+    # Fixture competition is plain "UEFA Champions League" while the form
+    # source tagged a recent result "UEFA Champions League, Knockout stage"
+    # -- strict == left form null; base-name match fills it.
+    from football.insights import fill_standings_form
+    from football.types import FormResult
+
+    table = [_table_row(1), _table_row(2)]
+    results = [
+        _all_none(FormResult, result="W", competition="UEFA Champions League, Knockout stage", date="2026-01-01T00:00:00.000Z"),
+        _all_none(FormResult, result="L", competition="UEFA Champions League, Knockout stage", date="2025-12-01T00:00:00.000Z"),
+    ]
+    fill_standings_form(table, 2, results, "UEFA Champions League")
+    assert table[1].form == "LW"
+
+
 def test_opponent_rank_record_finds_the_opponent_by_alias_not_just_substring():
     # The form source spells it "Man Utd"; the standings table (another
     # source) says "Manchester United" -- neither contains the other, so the
@@ -2234,7 +2260,20 @@ def test_add_clean_sheets_recent_check_counts_competitive_clean_sheets():
     ]
     add_clean_sheets_recent_check(stats, results)
     assert stats.clean_sheets_recent_check == 2  # the friendly clean sheet doesn't count
-    assert stats.clean_sheets == 0  # the source's own number is never overwritten
+    assert stats.clean_sheets == 2  # raised to match recent results (source was lagging)
+    assert stats.clean_sheets_source_aggregate == 0  # pre-reconcile source figure preserved
+
+
+def test_add_clean_sheets_recent_check_leaves_source_aggregate_when_already_current():
+    from football.insights import add_clean_sheets_recent_check
+    from football.types import FormResult, TeamSeasonStats
+
+    stats = TeamSeasonStats(goals_scored=8, goals_conceded=8, clean_sheets=5, yellow_cards=0, red_cards=0, average_ball_possession=None)
+    results = [_all_none(FormResult, scoreline="1-0", venue="home", competition="Premier League")]
+    add_clean_sheets_recent_check(stats, results)
+    assert stats.clean_sheets == 5  # recent check (1) does not lower the source figure
+    assert stats.clean_sheets_source_aggregate is None  # no reconciliation happened
+    assert stats.clean_sheets_recent_check == 1
 
 
 def test_add_clean_sheets_recent_check_records_which_source_the_results_came_from():
@@ -2285,6 +2324,31 @@ def test_add_possession_venue_split_check_weights_buckets_by_sample_size():
     add_possession_venue_split_check(stats, split, "sofascore")
     # (56.4*9 + 52.5*6 + 63.0*3) / 18 = 56.2
     assert stats.possession_venue_split_check == 56.2
+    assert stats.possession_venue_split_check_source == "sofascore"
+    assert stats.average_ball_possession == 59.0  # gap 2.8pp <= 5: no reconcile
+    assert stats.average_ball_possession_source_season is None
+
+
+def test_add_possession_venue_split_check_replaces_season_when_gap_exceeds_5pp():
+    from football.insights import add_possession_venue_split_check
+    from football.types import DetailedVenueSplitForm, TeamSeasonStats, VenueSplitStats
+
+    def bucket(n: int, poss: float | None) -> VenueSplitStats:
+        return VenueSplitStats(
+            sample_size=n, xg_for=0, xg_against=0, shots_for=0, shots_against=0,
+            shots_on_target_for=0, shots_on_target_against=0, possession_pct_avg=poss,
+            corners_for=0, corners_against=0, fouls_for=0, fouls_against=0,
+            yellow_cards_for=0, yellow_cards_against=0, red_cards_for=0, red_cards_against=0,
+            big_chances_created_for=0, big_chances_created_against=0,
+        )
+
+    # Season 60.0 vs form-window ~53: gap > 5pp, form window wins.
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=60.0)
+    split = DetailedVenueSplitForm(home=bucket(10, 53.0), away=bucket(10, 53.0), neutral=None)
+    add_possession_venue_split_check(stats, split, "sofascore")
+    assert stats.possession_venue_split_check == 53.0
+    assert stats.average_ball_possession == 53.0
+    assert stats.average_ball_possession_source_season == 60.0
     assert stats.possession_venue_split_check_source == "sofascore"
 
 

@@ -1850,12 +1850,16 @@ def test_matching_stadiumdb_capacity_records_no_conflict():
 def _projected_squad_and_presence():
     from football.types import PlayerUsagePattern, PresenceEntry, SquadMember
 
+    # Exactly 11 starters + 9 projected-bench players (a full squad), so
+    # derive_lineup consumes the XI and derive_projected_bench still has
+    # unused players left to project a bench from.
     rows = [("GK", "G", 8, 720)] + [(f"D{i}", "D", 6, 540) for i in range(4)] + [(f"M{i}", "M", 6, 540) for i in range(3)] + [(f"F{i}", "F", 6, 540) for i in range(3)]
+    bench = [(f"GKB", "G", 0, 0)] + [(f"DB{i}", "D", 1, 90) for i in range(3)] + [(f"MB{i}", "M", 1, 90) for i in range(2)] + [(f"FB{i}", "F", 1, 90) for i in range(3)]
     squad = [
         _all_none(SquadMember, name=n, role=r, recent_usage=_all_none(PlayerUsagePattern, starts=st, total_minutes=mins))
-        for n, r, st, mins in rows
+        for n, r, st, mins in rows + bench
     ]
-    presence = [PresenceEntry(name=n, status="P", starting=False, on_bench=None, reason=None) for n, *_ in rows]
+    presence = [PresenceEntry(name=n, status="P", starting=False, on_bench=None, reason=None) for n, *_ in rows + bench]
     return squad, presence
 
 
@@ -1867,7 +1871,7 @@ def test_derived_lineup_fills_home_lineup_but_never_a_fabricated_formation():
     result = _insights_result()
     result.home_presence = presence
     result.away_presence = []
-    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=None, away_lineup=None, home_formation=None, field_sources={}, additional_notes=[])
+    merged = _all_none(orchestrate.MergedMatch, status="notstarted", home_lineup=None, away_lineup=None, home_formation=None, home_bench=None, away_bench=None, field_sources={}, additional_notes=[])
     own_profile = _profile_with_squad("Own", squad)
 
     _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
@@ -1878,6 +1882,12 @@ def test_derived_lineup_fills_home_lineup_but_never_a_fabricated_formation():
     assert "no source has published a real lineup yet" in result.projected_xi_basis
     assert merged.field_sources["home_lineup"] == "derived"
     assert "home_formation" not in merged.field_sources
+    # Bench is also projected when no source published one (Sofascore-only
+    # field) so home_bench/home_bench_info aren't permanently missing.
+    assert merged.home_bench is not None
+    assert merged.field_sources["home_bench"] == "derived"
+    assert all(p.name for p in merged.home_bench)
+    assert all(p.shirt_number is None for p in merged.home_bench)
 
 
 def test_derived_lineup_leaves_a_real_published_lineup_untouched():

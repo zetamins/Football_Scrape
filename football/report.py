@@ -186,6 +186,15 @@ def _append_match_sections(result: RunSearchResult, lines: list[str]) -> None:
     completeness = compute_data_completeness(result.merged, result.insights)
     lines.append("")
     lines.append(f"**Data completeness:** {completeness['populated']}/{completeness['total']} fields populated this run")
+    lines.append(f"_Denominator basis:_ {completeness['denominator']}")
+    if completeness.get("outcome_fields_excluded_pre_match"):
+        lines.append(
+            f"_Excluded from this total (cannot exist before kickoff):_ "
+            f"{', '.join(completeness['outcome_fields_excluded_pre_match'])}"
+        )
+    if result.calibration:
+        lines.append("")
+        lines.append(f"**Calibration:** {result.calibration.evaluated} evaluated, {result.calibration.pending} pending -- {result.calibration.note}")
 
 
 def build_report_markdown(result: RunSearchResult) -> str:

@@ -130,14 +130,22 @@ def test_score_past_predictions_is_none_without_predictions_and_never_raises(mon
     from football import orchestrate
     from football.fetch_log import capture_failures
 
-    assert orchestrate._score_past_predictions(None, {}) is None
+    # No history: still a real CalibrationSummary with evaluated=0 and an
+    # explanatory note, not null with no reason.
+    empty = orchestrate._score_past_predictions(None, {})
+    assert empty is not None
+    assert empty.evaluated == 0
+    assert empty.note
+
     scored = orchestrate._score_past_predictions([_pred()], {"sofascore": [_played("Arsenal", "Chelsea", 2, 0)]})
     assert scored.evaluated == 1
 
     monkeypatch.setattr(orchestrate, "compute_calibration", lambda *_a: (_ for _ in ()).throw(KeyError("kickoff_utc")))
     seen = []
     with capture_failures(seen.append):
-        assert orchestrate._score_past_predictions([_pred()], {}) is None
+        failed = orchestrate._score_past_predictions([_pred()], {})
+    assert failed is not None
+    assert failed.evaluated == 0
     assert [f.source for f in seen] == ["calibration"]
 
 

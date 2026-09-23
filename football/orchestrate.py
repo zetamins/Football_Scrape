@@ -807,17 +807,28 @@ def _derive_side_lineup(existing_lineup, selected, squad):
     return ins.derive_lineup(selected, squad)
 
 
+def _derive_side_bench(existing_bench, lineup, squad):
+    """None when a real bench already exists or when there's nothing
+    meaningful to project (no lineup to subtract from, or no unused
+    squad players)."""
+    if existing_bench:
+        return None
+    return ins.derive_projected_bench(lineup, squad)
+
+
 def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile, own_selected, opponent_selected) -> None:
     """Fills merged.home_lineup/away_lineup (NOT home_formation/
     away_formation -- see derive_lineup's own docstring for why) from the
     exact projected XI _apply_projected_xi already selected, when NO
     source (real or predicted) has published a lineup at all -- confirmed
-    live, Sofascore doesn't publish even a prediction until close to
+    live, Sofascore doesn't publish even a prediction close to
     kickoff and real lineups only appear ~1 hour before it, so a report
     generated further out than that would otherwise show null lineups for
-    the whole pre-match window. Only for a not-yet-started fixture; a
-    played/live match's missing lineup is a real data gap, not something
-    to paper over with a guess."""
+    the whole pre-match window. Also fills home_bench/away_bench from the
+    same squad when no source published a bench (Sofascore-only field),
+    so completeness isn't permanently missing two fields every run. Only
+    for a not-yet-started fixture; a played/live match's missing lineup
+    is a real data gap, not something to paper over with a guess."""
     if merged.status not in NOT_STARTED_STATUSES:
         return
     own_squad = merged_profile.squad if merged_profile else None
@@ -836,6 +847,15 @@ def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home
     if home_derived or away_derived:
         prefix = f"{insights_result.projected_xi_basis}; " if insights_result.projected_xi_basis else ""
         insights_result.projected_xi_basis = prefix + "home_lineup/away_lineup below is this same projection, shown because no source has published a real lineup yet"
+
+    home_bench = _derive_side_bench(merged.home_bench, merged.home_lineup, home_squad)
+    away_bench = _derive_side_bench(merged.away_bench, merged.away_lineup, away_squad)
+    if home_bench:
+        merged.home_bench = home_bench
+        merged.field_sources["home_bench"] = "derived"
+    if away_bench:
+        merged.away_bench = away_bench
+        merged.field_sources["away_bench"] = "derived"
 
 
 def _apply_presence_and_bench_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile) -> None:
@@ -1194,14 +1214,25 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
 def _score_past_predictions(past_predictions, matches_by_source) -> CalibrationSummary | None:
     """Scores the caller's saved predictions against every match this run
     fetched. A failure here must never sink the report -- it is reported
-    in the failure list and calibration is simply omitted."""
+    in the failure list. When no history was provided at all (CLI/Android
+    first run), still return an empty CalibrationSummary with an explanatory
+    note so the report's `calibration` key is a real object with
+    `evaluated: 0` rather than null with no reason."""
     if past_predictions is None:
-        return None
+        return CalibrationSummary(
+            evaluated=0, pending=0, brier_score=None, brier_skill_vs_uniform_pct=None,
+            log_loss=None, accuracy_pct=None, by_method=[],
+            note="No saved prediction history was provided to this run, so there is nothing to score yet.",
+        )
     try:
         return compute_calibration(past_predictions, [m for matches in matches_by_source.values() for m in matches])
     except Exception as err:  # noqa: BLE001
         record_step_failure("calibration", err)
-        return None
+        return CalibrationSummary(
+            evaluated=0, pending=0, brier_score=None, brier_skill_vs_uniform_pct=None,
+            log_loss=None, accuracy_pct=None, by_method=[],
+            note=f"Calibration scoring failed this run: {err}",
+        )
 
 
 async def run_search(

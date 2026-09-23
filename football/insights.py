@@ -438,27 +438,33 @@ def _note_injury_reasons(
 
 
 def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results: list[FormResult] | None, source: str | None = None) -> None:
-    """Mutates season_stats in place: counts clean sheets among the real
-    competitive results in `results` (form.last20_overall), so a consumer
-    can see whether the source's own season aggregate (clean_sheets) is
-    keeping up with recent results -- see TeamSeasonStats' own doc comment
-    for why this is a separate field, not a silent override. `source`
-    (the results' own form_source) is recorded alongside so a run-to-run
-    swing in this count can be attributed to a source change, not treated
-    as an unexplained contradiction."""
+    """Counts clean sheets among the real competitive results in `results`
+    (form.last20_overall) and RECONCILES season_stats.clean_sheets against
+    that count: when the recent count exceeds the source's season aggregate
+    (the lag case -- source still showing 0 after a 0-0 was played), raise
+    clean_sheets to the recent count and preserve the original in
+    clean_sheets_source_aggregate, so the report never shows two disagreeing
+    numbers. `source` (the results' own form_source) is recorded alongside
+    so a run-to-run swing can be attributed to a source change."""
     if not season_stats or not results:
         return
-    season_stats.clean_sheets_recent_check = sum(1 for r in results if not is_friendly_competition(r.competition) and result_goals(r)["against"] == 0)
+    check = sum(1 for r in results if not is_friendly_competition(r.competition) and result_goals(r)["against"] == 0)
+    season_stats.clean_sheets_recent_check = check
     season_stats.clean_sheets_recent_check_source = source
+    if check > season_stats.clean_sheets:
+        season_stats.clean_sheets_source_aggregate = season_stats.clean_sheets
+        season_stats.clean_sheets = check
 
 
 def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue_split, source: str | None = None) -> None:
     """Mutates season_stats in place with the n-weighted average of that
     team's detailed_venue_split possession buckets -- the same window form
-    actually covers -- so markdown can explain a large gap against
-    average_ball_possession (season-to-date vs last-20, by design) instead
-    of showing two bare percentages that look like a contradiction. No-op
-    when either side is missing or no bucket has a possession figure."""
+    actually covers. When that figure diverges from the source's season-to-date
+    average by more than 5pp, average_ball_possession is replaced with the
+    form-window figure (more recent and match-relevant) and the original is
+    kept in average_ball_possession_source_season, so consumers see one
+    coherent number rather than two that look contradictory. No-op when
+    either side is missing or no bucket has a possession figure."""
     if not season_stats or not venue_split:
         return
     total_n = 0
@@ -469,8 +475,26 @@ def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue
             weighted += bucket.possession_pct_avg * bucket.sample_size
     if not total_n:
         return
-    season_stats.possession_venue_split_check = js_round_to(weighted / total_n, 1)
+    check = js_round_to(weighted / total_n, 1)
+    season_stats.possession_venue_split_check = check
     season_stats.possession_venue_split_check_source = source
+    season = season_stats.average_ball_possession
+    if season is not None and abs(season - check) > 5.0:
+        season_stats.average_ball_possession_source_season = season
+        season_stats.average_ball_possession = check
+
+
+def _same_competition(a: str | None, b: str | None) -> bool:
+    """Exact match first, then base-name match so stage-suffixed labels
+    ("UEFA Champions League, Knockout stage") still pair with the plain
+    fixture competition ("UEFA Champions League") -- confirmed live: a
+    strict == left standings form empty whenever the source tagged a
+    recent result with a stage suffix the fixture didn't carry."""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return a.split(",")[0].strip() == b.split(",")[0].strip()
 
 
 def fill_standings_form(
@@ -479,15 +503,16 @@ def fill_standings_form(
     """Sofascore's standings response has no `form` column, so it's null
     for every row. For the teams this report actually has results for, fill
     it from those real results: their last 5 matches in the fixture's own
-    competition, oldest first ("WWDLW"), matched to the row by table
-    POSITION. Only the row(s) we have data for are filled -- the other
-    teams' rows stay None rather than being guessed."""
+    competition (stage suffixes ignored, see _same_competition), oldest
+    first ("WWDLW"), matched to the row by table POSITION. Only the row(s)
+    we have data for are filled -- the other teams' rows stay None rather
+    than being guessed."""
     if not standings_table or position is None or not results or not competition:
         return
     row = next((r for r in standings_table if r.position == position), None)
     if row is None or row.form is not None:
         return
-    league_results = [r for r in results if r.competition == competition][:5]
+    league_results = [r for r in results if _same_competition(r.competition, competition)][:5]
     if league_results:
         row.form = "".join(r.result for r in reversed(league_results))
 
@@ -557,8 +582,8 @@ def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember]
     on hand); shirt_number stays null -- no source publishes a team
     profile's per-player shirt number, only per-match lineups do, so
     there is nothing honest to put there for a derived entry. Every other
-    field beyond name/position/substitute/age stays None -- exactly how a
-    genuine unconfirmed prediction already looks pre-match (no minutes/
+    field beyond name/position/substitute/age stays None -- exactly how
+    a genuine unconfirmed prediction already looks pre-match (no minutes/
     stats exist yet either way)."""
     if not selected or not squad:
         return None
@@ -572,6 +597,42 @@ def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember]
         )
         for p in selected
         for norm in [normalize_team_name(p.name)]
+    ]
+
+
+def derive_projected_bench(lineup: list[LineupPlayer] | None, squad: list[SquadMember] | None) -> list[LineupPlayer] | None:
+    """Projects a bench from squad members NOT in `lineup`, ranked by
+    recent starts/minutes -- only when no source has published a real
+    bench for this fixture (Sofascore is the only source that does, and
+    only once lineups are close to confirmed). Mirrors derive_lineup's
+    honesty rules: age from the squad, shirt_number left null (no source
+    publishes a team profile's per-player shirt number), everything else
+    None. Returns None when there's nothing meaningful to project (no
+    lineup to subtract, or no squad / no unused players)."""
+    if not lineup or not squad:
+        return None
+    if not all(getattr(p, "name", None) for p in lineup):
+        return None
+    starters = {normalize_team_name(p.name) for p in lineup}
+    candidates = [
+        m for m in squad
+        if normalize_team_name(m.name) not in starters
+        and m.recent_usage
+        and (m.recent_usage.matches_in_squad or 0) > 0
+    ]
+    if not candidates:
+        candidates = [m for m in squad if normalize_team_name(m.name) not in starters]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda m: (m.recent_usage.total_minutes if m.recent_usage else 0), reverse=True)
+    return [
+        LineupPlayer(
+            name=m.name, position=m.role, substitute=True,
+            minutes_played=None, goals=None, assists=None, xg=None, xa=None, shots=None,
+            shots_on_target=None, tackles=None, interceptions=None, fouls=None, rating=None, key_passes=None,
+            age=m.age,
+        )
+        for m in candidates[:9]
     ]
 
 
@@ -898,7 +959,10 @@ def compute_referee_card_risk_note(
     referee_name: str | None, referee_stats: RefereeStats | None, home_card_risks: list[PlayerCardRisk] | None, away_card_risks: list[PlayerCardRisk] | None
 ) -> RefereeCardRiskNote | None:
     """Pure synthesis of two things already computed separately -- no new
-    requests."""
+    requests. Returns a note whenever referee + stats exist, even with an
+    empty flagged_players list ("checked, nobody currently flagged"), so
+    the field is present for every fixture that has a known referee rather
+    than disappearing whenever no player crosses the card-risk threshold."""
     from .types import FlaggedPlayer
 
     if not referee_name or not referee_stats:
@@ -907,8 +971,6 @@ def compute_referee_card_risk_note(
         *[FlaggedPlayer(name=r.name, side="home", prior_dismissal=r.prior_dismissal) for r in (home_card_risks or [])],
         *[FlaggedPlayer(name=r.name, side="away", prior_dismissal=r.prior_dismissal) for r in (away_card_risks or [])],
     ]
-    if not flagged_players:
-        return None
     yellow_cards_per_game = float(referee_stats.yellow_cards_per_game)
     return RefereeCardRiskNote(referee_name=referee_name, yellow_cards_per_game=yellow_cards_per_game, elevated_card_referee=(yellow_cards_per_game > 2.5), flagged_players=flagged_players)
 
@@ -1664,7 +1726,23 @@ def compute_data_completeness(merged: MatchDetails, insights: MatchInsights | No
     total = merged_total + insights_total
     # `missing` names every counted field that had no data this run, so a
     # consumer sees WHICH fields make up the gap, not just how many.
-    return {"populated": total - len(missing), "total": total, "missing": missing}
+    # `denominator` documents what `total` is actually counting so a
+    # consumer comparing 118 vs 116 across runs can see the schema itself
+    # didn't silently change under them.
+    return {
+        "populated": total - len(missing),
+        "total": total,
+        "missing": missing,
+        "denominator": (
+            "MatchDetails + MatchInsights dataclass fields, excluding "
+            "_COMPLETENESS_EXCLUDE (scores, provenance bookkeeping) and, "
+            "pre-match only, _MATCH_OUTCOME_ONLY_FIELDS (attendance, "
+            "in-match stats, timeline, player of the match, set pieces) "
+            "which cannot exist until kickoff; lineup/bench/formation "
+            "always count (predicted lineups are real pre-match data)"
+        ),
+        "outcome_fields_excluded_pre_match": sorted(_MATCH_OUTCOME_ONLY_FIELDS) if not_started else [],
+    }
 
 
 def _count_merged_completeness(merged: MatchDetails, not_started: bool) -> tuple[int, list[str]]:

@@ -569,7 +569,7 @@ def test_club_strength_str_includes_positive_change():
 
     s = ClubStrengthRating(overall=85.2, attack=80.0, defense=75.0, rank=3, strength_change=1.2)
     result = club_strength_str(s, "Home")
-    assert "global rank #3" in result
+    assert "StatsUltra global rank #3 of ~480 clubs" in result
     assert "+1.2 vs last check" in result
 
 
@@ -581,6 +581,7 @@ def test_club_strength_str_negative_change_no_plus_sign():
     result = club_strength_str(s, "Home")
     assert ", -0.6 vs last check" in result
     assert "global rank" not in result
+    assert "StatsUltra global rank" not in result
 
 
 def test_card_str_flags_elevated_risk():
@@ -1110,8 +1111,9 @@ def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_recent_exce
     from football.types import TeamSeasonStats
 
     lagging = TeamSeasonStats(
-        goals_scored=20, goals_conceded=25, clean_sheets=0, yellow_cards=30, red_cards=2,
+        goals_scored=20, goals_conceded=25, clean_sheets=5, yellow_cards=30, red_cards=2,
         average_ball_possession=None, clean_sheets_recent_check=5, clean_sheets_recent_check_source="sofascore",
+        clean_sheets_source_aggregate=0,
     )
     d = _all_none(
         MergedMatch, home_team="Man Utd", away_team="Away FC", status="finished",
@@ -1121,8 +1123,9 @@ def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_recent_exce
     lines: list[str] = []
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
-    assert "Man Utd season: 20 scored" in text
-    assert "Man Utd clean-sheet cross-check: source reports 0, recent competitive results show 5 (sofascore)" in text
+    assert "Man Utd season: 20 scored, 25 conceded, 5 clean sheets" in text
+    assert "Man Utd clean-sheet cross-check: source originally reported 0, recent competitive results show 5 (sofascore)" in text
+    assert "raised to match" in text
 
 
 def test_merged_match_markdown_omits_clean_sheet_cross_check_when_recent_is_plausible():
@@ -1142,6 +1145,28 @@ def test_merged_match_markdown_omits_clean_sheet_cross_check_when_recent_is_plau
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
     assert "clean-sheet cross-check" not in text
+
+
+def test_merged_match_markdown_notes_h2h_detail_subset_of_sample():
+    from football.merge import MergedMatch
+    from football.types import HeadToHeadMeeting, HeadToHeadSummary
+
+    h2h = HeadToHeadSummary(home_wins=5, away_wins=5, draws=0, sample_size=10)
+    meeting = HeadToHeadMeeting(
+        date="2026-03-22T14:15:00.000Z", competition="Premier League", scoreline="0-3",
+        venue="home", home_formation=None, away_formation=None, home_xg=None, away_xg=None,
+        home_lineup=None, away_lineup=None, home_team="Home FC", away_team="Away FC",
+    )
+    d = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        head_to_head_summary=h2h, recent_meetings=[meeting],
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "detailed list below shows 1 of 10" in text
+    assert "2026-03-22 0-3" in text
 
 
 def test_merged_match_markdown_labels_season_possession_as_season_to_date():
@@ -1168,10 +1193,12 @@ def test_merged_match_markdown_surfaces_possession_cross_check_when_windows_dive
     from football.types import TeamSeasonStats
 
     # Tottenham N5 case: season 59% vs last-20 venue-split 56.2 is within
-    # 5pp so silent; force a larger gap to prove the note renders.
+    # 5pp so silent; force a larger gap (and the reconciliation fields the
+    # check now writes) to prove the note renders with a single winner.
     stats = TeamSeasonStats(
         goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
-        average_ball_possession=59.0, possession_venue_split_check=52.5,
+        average_ball_possession=52.5, average_ball_possession_source_season=59.0,
+        possession_venue_split_check=52.5,
         possession_venue_split_check_source="sofascore",
     )
     d = _all_none(
@@ -1182,8 +1209,8 @@ def test_merged_match_markdown_surfaces_possession_cross_check_when_windows_dive
     lines: list[str] = []
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
-    assert "Tottenham Hotspur possession cross-check: season 59% vs last-20 venue-split 52.5% (sofascore)" in text
-    assert "different windows" in text
+    assert "Tottenham Hotspur possession cross-check: using last-20 venue-split 52.5% (sofascore) (season-to-date source figure was 59%" in text
+    assert "form window preferred for this fixture" in text
 
 
 def test_merged_match_markdown_omits_possession_cross_check_when_gap_is_small():
@@ -1242,7 +1269,7 @@ def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
     assert "Missing defenders: Injured Player" in text
     assert "Missing goalkeepers: Some GK" in text
     assert "Recent transfers: New Signing" in text
-    assert "Top scorers: Top Scorer" in text
+    assert "Top scorers (season to date): Top Scorer" in text
     assert "Top defenders: Top Defender" in text
 
 
@@ -1441,7 +1468,7 @@ def test_insights_markdown_renders_every_field_when_fully_populated():
     text = "\n".join(lines)
     for expected in [
         "Prediction (market-implied", "Match type: competitive", "Rest: own 5d", "Experience: own avg age 26",
-        "Home FC Elo:", "Home FC strength:", "Home FC: #4/20", "Home FC: 2 yellow/game", "1650.5",
+        "Home FC Elo:", "Home FC strength (StatsUltra rating", "Home FC: #4/20", "Home FC: 2 yellow/game", "1650.5",
         "Travel:", "Home FC vs currently-higher-ranked", "Home FC rotation", "Home FC availability",
         "Home FC bench:", "Home FC squad value:", "Home FC resilience:", "Home FC performance by rest",
         "Experience/H2H:", "Home FC fatigue risk", "Home FC home advantage:", "Home FC streak:",
@@ -1519,7 +1546,7 @@ def test_append_profile_performers_renders_bench_and_role_form_sections():
     merged_profile_markdown(p, lines)
     text = "\n".join(lines)
     assert "Bench regulars (last 20): Bench Regular" in text
-    assert "Recent form (last 20):" in text
+    assert "Recent form leaders (last 20):" in text
     assert "Midfielders (last 20, by minutes): Starting Mid" in text
     assert "Defenders (last 20, by minutes): Starting Def" in text
 

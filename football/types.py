@@ -315,21 +315,26 @@ class WeatherDetail:
 class TeamSeasonStats:
     goals_scored: int
     goals_conceded: int
-    # The source's own season aggregate -- confirmed live this can lag a
-    # recent result (e.g. showing 0 the same week a 0-0 was actually
-    # played), since it's whatever the source's own backend last computed,
-    # not something this project derives. clean_sheets_recent_check is an
-    # independent cross-check against real recent results, kept separate
-    # rather than silently overriding this field with our own number.
+    # Season aggregate. The source's own backend can lag a recent result
+    # (e.g. showing 0 the same week a 0-0 was actually played).
+    # add_clean_sheets_recent_check closes that lag: when the recent
+    # competitive count exceeds this number, clean_sheets is raised to
+    # match and the pre-reconcile value is kept in
+    # clean_sheets_source_aggregate below, so the contradiction never
+    # reaches the report as two disagreeing numbers.
     clean_sheets: int
     yellow_cards: int
     red_cards: int
+    # Season-to-date average possession as published by the source, until
+    # add_possession_venue_split_check reconciles it. When the form-window
+    # venue-split average diverges by >5pp, this is replaced with that
+    # more recent, match-relevant figure and the original is preserved in
+    # average_ball_possession_source_season -- one displayed number, not
+    # two that look like a contradiction.
     average_ball_possession: float | None
     # Clean sheets among the competitive matches in form.last20_overall
-    # (real results this run actually fetched), for comparing against
-    # clean_sheets above -- None when there's no recent form to check
-    # against yet (e.g. this team's own form wasn't computed at this
-    # point in the pipeline).
+    # (real results this run actually fetched) -- the figure clean_sheets
+    # is reconciled against. None when there's no recent form to check.
     clean_sheets_recent_check: int | None = None
     # Which source's recent match results fed clean_sheets_recent_check --
     # that count can legitimately swing between two runs of the same team
@@ -337,15 +342,21 @@ class TeamSeasonStats:
     # each with its own recent-match sample), same reasoning as EloRating.
     # sample_source; this says why, instead of leaving a swing unexplained.
     clean_sheets_recent_check_source: str | None = None
+    # Pre-reconcile clean_sheets as the source originally reported it,
+    # only set when clean_sheets was raised to match the recent check.
+    # None when no reconciliation happened (the source was already current).
+    clean_sheets_source_aggregate: int | None = None
     # Weighted average of detailed_venue_split.possession_pct_avg over the
     # same team's form window (home/away/neutral buckets, n-weighted) --
-    # for comparing against average_ball_possession above. Different
-    # windows by design (season-to-date vs last-20), so a mismatch is
-    # not an error; stored so markdown can explain a large gap instead of
-    # leaving two bare percentages that look contradictory. None when
-    # there's no venue-split possession to check against.
+    # computed for every run with venue-split possession, and used to
+    # reconcile average_ball_possession when the gap exceeds 5pp.
+    # None when there's no venue-split possession to check against.
     possession_venue_split_check: float | None = None
     possession_venue_split_check_source: str | None = None
+    # Pre-reconcile average_ball_possession as the source originally
+    # reported it, only set when possession was replaced with the
+    # form-window figure. None when no reconciliation happened.
+    average_ball_possession_source_season: float | None = None
 
 
 @dataclass

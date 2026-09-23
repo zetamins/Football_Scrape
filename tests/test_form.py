@@ -385,6 +385,16 @@ def test_form_by_competition_skips_results_without_competition():
     assert _compute_form_by_competition(results) == []
 
 
+def test_form_by_competition_folds_stage_suffixes_into_base_name():
+    results = [
+        _result(competition="UEFA Champions League, Knockout stage", result="W", scoreline="2-0", venue="home"),
+        _result(competition="UEFA Champions League", result="D", scoreline="1-1", venue="away"),
+    ]
+    records = _compute_form_by_competition(results)
+    assert [r.competition for r in records] == ["UEFA Champions League"]
+    assert records[0].played == 2
+
+
 # --- _compute_last10_stats -------------------------------------------------------
 
 
@@ -1056,6 +1066,13 @@ def test_recent_competitions_uses_the_same_window_as_form_by_competition():
     summary = compute_form_summary("Home FC", older_cup_match + recent_league)
     assert "UEFA Champions League" in summary.recent_competitions
     assert "UEFA Champions League" in [r.competition for r in summary.form_by_competition]
+
+
+def test_recent_competitions_strips_stage_suffixes_to_align_with_form_by_competition():
+    staged = _played_series(3, competition="UEFA Champions League, Knockout stage", start_day=1)
+    summary = compute_form_summary("Home FC", staged)
+    assert summary.recent_competitions == ["UEFA Champions League"]
+    assert [r.competition for r in summary.form_by_competition] == ["UEFA Champions League"]
 
 
 # --- _back_line_slots: real lineups (Sofascore order: GK, back line right-to-left) ---

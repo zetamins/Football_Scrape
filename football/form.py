@@ -263,15 +263,18 @@ def _compute_clean_sheet_and_scoreless_streaks(all_results: list[FormResult]) ->
 def _compute_form_by_competition(all_results: list[FormResult]) -> list[CompetitionFormRecord]:
     """W/D/L split per competition, from the same played-match sample (not
     a fresh fetch) -- competitions the team hasn't played in this sample
-    simply don't appear, rather than showing a zeroed row. Extracted from
-    compute_form_summary to keep its own cognitive complexity down
-    (python:S3776); behavior unchanged."""
+    simply don't appear, rather than showing a zeroed row. Stage suffixes
+    (", Knockout stage") are folded into the base competition name so the
+    list stays one row per competition and aligns with recent_competitions.
+    Extracted from compute_form_summary to keep its own cognitive
+    complexity down (python:S3776); behavior otherwise unchanged."""
     form_by_competition_map: dict[str, dict[str, int]] = {}
     for r in all_results:
         if not r.competition:
             continue
+        comp = r.competition.split(",")[0].strip() or r.competition
         entry = form_by_competition_map.setdefault(
-            r.competition, {"played": 0, "wins": 0, "draws": 0, "losses": 0, "goals_for": 0, "goals_against": 0}
+            comp, {"played": 0, "wins": 0, "draws": 0, "losses": 0, "goals_for": 0, "goals_against": 0}
         )
         entry["played"] += 1
         if r.result == "W":
@@ -456,12 +459,31 @@ def compute_form_summary(team_name: str, matches: list[MatchInfo]) -> FormSummar
     # form_by_competition's 20 whenever a competition (a Champions League
     # tie, say) fell between the two: recent_competitions silently omitted
     # it while form_by_competition listed it. dict.fromkeys preserves
-    # first-seen order the same way JS's Set does.
-    recent_competitions = list(dict.fromkeys(m.competition for m in competitive_played[:_FORM_WINDOW] if m.competition is not None))
+    # first-seen order the same way JS's Set does. Stage suffixes
+    # (", Knockout stage") are stripped to the base competition name so
+    # this list stays one label per competition and aligns with
+    # form_by_competition below -- confirmed live, a bare "Premier League"
+    # here next to "UEFA Champions League, Knockout stage" there read as
+    # two different competitions covering different windows.
+    def _base_comp(name: str | None) -> str | None:
+        if not name:
+            return None
+        return name.split(",")[0].strip()
+
+    recent_competitions = list(
+        dict.fromkeys(
+            base for m in competitive_played[:_FORM_WINDOW] if (base := _base_comp(m.competition))
+        )
+    )
     # Also include competitions from upcoming fixtures so consumers know
     # what's coming (e.g. a cup match in next5 that isn't in recent
     # played results yet).
-    upcoming_competitions = [m.competition for m in matches if m.kickoff_utc and m.status in NOT_STARTED_STATUSES and m.competition]
+    upcoming_competitions = [
+        base
+        for m in matches
+        if m.kickoff_utc and m.status in NOT_STARTED_STATUSES and m.competition
+        for base in [_base_comp(m.competition)]
+    ]
     for comp in upcoming_competitions:
         if comp and comp not in recent_competitions:
             recent_competitions.append(comp)
