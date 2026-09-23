@@ -21,6 +21,8 @@ from football.merge import (
     merge_team_profile,
     reconcile_missing_by_role,
     reconcile_missing_players,
+    absent_name_set,
+    filter_absent_players,
 )
 from football.types import (
     DefensiveStats,
@@ -338,7 +340,9 @@ def test_apply_deep_recent_meetings_keeps_older_fallback_meetings_it_could_not_d
     assert [m.date[:10] for m in merged.recent_meetings] == ["2026-02-07", "2025-11-08", "2025-05-21"]
     assert merged.recent_meetings[0].home_formation == "4-2-3-1"  # the detailed copy wins the same-date tie
     assert merged.recent_meetings[1].home_formation is None
-    assert merged.field_sources.get("recent_meetings") == "soccerdesk"  # part of the list still comes from it
+    # Deep rows (Sofascore) + leftover fallback rows coexist -- neither
+    # single source produced the whole list, so provenance is "mixed".
+    assert merged.field_sources.get("recent_meetings") == "mixed"
 
 
 def test_apply_deep_recent_meetings_labels_non_base_source():
@@ -642,6 +646,52 @@ def test_reconcile_missing_players_keeps_match_list_when_no_profile_injuries():
     existing = [MissingPlayer(name="Player", description="Knock", expected_return=None)]
     result = reconcile_missing_players(existing, None)
     assert result == existing
+
+
+# --- absent_name_set / filter_absent_players (N1: bench must not list the missing) ---
+
+
+def test_absent_name_set_unions_missing_suspended_and_injuries():
+    missing = [MissingPlayer(name="Richarlison", description="coach_decision", expected_return=None)]
+    injuries = [SquadMember(name="Pedro Porro", role="D", injury="Knock", age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None)]
+    result = absent_name_set(missing, ["Manuel Ugarte"], injuries)
+    assert "richarlison" in result
+    assert "manuel ugarte" in result
+    assert "pedro porro" in result
+
+
+def test_absent_name_set_empty_when_nothing_ruled_out():
+    assert absent_name_set(None, None) == set()
+    assert absent_name_set([], []) == set()
+
+
+def test_filter_absent_players_removes_injured_from_published_bench():
+    bench = [
+        _lineup_player("Fit Sub", "M"),
+        _lineup_player("Richarlison", "F"),
+        _lineup_player("Xavi Simons", "M"),
+    ]
+    absent = {"richarlison", "xavi simons"}
+    kept = filter_absent_players(bench, absent)
+    assert [p.name for p in kept] == ["Fit Sub"]
+
+
+def test_filter_absent_players_none_stays_none_and_empty_absent_is_noop():
+    assert filter_absent_players(None, {"anyone"}) is None
+    players = [_lineup_player("A", "M")]
+    assert filter_absent_players(players, set()) is players
+
+
+def test_filter_absent_players_all_filtered_becomes_empty_not_none():
+    # Distinguish "we checked, nobody remains" from "never published".
+    bench = [_lineup_player("Richarlison", "F")]
+    assert filter_absent_players(bench, {"richarlison"}) == []
+
+
+def test_filter_absent_players_uses_containment_for_name_spelling_gaps():
+    bench = [_lineup_player("Chido Obi-Martin", "F"), _lineup_player("Other", "M")]
+    kept = filter_absent_players(bench, {"chido obi"})
+    assert [p.name for p in kept] == ["Other"]
 
 
 # --- reconcile_missing_by_role -----------------------------------------------------------

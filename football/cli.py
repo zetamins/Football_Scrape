@@ -33,14 +33,19 @@ def _parse_team_names(raw: str) -> list[str]:
 
 
 async def _run_one(team_name: str, *, announce: bool) -> None:
+    # flush=True on every progress/markdown line: stdout is block-buffered
+    # when piped (redirect to a file, CI, `| tee`), so without it a long
+    # run shows nothing until the process exits -- previously
+    # indistinguishable from a hang during the multi-minute enrichment
+    # phase.
     if announce:
-        print(f"\n=== {team_name} ===")
-    print()
-    result = await run_search(team_name, lambda msg: print(msg))
-    print()
+        print(f"\n=== {team_name} ===", flush=True)
+    print(flush=True)
+    result = await run_search(team_name, lambda msg: print(msg, flush=True))
+    print(flush=True)
 
     markdown = build_report_markdown(result)
-    print(markdown)
+    print(markdown, flush=True)
 
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     base = f"{slugify(team_name)}-{result.generated_at.replace(':', '-').replace('.', '-')}"
@@ -50,7 +55,7 @@ async def _run_one(team_name: str, *, announce: bool) -> None:
     json_path.write_text(json.dumps(build_report_json(result), indent=2, default=str), encoding="utf-8")
     md_path.write_text(markdown, encoding="utf-8")
 
-    print(f"Saved:\n  {json_path}\n  {md_path}")
+    print(f"Saved:\n  {json_path}\n  {md_path}", flush=True)
 
 
 async def _main() -> None:
@@ -75,7 +80,7 @@ async def _main() -> None:
         try:
             await _run_one(team_name, announce=multiple)
         except Exception as e:  # noqa: BLE001 - one team failing shouldn't abort the rest of the batch
-            print(f'Failed for "{team_name}": {e}', file=sys.stderr)
+            print(f'Failed for "{team_name}": {e}', file=sys.stderr, flush=True)
             failures.append(team_name)
 
     if multiple:
@@ -83,7 +88,7 @@ async def _main() -> None:
         summary = f"\nDone: {ok}/{len(team_names)} succeeded"
         if failures:
             summary += f" (failed: {', '.join(failures)})"
-        print(summary)
+        print(summary, flush=True)
 
     if failures and len(failures) == len(team_names):
         sys.exit(1)

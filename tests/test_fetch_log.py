@@ -149,7 +149,7 @@ class _Page:
     async def goto(self, *_a, **_k):
         return None
 
-    async def evaluate(self, _script):
+    async def evaluate(self, _script, *_args, **_kwargs):
         if isinstance(self.body, Exception):
             raise self.body
         return self.body
@@ -305,8 +305,11 @@ class _CountingPage(_Page):
         super().__init__(body)
         self.requests = 0
 
-    async def goto(self, *_a, **_k):
+    async def evaluate(self, *args, **kwargs):
+        # _fetch_json now XHRs via in-page evaluate (no goto to /api/),
+        # so evaluate is the network call this counter tracks.
         self.requests += 1
+        return await super().evaluate(*args, **kwargs)
 
 
 def test_first_403_trips_the_breaker_and_later_requests_make_no_network_call(no_retry_sleep):

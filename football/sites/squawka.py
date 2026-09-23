@@ -156,6 +156,7 @@ async ({ nonce, competitionId, statLabel }) => {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", "X-WP-Nonce": nonce },
     body: JSON.stringify({ sports_type: "football", top_count: 9999, entity_type: "members", competition_id: competitionId, stats: [statLabel] }),
+    signal: AbortSignal.timeout(30000),
   });
   return res.json();
 }

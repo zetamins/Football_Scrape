@@ -382,8 +382,20 @@ def _append_match_odds(d, lines: list[str]) -> None:
 def _append_match_odds_and_standings(d, lines: list[str]) -> None:
     """Second part of merged_match_markdown, itself split in two -- see
     _append_match_header's docstring for why this split is safe, and
-    _append_match_season_stats below for the rest."""
+    _append_match_season_stats below for the rest. H2H and the partial
+    standings-form note live in their own helpers to keep this function's
+    cognitive complexity under the project threshold (S3776)."""
     _append_match_odds(d, lines)
+    _append_head_to_head(d, lines)
+    _append_standing_rank(d.home_team, d.home_team_standing, lines)
+    _append_standing_rank(d.away_team, d.away_team_standing, lines)
+    _append_partial_standings_form_note(d, lines)
+    _append_match_season_stats(d, lines)
+
+
+def _append_head_to_head(d, lines: list[str]) -> None:
+    """H2H summary line (with detailed-list sample note), streaks, and the
+    recent-meetings one-liner. Split out of _append_match_odds_and_standings."""
     if d.head_to_head_summary:
         h = d.head_to_head_summary
         detail = f" (detailed list below shows {len(d.recent_meetings)} of {h.sample_size})" if d.recent_meetings and h.sample_size and h.sample_size > len(d.recent_meetings) else ""
@@ -392,27 +404,31 @@ def _append_match_odds_and_standings(d, lines: list[str]) -> None:
         lines.append(f"- H2H streaks: {'; '.join(d.head_to_head_streaks)}")
     if d.recent_meetings:
         lines.append(f"- Recent meetings: {' | '.join(meeting_str(m) for m in d.recent_meetings)}")
-    if d.home_team_standing:
-        s = d.home_team_standing
-        gd = f", GD {s.goal_diff}" if s.goal_diff is not None else ""
-        lines.append(f"- {d.home_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L{gd})")
-    if d.away_team_standing:
-        s = d.away_team_standing
-        gd = f", GD {s.goal_diff}" if s.goal_diff is not None else ""
-        lines.append(f"- {d.away_team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L{gd})")
-    # Standings form is filled only for the two teams this report has real
-    # results for (fill_standings_form) -- Sofascore's table has no form
-    # column for anyone else, and guessing the other 18 rows would be fake
-    # data. Say so rather than leaving a reader to wonder why 18 of 20
-    # form cells are null.
-    if d.standings_table:
-        filled = [r for r in d.standings_table if r.form]
-        if filled and len(filled) < len(d.standings_table):
-            names = ", ".join(f"{r.team_name} {r.form}" for r in filled)
-            lines.append(
-                f"- Standings form (only teams in this fixture; other rows have no source form column): {names}"
-            )
-    _append_match_season_stats(d, lines)
+
+
+def _append_standing_rank(team: str, s, lines: list[str]) -> None:
+    """One league-rank bullet for a side; silent when that side has no
+    standing. Split out of _append_match_odds_and_standings."""
+    if s is None:
+        return
+    gd = f", GD {s.goal_diff}" if s.goal_diff is not None else ""
+    lines.append(f"- {team} rank: #{s.position} ({s.points} pts, {s.wins}W-{s.draws}D-{s.losses}L{gd})")
+
+
+def _append_partial_standings_form_note(d, lines: list[str]) -> None:
+    """Standings form comes from the fixture teams' own match lists plus
+    football-data's season CSV for the rest (F10) -- still not every row
+    gets filled (unmapped competition, early-season empty CSV, name-match
+    miss). Say so rather than leaving a reader to wonder why some form
+    cells are null. Silent when every row has form or none do."""
+    if not d.standings_table:
+        return
+    filled = [r for r in d.standings_table if r.form]
+    if filled and len(filled) < len(d.standings_table):
+        names = ", ".join(f"{r.team_name} {r.form}" for r in filled)
+        lines.append(
+            f"- Standings form (partial; remaining rows have no source form column): {names}"
+        )
 
 
 def _append_match_season_stats(d, lines: list[str]) -> None:

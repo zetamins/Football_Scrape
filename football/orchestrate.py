@@ -37,6 +37,8 @@ from .merge import (
     is_attacker_role,
     is_defender_role,
     is_goalkeeper_role,
+    absent_name_set,
+    filter_absent_players,
     is_match_details_complete,
     is_midfield_role,
     is_profile_complete,
@@ -458,7 +460,9 @@ async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, fo
         # two teams often haven't met within that smaller window at all.
         try:
             full_history = all_form_results(team_name, matches_by_source[form_source])
-            deep_recent_meetings = await ins.compute_recent_meetings(matches_by_source[form_source], full_history, opponent_name, form_source)
+            deep_recent_meetings = await ins.compute_recent_meetings(
+                matches_by_source[form_source], full_history, opponent_name, form_source, team_name=team_name
+            )
         except Exception as err:  # noqa: BLE001
             record_step_failure("recent meetings", err)
             deep_recent_meetings = None
@@ -681,10 +685,32 @@ async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_contex
     # wrong scraper would silently fail to match its own match
     # objects. None means every source failed, so there's nothing to
     # enrich against.
-    if opponent_context.matches_source:
+    enrich_source = opponent_context.matches_source
+    enrich_matches = opponent_context.matches
+    # After own-team Sofascore enrichment, the browser circuit breaker is
+    # often already open (FORM_ENRICH_DETAIL_LIMIT x ~15 endpoints). The
+    # opponent short-circuits all of its own details() fetches with zero
+    # advanced stats / squad usage (confirmed live: own xg 5/20, opponent
+    # xg 0/20). Fotmob is plain HTTP, so re-fetch the opponent's fixture
+    # list there and enrich from that instead -- rotates the source of
+    # truth on opponent_context too, so compute_rotation_info and
+    # standings-form cross-checks follow the same matches.
+    if enrich_source == "sofascore" and sofascore_site.is_blocked():
+        try:
+            fotmob_matches = await fotmob.get_fotmob_matches(opponent_name)
+        except Exception as err:  # noqa: BLE001
+            record_step_failure("form enrichment (opponent fotmob fallback)", err)
+            fotmob_matches = []
+        if fotmob_matches:
+            enrich_source = "fotmob"
+            enrich_matches = fotmob_matches
+            opponent_form = compute_form_summary(opponent_name, fotmob_matches)
+            opponent_context.matches = fotmob_matches
+            opponent_context.matches_source = "fotmob"
+    if enrich_source:
         try:
             enriched_opponent = await enrich_form_with_venue_classification(
-                opponent_context.matches, opponent_form, opponent_context.matches_source
+                enrich_matches, opponent_form, enrich_source
             )
         except Exception as err:  # noqa: BLE001
             record_step_failure("form enrichment (opponent)", err)
@@ -709,8 +735,25 @@ async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_contex
     _apply_standings_derived_insights(
         merged, insights_result, own_is_home, form, opponent_form, own_position, opponent_position, form_source, opponent_context.matches_source
     )
+    await _fill_remaining_standings_form_safe(merged)
 
     return opponent_form
+
+
+async def _fill_remaining_standings_form_safe(merged) -> None:
+    """F10: after the two fixture teams get form from their own match lists,
+    fill any still-null standings-table rows from football-data's season
+    results CSV (one plain-HTTP fetch, same no-retry rule as the rest of
+    that site). Failure or an unmapped competition leaves rows null -- the
+    markdown note explains the gap rather than guessing."""
+    if not merged.standings_table or all(r.form for r in merged.standings_table):
+        return
+    try:
+        form_map = await footballdata.get_league_form(merged.competition)
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("standings form (football-data)", err)
+        return
+    ins.fill_standings_form_from_map(merged.standings_table, form_map)
 
 
 def _apply_standings_derived_insights(
@@ -807,13 +850,31 @@ def _derive_side_lineup(existing_lineup, selected, squad):
     return ins.derive_lineup(selected, squad)
 
 
-def _derive_side_bench(existing_bench, lineup, squad):
+def _derive_side_bench(existing_bench, lineup, squad, absent=None):
     """None when a real bench already exists or when there's nothing
     meaningful to project (no lineup to subtract from, or no unused
-    squad players)."""
+    squad players). `absent` excludes missing/suspended/injured names so
+    a derived bench never contradicts match.*_missing_players."""
     if existing_bench:
         return None
-    return ins.derive_projected_bench(lineup, squad)
+    return ins.derive_projected_bench(lineup, squad, absent=absent)
+
+
+def _strip_absent_from_published_lists(merged) -> None:
+    """N1: source-published lineups/benches can list players who are on
+    the just-reconciled missing list (confirmed live: injured players on
+    the bench AND on missing_players AND status "A" in presence -- three
+    places, two answers). Strip them so the report never shows an absent
+    player as available selection. Only for a not-yet-started fixture;
+    a played match's recorded XI is history, not a selection claim."""
+    if merged.status not in NOT_STARTED_STATUSES:
+        return
+    home_absent = absent_name_set(merged.home_missing_players, merged.home_suspended_players)
+    away_absent = absent_name_set(merged.away_missing_players, merged.away_suspended_players)
+    merged.home_lineup = filter_absent_players(merged.home_lineup, home_absent)
+    merged.home_bench = filter_absent_players(merged.home_bench, home_absent)
+    merged.away_lineup = filter_absent_players(merged.away_lineup, away_absent)
+    merged.away_bench = filter_absent_players(merged.away_bench, away_absent)
 
 
 def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home, merged_profile, opponent_profile, own_selected, opponent_selected) -> None:
@@ -836,6 +897,9 @@ def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home
     home_selected, away_selected = _home_away(own_is_home, own_selected, opponent_selected)
     home_squad, away_squad = _home_away(own_is_home, own_squad, opponent_squad)
 
+    home_absent = absent_name_set(merged.home_missing_players, merged.home_suspended_players)
+    away_absent = absent_name_set(merged.away_missing_players, merged.away_suspended_players)
+
     home_derived = _derive_side_lineup(merged.home_lineup, home_selected, home_squad)
     away_derived = _derive_side_lineup(merged.away_lineup, away_selected, away_squad)
     if home_derived:
@@ -844,12 +908,31 @@ def _apply_derived_lineup_if_none_published(insights_result, merged, own_is_home
     if away_derived:
         merged.away_lineup = away_derived
         merged.field_sources["away_lineup"] = "derived"
+    # N2: a formation with no XI on this side is untrustworthy -- either
+    # an orphan published without players (confirmed live equalled the
+    # previous H2H meeting's shape while the projected XI was a different
+    # count) or a shape we just replaced with our own projection. Clear
+    # it rather than show a formation that contradicts the lineup beside
+    # it. Real source-published lineups keep their formation untouched.
+    if (home_derived or not merged.home_lineup) and merged.home_formation:
+        merged.home_formation = None
+        merged.field_sources.pop("home_formation", None)
+    if (away_derived or not merged.away_lineup) and merged.away_formation:
+        merged.away_formation = None
+        merged.field_sources.pop("away_formation", None)
     if home_derived or away_derived:
+        derived_sides = [s for s, flag in (("home_lineup", home_derived), ("away_lineup", away_derived)) if flag]
+        sides_label = " and ".join(derived_sides)
         prefix = f"{insights_result.projected_xi_basis}; " if insights_result.projected_xi_basis else ""
-        insights_result.projected_xi_basis = prefix + "home_lineup/away_lineup below is this same projection, shown because no source has published a real lineup yet"
+        insights_result.projected_xi_basis = prefix + f"{sides_label} below is this same projection, shown because no source has published a real lineup yet"
+        # Source's confirmed=False means "lineups object exists but isn't
+        # confirmed" -- once we've replaced an empty side with our own
+        # projection that label is no longer about a published lineup.
+        merged.lineup_confirmed = None
+        merged.field_sources.pop("lineup_confirmed", None)
 
-    home_bench = _derive_side_bench(merged.home_bench, merged.home_lineup, home_squad)
-    away_bench = _derive_side_bench(merged.away_bench, merged.away_lineup, away_squad)
+    home_bench = _derive_side_bench(merged.home_bench, merged.home_lineup, home_squad, absent=home_absent)
+    away_bench = _derive_side_bench(merged.away_bench, merged.away_lineup, away_squad, absent=away_absent)
     if home_bench:
         merged.home_bench = home_bench
         merged.field_sources["home_bench"] = "derived"
@@ -949,8 +1032,15 @@ async def _compute_prediction_and_trend_insights(
     form, opponent_form = forms
     own_xg_estimate, opponent_xg_estimate = xg_estimates
     home_rest_days, away_rest_days = _home_away(own_is_home, own_rest_days, opponent_context.rest_days)
+    # football-data.co.uk is the preferred market source (cross-book
+    # average). When that fixture isn't published yet, Sofascore's own
+    # single-book 1X2 (same de-vig fair_pct shape) still gives a real
+    # market_implied -- far better than leaving market_implied null just
+    # because one feed lags the other. Methodology note lives on the
+    # sofascore_betting_odds field itself.
+    market_odds = merged.betting_odds or merged.sofascore_betting_odds
     insights_result.prediction = compute_match_prediction(
-        merged.betting_odds,
+        market_odds,
         insights_result.home_elo_rating,
         insights_result.away_elo_rating,
         home_rest_days,
@@ -1049,12 +1139,20 @@ async def _get_club_strength_ratings_safe(merged) -> dict:
 
 async def _get_upcoming_match_odds_safe(merged):
     """Extracted from _compute_match_context to keep its own cognitive
-    complexity down (python:S3776); behavior unchanged."""
+    complexity down (python:S3776); behavior unchanged. Same single
+    fixtures.csv fetch also returns the row's appointed referee -- filled
+    into merged.referee when no source already published one (the column
+    is often the only pre-kickoff referee signal; sofascore only has a
+    name once the event page is populated)."""
     try:
-        return await footballdata.get_upcoming_match_odds(merged.home_team, merged.away_team)
+        odds, csv_referee = await footballdata.get_upcoming_fixture(merged.home_team, merged.away_team)
     except Exception as err:  # noqa: BLE001
         record_step_failure("match odds (football-data)", err)
         return None
+    if csv_referee and not merged.referee:
+        merged.referee = csv_referee
+        merged.field_sources["referee"] = "football-data"
+    return odds
 
 
 async def _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form) -> None:
@@ -1115,6 +1213,12 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     opponent_name = merged.home_team if own_is_home is False else merged.away_team
     own_rest_days = form.next5_with_gaps[0].days_since_previous if form and form.next5_with_gaps else None
 
+    # Progress BEFORE the own-team enrichment, not after: that step is
+    # minutes of sequential Sofascore details()/form sessions with no other
+    # signal -- previously the first post-scrape message only fired once it
+    # finished, so a CLI/UI looked hung the whole time (confirmed live:
+    # 180-240s timeouts with zero lines after the 5-source scrape loop).
+    on_progress(_step_message(1, f"Next match found: {merged.home_team} vs {merged.away_team}. Enriching form and head-to-head..."))
     form, own_advanced_stats = await _apply_own_recent_meetings_and_form(team_name, merged, form_source, form, matches_by_source, opponent_name, merged_profile)
 
     on_progress(_step_message(1, f"Next match found: {merged.home_team} vs {merged.away_team}. Fetching opponent ({opponent_name})..."))
@@ -1133,6 +1237,7 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     home_injuries, away_injuries = (own_injuries, opponent_injuries) if own_is_home else (opponent_injuries, own_injuries)
     merged.home_missing_players = reconcile_missing_players(merged.home_missing_players, home_injuries)
     merged.away_missing_players = reconcile_missing_players(merged.away_missing_players, away_injuries)
+    _strip_absent_from_published_lists(merged)
 
     # Same reconciliation, one level down: teamProfile.missing_attackers/
     # defenders/midfielders/goalkeepers were computed from `injuries`
@@ -1179,13 +1284,18 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
         team_name, opponent_name, own_is_home, insights_result, matches_by_source, on_progress
     )
 
+    # Same silent-gap class as the own-team enrichment above: opponent form
+    # venue-classification can open several more details() sessions before
+    # squad leaderboards run -- announce it so step 4 -> step 5 isn't a
+    # multi-minute blank stretch in the UI.
+    on_progress(_step_message(4, "Enriching opponent form and ranks..."))
     opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result, form_source)
 
     merged.betting_odds = await _get_upcoming_match_odds_safe(merged)
 
+    on_progress(_step_message(5, "Computing squad strength and availability..."))
     await _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form)
 
-    on_progress(_step_message(5, "Computing squad strength and availability..."))
     _compute_squad_leaderboards((merged_profile, opponent_profile))
     _apply_squad_derived_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile)
 
@@ -1259,6 +1369,9 @@ async def run_search(
     # out later.
     team_name = team_name.strip()
     sofascore_site.reset_block_state()  # a block from a previous run says nothing about this one
+    from .form import clear_details_cache
+
+    clear_details_cache()
     on_progress(f'Searching for "{team_name}" (base: Sofascore, supplemented by Fotmob, SoccerDesk, Goal.com, 365Scores)...')
 
     matches_by_source, details_by_source, profile_by_source, statuses = await _scrape_all_sources(team_name, on_progress, on_source_progress)

@@ -14,6 +14,7 @@ from football.sites.fotmob import (
     _extract_player_of_the_match,
     _extract_recent_meetings,
     _extract_squad,
+    _extract_suspended_players,
     _extract_timeline,
     _extract_transfers,
     _extract_unavailable,
@@ -255,6 +256,24 @@ def test_extract_unavailable():
 def test_extract_unavailable_none_when_empty():
     assert _extract_unavailable({"unavailable": []}) is None
     assert _extract_unavailable(None) is None
+
+
+def test_extract_suspended_players_filters_by_suspension_type():
+    team = {
+        "unavailable": [
+            {"name": "Banned Player", "unavailability": {"type": "suspension"}},
+            {"name": "Injured Player", "unavailability": {"type": "injury"}},
+            {"name": "Other Absent", "unavailability": {}},
+        ]
+    }
+    assert _extract_suspended_players(team) == ["Banned Player"]
+
+
+def test_extract_suspended_players_confirmed_empty_vs_absent_key():
+    assert _extract_suspended_players({"unavailable": []}) == []
+    assert _extract_suspended_players({"unavailable": [{"name": "X", "unavailability": {"type": "injury"}}]}) == []
+    assert _extract_suspended_players({}) is None
+    assert _extract_suspended_players(None) is None
 
 
 # --- _h2h_meeting_from / _extract_recent_meetings -------------------------------------

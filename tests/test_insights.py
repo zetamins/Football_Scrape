@@ -181,10 +181,32 @@ def test_compute_recent_meetings_keeps_home_away_when_one_team_matches_venue_cou
     assert meetings[0].venue == "away"
 
 
-def test_compute_recent_meetings_skips_when_no_raw_fixture_matches():
+def test_compute_recent_meetings_keeps_form_only_row_when_no_raw_fixture_matches():
+    # Regression (F8b): a form-window result against the opponent with no
+    # matching raw fixture used to be dropped entirely, losing a real
+    # scoreline. Now published form-only (no formations/lineups).
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", scoreline="1-0", venue="home")]
+    result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore", team_name="Home FC"))
+    assert result is not None and len(result) == 1
+    assert result[0].scoreline == "1-0"
+    assert result[0].home_formation is None
+    assert result[0].away_lineup is None
+    assert (result[0].home_team, result[0].away_team) == ("Home FC", "Rival FC")
+
+
+def test_compute_recent_meetings_form_only_maps_away_venue_home_first():
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", venue="away")]
+    result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore", team_name="Home FC"))
+    assert result is not None and len(result) == 1
+    assert (result[0].home_team, result[0].away_team) == ("Rival FC", "Home FC")
+
+
+def test_compute_recent_meetings_form_only_leaves_team_names_none_without_team_name():
     form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z")]
     result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore"))
-    assert result is None
+    assert result is not None and len(result) == 1
+    assert result[0].home_team is None
+    assert result[0].away_team is None
 
 
 def test_compute_recent_meetings_tolerates_details_fetch_failure(monkeypatch):
@@ -198,9 +220,68 @@ def test_compute_recent_meetings_tolerates_details_fetch_failure(monkeypatch):
     fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(failing_details)})()}
     monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
 
-    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z")]
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", scoreline="2-1")]
     result = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
-    assert result is None
+    # Details failed, but the scoreline/teams still come from form+raw --
+    # do not drop the head-to-head row just because box score is gone.
+    assert result is not None and len(result) == 1
+    assert result[0].scoreline == "2-1"
+    assert (result[0].home_team, result[0].away_team) == ("Home FC", "Rival FC")
+    assert result[0].home_formation is None
+    assert result[0].home_lineup is None
+
+
+def test_compute_recent_meetings_falls_back_to_form_xg_when_details_lack_match_stats(monkeypatch):
+    from football import orchestrate
+    from football.types import MatchStatItem  # noqa: F401 - documents intent
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x",
+        home_team="Home FC", away_team="Rival FC",
+        match_stats=None,
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    # Searched team was the away side: xg_for/xg_against swap into home-first.
+    form_results = [_form_result(
+        opponent="Rival FC", date="2026-01-01T15:00:00.000Z",
+        venue="away", xg_for=1.1, xg_against=2.4,
+    )]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    assert meetings[0].home_xg == 2.4
+    assert meetings[0].away_xg == 1.1
+
+
+def test_compute_recent_meetings_prefers_details_xg_over_form_when_both_present(monkeypatch):
+    from football import orchestrate
+    from football.types import MatchStatItem
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x",
+        home_team="Home FC", away_team="Rival FC",
+        match_stats=[MatchStatItem(name="Expected goals (xG)", home="1.8", away="0.9")],
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    form_results = [_form_result(
+        opponent="Rival FC", date="2026-01-01T15:00:00.000Z",
+        venue="home", xg_for=9.9, xg_against=0.1,
+    )]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    assert meetings[0].home_xg == 1.8
+    assert meetings[0].away_xg == 0.9
 
 
 def test_compute_recent_meetings_caps_at_three(monkeypatch):
@@ -2170,6 +2251,26 @@ def test_fill_standings_form_matches_stage_suffixed_competitions():
     assert table[1].form == "LW"
 
 
+def test_fill_standings_form_from_map_fills_null_rows_without_overwriting():
+    from football.insights import fill_standings_form_from_map
+    from football.types import StandingsTableRow
+
+    table = [
+        StandingsTableRow(team_name="Manchester United", position=1, points=0, form="WWWWW"),
+        StandingsTableRow(team_name="Arsenal", position=2, points=0, form=None),
+        StandingsTableRow(team_name="Liverpool", position=3, points=0, form=None),
+    ]
+    form_map = {"manchester united": "LLLLL", "arsenal": "WDWLD"}
+    fill_standings_form_from_map(table, form_map)
+    assert table[0].form == "WWWWW"  # existing fixture-team form kept
+    assert table[1].form == "WDWLD"
+    assert table[2].form is None  # not in the map -- left null, not guessed
+    fill_standings_form_from_map(table, None)
+    fill_standings_form_from_map(None, form_map)
+    fill_standings_form_from_map(table, {})
+    assert table[1].form == "WDWLD"
+
+
 def test_opponent_rank_record_finds_the_opponent_by_alias_not_just_substring():
     # The form source spells it "Man Utd"; the standings table (another
     # source) says "Manchester United" -- neither contains the other, so the
@@ -2221,17 +2322,30 @@ def test_derive_lineup_builds_eleven_players_from_the_projected_xi_with_no_fabri
     assert all(p.minutes_played is None and p.goals is None for p in lineup)  # no fabricated stats
 
 
-def test_derive_lineup_uses_the_squad_members_real_age_but_never_a_shirt_number():
+def test_derive_lineup_uses_the_squad_members_real_age_and_published_shirt_number():
     from football.insights import derive_lineup, mark_projected_starters
     from football.types import PlayerUsagePattern
 
     squad = [
-        _all_none(SquadMember, name="GK", role="G", age=29, recent_usage=_all_none(PlayerUsagePattern, starts=8, total_minutes=720)),
+        _all_none(SquadMember, name="GK", role="G", age=29, shirt_number=1, recent_usage=_all_none(PlayerUsagePattern, starts=8, total_minutes=720)),
     ]
     presence = _presence(["GK"])
     selected = mark_projected_starters(presence, squad)
     lineup = derive_lineup(selected, squad)
     assert lineup[0].age == 29
+    assert lineup[0].shirt_number == 1  # published by the squad source (Sofascore shirtNumber)
+
+
+def test_derive_lineup_leaves_shirt_number_none_when_squad_source_has_none():
+    from football.insights import derive_lineup, mark_projected_starters
+    from football.types import PlayerUsagePattern
+
+    squad = [
+        _all_none(SquadMember, name="GK", role="G", age=29, shirt_number=None, recent_usage=_all_none(PlayerUsagePattern, starts=8, total_minutes=720)),
+    ]
+    presence = _presence(["GK"])
+    selected = mark_projected_starters(presence, squad)
+    lineup = derive_lineup(selected, squad)
     assert lineup[0].shirt_number is None
 
 
@@ -2242,6 +2356,20 @@ def test_derive_lineup_none_without_a_selection_or_squad():
     assert derive_lineup(None, squad) is None
     assert derive_lineup([], squad) is None
     assert derive_lineup([object()], None) is None
+
+
+def test_derive_projected_bench_excludes_absent_players():
+    from football.insights import derive_projected_bench
+    from football.types import LineupPlayer
+
+    rows = [("GK", "G", 8, 720), ("Starter", "M", 6, 540), ("Bench Fit", "M", 1, 90), ("Bench Injured", "F", 1, 90)]
+    squad = _squad_with_starts(rows)
+    lineup = [_all_none(LineupPlayer, name="GK", substitute=False), _all_none(LineupPlayer, name="Starter", substitute=False)]
+    bench = derive_projected_bench(lineup, squad, absent={"bench injured"})
+    assert bench is not None
+    names = {p.name for p in bench}
+    assert "Bench Fit" in names
+    assert "Bench Injured" not in names
 
 
 # --- add_clean_sheets_recent_check --------------------------------------------------------------

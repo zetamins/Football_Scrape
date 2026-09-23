@@ -117,6 +117,90 @@ def _surname(name: str) -> str:
     return parts[-1] if parts else ""
 
 
+def _form_date_key(raw: str) -> str:
+    """Sort key for football-data's Date column (DD/MM/YYYY or DD/MM/YY,
+    occasionally YYYY-MM-DD). Unparseable dates sort last so a bad cell
+    can't scramble the whole form window."""
+    raw = raw.strip()
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+    return "99999999"
+
+
+def form_map_from_csv(csv: str) -> dict[str, str]:
+    """Last-5 league form string per team ("WWDLW", oldest first), keyed by
+    canonical team name -- built from a football-data.co.uk season results
+    CSV's HomeTeam/AwayTeam/FTR columns. FTR H/D/A becomes W/D/L from each
+    side's perspective; rows are sorted by Date so the window is
+    chronological even if the file isn't. Teams with fewer than 5 played
+    matches get the shorter string (real results only)."""
+    lines = csv.strip().lstrip("﻿").split("\n")
+    if not lines:
+        return {}
+    header = lines[0].split(",")
+
+    def col(name: str) -> int:
+        return header.index(name) if name in header else -1
+
+    idx = {"date": col("Date"), "home": col("HomeTeam"), "away": col("AwayTeam"), "ftr": col("FTR")}
+    if any(i == -1 for i in idx.values()):
+        return {}
+
+    parsed: list[tuple[str, str, str, str]] = []
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        cells = line.split(",")
+        if max(idx.values()) >= len(cells):
+            continue
+        ftr = cells[idx["ftr"]].strip().upper()
+        if ftr not in ("H", "D", "A"):
+            continue
+        parsed.append((_form_date_key(cells[idx["date"]]), cells[idx["home"]].strip(), cells[idx["away"]].strip(), ftr))
+    parsed.sort(key=lambda r: r[0])
+
+    by_team: dict[str, list[str]] = {}
+    for _date_key, home, away, ftr in parsed:
+        home_letter = {"H": "W", "D": "D", "A": "L"}[ftr]
+        away_letter = {"W": "L", "D": "D", "L": "W"}[home_letter]
+        by_team.setdefault(canonical_for(home), []).append(home_letter)
+        by_team.setdefault(canonical_for(away), []).append(away_letter)
+    return {team: "".join(results[-5:]) for team, results in by_team.items()}
+
+
+async def get_league_form(competition: str | None) -> dict[str, str] | None:
+    """Standings form for every team in the league's season CSV (F10).
+
+    Sofascore's standings endpoint has no `form` column, so only the two
+    fixture teams get form from their own match lists
+    (insights.fill_standings_form). This fills the other rows from the
+    same per-season results CSV the referee-bias path already uses --
+    one plain-HTTP fetch (current season, then last), no retries, keyed by
+    canonical team name so short names ("Man United") match full ones.
+    Returns None when the competition isn't in _COMPETITION_CODES or no
+    CSV is available (callers leave those rows null)."""
+    if not competition:
+        return None
+    code = _COMPETITION_CODES.get(competition)
+    if not code:
+        return None
+
+    csv: str | None = None
+    for offset in (0, 1):
+        try:
+            csv = await _fetch_csv_or_none(f"https://www.football-data.co.uk/mmz4281/{_season_code(offset)}/{code}.csv")
+        except httpx.HTTPError:
+            csv = None
+        if csv:
+            break
+    if not csv:
+        return None
+    return form_map_from_csv(csv) or None
+
+
 async def get_referee_home_away_bias(
     competition: str | None, referee_name: str | None
 ) -> RefereeHomeAwayBias | None:
@@ -183,7 +267,7 @@ def _find_matching_row(lines: list[str], idx: dict[str, int], home_team: str, aw
     return None
 
 
-async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds | None:
+async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingOdds | None, str | None]:
     """One shared fetch (a single live all-leagues upcoming-fixtures file,
     distinct from the per-season results CSV get_referee_home_away_bias
     uses) covers every match across every league football-data.co.uk
@@ -193,14 +277,21 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     derives implied/fair/overround percentages for both the 1X2 market
     and the Over/Under 2.5 market via the standard de-vig calculation
     (each outcome's 1/odds share renormalized to sum to 100%).
-    Best-effort: None if the match isn't found (fixture not yet
-    published, name-match miss, or the match isn't in a tracked league)."""
+
+    Same single CSV row also carries the fixture's appointed referee
+    when that column is populated -- returned alongside the odds so the
+    orchestrator fills merged.referee (when no other source had one)
+    without a second network fetch.
+
+    Best-effort: (None, None) if the match isn't found (fixture not yet
+    published, name-match miss, or the match isn't in a tracked league);
+    (odds, None) when the row exists but the Referee column is empty."""
     try:
         csv = await _fetch_csv_or_none("https://www.football-data.co.uk/fixtures.csv")
     except httpx.HTTPError:
         csv = None
     if not csv:
-        return None
+        return None, None
 
     lines = csv.strip().split("\n")
     header = lines[0].strip().split(",")
@@ -212,13 +303,14 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
         "home": col("HomeTeam"), "away": col("AwayTeam"),
         "avg_h": col("AvgH"), "avg_d": col("AvgD"), "avg_a": col("AvgA"),
         "avg_over": col("Avg>2.5"), "avg_under": col("Avg<2.5"),
+        "referee": col("Referee"),
     }
     if idx["home"] == -1 or idx["away"] == -1:
-        return None
+        return None, None
 
     row = _find_matching_row(lines, idx, home_team, away_team)
     if row is None:
-        return None
+        return None, None
 
     def cell_float(key: str) -> float | None:
         i = idx[key]
@@ -238,10 +330,14 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
     over_odds = cell_float("avg_over")
     under_odds = cell_float("avg_under")
 
+    referee = None
+    if idx["referee"] != -1 and idx["referee"] < len(row):
+        referee = row[idx["referee"]].strip() or None
+
     home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = implied_and_fair_percentages(home_odds, draw_odds, away_odds)
     over_pct, under_pct, ou_overround, over_fair, under_fair = implied_and_fair_percentages_2way(over_odds, under_odds)
 
-    return BettingOdds(
+    odds = BettingOdds(
         home_win_odds=home_odds,
         draw_odds=draw_odds,
         away_win_odds=away_odds,
@@ -260,3 +356,11 @@ async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds
         over_2_5_fair_pct=over_fair,
         under_2_5_fair_pct=under_fair,
     )
+    return odds, referee
+
+
+async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds | None:
+    """Odds-only wrapper over get_upcoming_fixture -- kept for callers and
+    tests that only want the 1X2/O-U market, not the referee column."""
+    odds, _referee = await get_upcoming_fixture(home_team, away_team)
+    return odds

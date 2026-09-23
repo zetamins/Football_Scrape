@@ -200,6 +200,7 @@ def test_all_three_methods_populate_independently():
 def test_confidence_basis_says_it_is_agreement_and_flags_missing_market_odds():
     no_market = compute_match_prediction(None, _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0))
     assert "not real-world accuracy" in no_market.confidence_basis
+    assert "scaled by methods that ran" in no_market.confidence_basis
     assert "2 of 3 methods" in no_market.confidence_basis
     assert "no market odds" in no_market.confidence_basis
 
@@ -208,6 +209,21 @@ def test_confidence_basis_says_it_is_agreement_and_flags_missing_market_odds():
     )
     assert "3 of 3 methods" in with_market.confidence_basis
     assert "no market odds" not in with_market.confidence_basis
+
+
+def test_confidence_scaled_by_method_count_so_two_models_cannot_read_near_certain():
+    # Regression: heuristic+xg alone previously reported ~96 when they
+    # agreed within ~4pp -- two in-house models with no market check
+    # should not look as settled as a full 3-method agreement.
+    two = compute_match_prediction(None, _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0))
+    three = compute_match_prediction(
+        _odds(50.0, 25.0, 25.0), _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0),
+    )
+    assert two.confidence is not None and three.confidence is not None
+    assert two.confidence < 80.0
+    assert two.confidence < three.confidence
+    # 3-method path: scale factor is 1.0, so pure agreement still shows.
+    assert three.confidence <= 100.0
 
 
 def test_confidence_basis_none_when_only_one_method_ran():

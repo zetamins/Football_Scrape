@@ -4,12 +4,13 @@ opaque number -- see MatchPrediction's own doc comment in types.py for the
 full reasoning behind each and their real citations.
 
 None of the three methods here fetch anything new: market_implied reads
-the already-fetched football-data.co.uk betting_odds, heuristic_blend
-reads the already-computed home/away EloRating (elo.py) plus rest_days/
-squad_strength (both already computed by insights.py for the report's own
-Context/Squad tabs), and xg_model reads the already-computed rolling xG
-estimates (insights.py's SeasonXGEstimate). Zero extra requests for any
-of the three.
+whichever already-fetched 1X2 odds orchestrate passed in
+(football-data.co.uk average, or Sofascore single-book when that feed
+lags), heuristic_blend reads the already-computed home/away EloRating
+(elo.py) plus rest_days/squad_strength (both already computed by
+insights.py for the report's own Context/Squad tabs), and xg_model reads
+the already-computed rolling xG estimates (insights.py's
+SeasonXGEstimate). Zero extra requests for any of the three.
 
 Why rest-days and available-squad-value, and not the other signals this
 project already computes (head-to-head, card discipline, weather,
@@ -330,13 +331,18 @@ def _blend_predictions(available: list[OutcomeProbabilities], weights: list[floa
         away_win_pct=round(away_pct, 1),
     )
     # Confidence: 100 minus the max spread across the three outcomes
-    # between any two methods. Lower disagreement = higher confidence.
+    # between any two methods, then scaled by how many of the three
+    # methods actually ran. Two in-house models agreeing closely is not
+    # the same as three (especially when the market check is missing) --
+    # without the scale, heuristic+xg alone could read 96 while market
+    # disagreed, which overstated how settled the estimate was.
     max_spreads = []
     for attr in ("home_win_pct", "draw_pct", "away_win_pct"):
         vals = [getattr(a, attr) for a in available]
         max_spreads.append(max(vals) - min(vals))
     max_disagreement = max(max_spreads)
-    confidence = round(max(0, 100 - max_disagreement), 1)
+    agreement = max(0, 100 - max_disagreement)
+    confidence = round(agreement * (len(available) / 3.0), 1)
     return blended, confidence
 
 
@@ -358,7 +364,10 @@ def _prediction_model_name(market_implied, heuristic_blend, xg_result) -> str | 
 def _confidence_basis(method_names: list[str], confidence: float | None, market_available: bool) -> str | None:
     if confidence is None:
         return None
-    basis = f"Agreement between {len(method_names)} of 3 methods ({', '.join(method_names)}), not real-world accuracy"
+    basis = (
+        f"Agreement between {len(method_names)} of 3 methods ({', '.join(method_names)}), "
+        "scaled by methods that ran, not real-world accuracy"
+    )
     if not market_available:
         basis += "; no market odds available, so no independent check on the model-based methods"
     return basis

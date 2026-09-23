@@ -33,6 +33,35 @@ from .types import (
     VenueSplitStats,
 )
 
+# How many of form.last20_overall get a full details() fetch when the
+# source is Sofascore (see enrich_form_with_venue_classification). Each
+# details() call is ~15 paced browser API requests; 20 x 2 teams was
+# enough volume to get the client blocked mid-run.
+FORM_ENRICH_DETAIL_LIMIT = 5
+
+# Per-run cache of MatchDetails keyed by kickoff_utc, filled as form
+# enrichment / H2H detail fetches already pay for a full details() call.
+# compute_rotation_info reuses these instead of re-opening two browser
+# sessions after the rest of the pipeline may have tripped the Sofascore
+# circuit breaker (confirmed live: both rotations null while the same
+# matches' lineups had already been read for form enrichment).
+_details_by_kickoff: dict[str, MatchDetails] = {}
+
+
+def cache_match_details(match: MatchInfo, details: MatchDetails) -> None:
+    if match.kickoff_utc:
+        _details_by_kickoff[match.kickoff_utc] = details
+
+
+def get_cached_match_details(match: MatchInfo) -> MatchDetails | None:
+    if not match.kickoff_utc:
+        return None
+    return _details_by_kickoff.get(match.kickoff_utc)
+
+
+def clear_details_cache() -> None:
+    _details_by_kickoff.clear()
+
 # Statuses that unambiguously mean "hasn't kicked off yet" across every
 # source's own vocabulary (Sofascore: notstarted, Fotmob/Goal/SoccerDesk/
 # 365Scores: scheduled). Deliberately narrow -- "live"/"inprogress",
@@ -1005,12 +1034,14 @@ async def _process_one_result(
     from .orchestrate import (
         SCRAPERS,  # local import: orchestrate imports form, avoid a cycle
     )
+    from .sites.sofascore import SofascoreBlockedError
 
     raw = _find_raw_match(raw_matches, result)
     if raw is None:
         return result
     try:
         details: MatchDetails = await SCRAPERS[source].details(raw)
+        cache_match_details(raw, details)
         enriched_result, neutral_venue, xg_for, xg_against = _build_enriched_result(result, details)
         opp_venue = "away" if result.venue == "home" else "home"
 
@@ -1020,6 +1051,10 @@ async def _process_one_result(
         _accumulate_usage_and_xa(usage_by_player, acc, details, result)
         _accumulate_set_piece_and_shotmap(acc, details, result)
         return enriched_result
+    except SofascoreBlockedError:
+        # Re-raise so enrich_form_with_venue_classification can stop the
+        # rest of the last-20 window without one browser launch per match.
+        raise
     except Exception as err:  # noqa: BLE001  # mirrors TS's catch { enriched.push(result) }
         record_step_failure("form enrichment: past-match details", err)
         return result
@@ -1199,15 +1234,39 @@ async def enrich_form_with_venue_classification(
     and lineup/bench statistics, so advanced-stats aggregation and
     per-player usage ride along at zero extra requests. Best-effort per
     match throughout: a handful of failed fetches just leave those
-    entries/stats undetermined rather than failing the whole enrichment."""
+    entries/stats undetermined rather than failing the whole enrichment.
+
+    Sofascore-specific request budget: each details() call is a full
+    browser session + ~15 paced API endpoints, so a naïve 20-match loop
+    for BOTH teams was ~600 Sofascore requests in one run and reliably
+    tripped Cloudflare. For the Sofascore source only, enrich the most
+    recent FORM_ENRICH_DETAIL_LIMIT matches and leave the rest of the
+    last-20 window unenriched (same honest fallback a failed fetch
+    already produces). Plain-HTTP sources keep the full 20 -- their
+    details() is one small request, not a browser session."""
+    from .sites.sofascore import SofascoreBlockedError, is_blocked
+
     stat_totals: dict[str, dict[str, float]] = {k: {"for": 0, "against": 0, "n": 0} for k in ADVANCED_STAT_NAMES}
     usage_by_player: dict[str, _UsageAccumulator] = {}
     acc = _SetPieceAccumulator()
     venue_buckets = {"home": _empty_venue_bucket(), "away": _empty_venue_bucket(), "neutral": _empty_venue_bucket()}
 
     enriched: list[FormResult] = []
-    for result in form.last20_overall:
-        enriched.append(await _process_one_result(result, raw_matches, source, stat_totals, venue_buckets, usage_by_player, acc))
+    for index, result in enumerate(form.last20_overall):
+        # After the first CDN block, stop opening new Sofascore sessions
+        # for the remaining window -- is_blocked() short-circuits before
+        # launch_browser, but skipping here also avoids the per-call
+        # exception path 19 more times.
+        if source == "sofascore" and is_blocked():
+            enriched.append(result)
+            continue
+        if source == "sofascore" and index >= FORM_ENRICH_DETAIL_LIMIT:
+            enriched.append(result)
+            continue
+        try:
+            enriched.append(await _process_one_result(result, raw_matches, source, stat_totals, venue_buckets, usage_by_player, acc))
+        except SofascoreBlockedError:
+            enriched.append(result)
 
     venue_split_form = _compute_venue_split_form(enriched)
     detailed_venue_split = _compute_detailed_venue_split(venue_buckets)

@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 Source = Literal["sofascore", "fotmob", "soccerdesk", "goal", "365scores"]
-FieldSource = Literal["sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in"]
+FieldSource = Literal[
+    "sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in",
+    "derived", "mixed", "football-data",
+]
 
 
 @dataclass
@@ -690,6 +693,11 @@ class SquadMember:
     season_stats_source: Source | None
     defensive_stats: DefensiveStats | None
     recent_usage: PlayerUsagePattern | None
+    # Shirt number when the squad source publishes one (Sofascore's
+    # /team/{id}/players player.shirtNumber). Null when the source has
+    # no shirt field -- never guessed from match lineups alone, since a
+    # transfer between seasons would leave a stale number.
+    shirt_number: int | None = None
 
 
 @dataclass
@@ -1317,11 +1325,13 @@ class MatchPrediction:
     instead of trusting an opaque blend.
 
     market_implied: the de-vig implied probability from real bookmaker
-    odds (football-data.co.uk's betting_odds, already fetched) --
-    research on football prediction consistently finds market odds the
-    single strongest standalone predictor, often outperforming home-built
-    statistical models outright. None whenever betting_odds itself is
-    None (fixture not in a tracked league, or not yet published).
+    odds -- football-data.co.uk's cross-book average when that fixture is
+    published, otherwise Sofascore's single-book 1X2 (orchestrate passes
+    whichever is available; both share the same fair_pct shape). Research
+    on football prediction consistently finds market odds the single
+    strongest standalone predictor, often outperforming home-built
+    statistical models outright. None only when neither feed has posted
+    1X2 for this fixture yet.
 
     heuristic_blend: NOT a trained/backtested model -- this project has
     no historical result archive to train or validate one against.
@@ -1358,14 +1368,17 @@ class MatchPrediction:
     # Weighted average of all available methods, with confidence based
     # on agreement. Market-implied gets highest weight (research shows
     # it's the strongest standalone predictor), followed by xg_model,
-    # then heuristic_blend. confidence is 0-100: higher when methods
-    # agree, lower when they diverge significantly.
+    # then heuristic_blend. confidence is 0-100: agreement across the
+    # methods that ran, scaled by how many of the three that is -- two
+    # in-house models agreeing closely cannot read as near-certain when
+    # the market check never ran.
     blended: OutcomeProbabilities | None = None
     confidence: float | None = None
     # Plain-language basis for `confidence`: it measures only how closely
-    # the methods that ran agree with each other, NOT real-world accuracy
-    # (no outcome archive exists to calibrate against) -- and names any
-    # method that could not run, e.g. no market odds this far out.
+    # the methods that ran agree with each other (and is scaled by how
+    # many ran), NOT real-world accuracy (no outcome archive exists to
+    # calibrate against) -- and names any method that could not run,
+    # e.g. no market odds this far out.
     confidence_basis: str | None = None
     # "+"-joined names of whichever of market/heuristic/xg contributed
     # (e.g. "heuristic+xg") -- which methods actually ran for THIS match,

@@ -1169,6 +1169,60 @@ def test_merged_match_markdown_notes_h2h_detail_subset_of_sample():
     assert "2026-03-22 0-3" in text
 
 
+def test_merged_match_markdown_notes_partial_standings_form():
+    from football.merge import MergedMatch
+    from football.types import StandingsTableRow
+
+    def _row(position, team_name, form=None):
+        return StandingsTableRow(
+            team_name=team_name, position=position, points=0, wins=0, draws=0, losses=0,
+            goal_difference=0, goals_for=0, goals_against=0, form=form,
+        )
+
+    table = [
+        _row(1, "Home FC", form="WWDLW"),
+        _row(2, "Away FC", form="LDWWD"),
+        _row(3, "Other FC"),
+    ]
+    d = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        standings_table=table, field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "Standings form (partial; remaining rows have no source form column): Home FC WWDLW, Away FC LDWWD" in text
+
+
+def test_merged_match_markdown_omits_standings_form_note_when_every_row_is_filled_or_none():
+    from football.merge import MergedMatch
+    from football.types import StandingsTableRow
+
+    def _row(position, team_name, form=None):
+        return StandingsTableRow(
+            team_name=team_name, position=position, points=0, wins=0, draws=0, losses=0,
+            goal_difference=0, goals_for=0, goals_against=0, form=form,
+        )
+
+    filled = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        standings_table=[_row(1, "A", form="W"), _row(2, "B", form="L")],
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(filled, lines)
+    assert "Standings form" not in "\n".join(lines)
+
+    empty = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        standings_table=[_row(1, "A"), _row(2, "B")],
+        field_sources={}, additional_notes=[],
+    )
+    lines = []
+    merged_match_markdown(empty, lines)
+    assert "Standings form" not in "\n".join(lines)
+
+
 def test_merged_match_markdown_labels_season_possession_as_season_to_date():
     from football.merge import MergedMatch
     from football.types import TeamSeasonStats

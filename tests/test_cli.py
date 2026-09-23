@@ -64,6 +64,31 @@ def test_run_one_writes_json_and_markdown_files(monkeypatch, tmp_path, capsys):
     assert "Saved:" in out
 
 
+def test_run_one_progress_and_report_prints_are_flushed(monkeypatch, tmp_path, capsys):
+    """Piped stdout is block-buffered; without flush=True a multi-minute
+    run looks hung (regression: enrichment phase produced zero visible
+    lines until exit)."""
+    seen_flush: list[bool] = []
+    real_print = print
+
+    def spy_print(*args, **kwargs):
+        seen_flush.append(bool(kwargs.get("flush")))
+        return real_print(*args, **kwargs)
+
+    async def fake_run_search(team_name, on_progress):
+        on_progress("scraping...")
+        return _fake_result(team_name)
+
+    monkeypatch.setattr(cli, "run_search", fake_run_search)
+    monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)
+    monkeypatch.setattr("builtins.print", spy_print)
+
+    asyncio.run(_run_one("Arsenal", announce=False))
+    assert seen_flush, "expected print calls"
+    assert all(seen_flush), "every CLI print must pass flush=True"
+    capsys.readouterr()
+
+
 def test_run_one_announces_team_when_running_a_batch(monkeypatch, tmp_path, capsys):
     async def fake_run_search(team_name, on_progress):
         return _fake_result(team_name)

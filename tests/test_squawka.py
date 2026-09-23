@@ -16,6 +16,13 @@ def test_normalize_strips_diacritics_and_punctuation():
     assert _normalize("Björn Kuipers!") == "bjorn kuipers"
 
 
+def test_fetch_stat_js_is_bounded_by_abort_signal():
+    """Unbounded in-page fetch pins page.evaluate forever on desktop
+    Playwright (no default timeout) -- same class of hang as Sofascore's
+    _FETCH_JSON_JS."""
+    assert "AbortSignal.timeout" in squawka._FETCH_STAT_JS
+
+
 # --- _resolve_competition_id -------------------------------------------------------------
 
 

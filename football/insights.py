@@ -17,12 +17,13 @@ from .form import day_diff, is_team_home, normalize_team_name, parse_leading_int
 from .geo import country_distance_km, country_timezone_diff_hours, travel_time_hours
 from .merge import (
     CONFIRMED_EMPTY_FIELDS,
+    find_by_name_containment,
     is_attacker_role,
     is_defender_role,
     is_goalkeeper_role,
     is_midfield_role,
 )
-from .team_aliases import same_team
+from .team_aliases import canonical_for, same_team
 from .types import (
     CardDisciplineInfo,
     CardDisciplineVenueSplit,
@@ -278,12 +279,30 @@ def _h2h_meeting_venue(meeting_venue: str, details) -> str:
     return meeting_venue
 
 
+def _form_result_xg_into_home_first(meeting, own_was_home: bool) -> tuple[float | None, float | None]:
+    """FormResult.xg_for/xg_against are always from the SEARCHED team's
+    side; HeadToHeadMeeting.home_xg/away_xg are home-first for THAT past
+    meeting. Swap when the searched team was the away side. Returns
+    (None, None) when the form window never enriched xG for this result."""
+    if meeting.xg_for is None and meeting.xg_against is None:
+        return None, None
+    if own_was_home:
+        return meeting.xg_for, meeting.xg_against
+    return meeting.xg_against, meeting.xg_for
+
+
 def _build_h2h_meeting(meeting, details) -> HeadToHeadMeeting:
     """Extracted from compute_recent_meetings to keep its own cognitive
-    complexity down (python:S3776); behavior unchanged."""
+    complexity down (python:S3776). Falls back to the form window's own
+    xG for this result when details.match_stats has no Expected goals row
+    (common on older events where Sofascore keeps the score but not the
+    full box score). Formations/lineups stay details-only -- the form
+    window never carries them."""
     xg_stat = next((s for s in (details.match_stats or []) if "expected goals" in s.name.lower()), None)
     home_xg = _parse_xg_stat_value(xg_stat.home) if xg_stat else None
     away_xg = _parse_xg_stat_value(xg_stat.away) if xg_stat else None
+    if home_xg is None and away_xg is None:
+        home_xg, away_xg = _form_result_xg_into_home_first(meeting, own_was_home=meeting.venue == "home")
     return HeadToHeadMeeting(
         date=meeting.date, competition=meeting.competition, scoreline=meeting.scoreline,
         venue=_h2h_meeting_venue(meeting.venue, details),
@@ -293,15 +312,60 @@ def _build_h2h_meeting(meeting, details) -> HeadToHeadMeeting:
     )
 
 
+def _form_only_home_away(meeting, team_name: str | None, opponent_name: str) -> tuple[str | None, str | None]:
+    """Home/away team names for a form-only H2H row when the raw fixture
+    list has no matching MatchInfo. FormResult.venue is searched-team
+    framed ("home" = the searched team hosted); team_name may be None
+    when the caller has no searched-team context, in which case both
+    sides stay None rather than guessing."""
+    if not team_name:
+        return None, None
+    if meeting.venue == "home":
+        return team_name, opponent_name
+    if meeting.venue == "away":
+        return opponent_name, team_name
+    # Neutral / unknown: without the raw fixture there is no honest
+    # host -- leave both sides None.
+    return None, None
+
+
+def _build_h2h_meeting_from_form_only(
+    meeting, home_team: str | None = None, away_team: str | None = None
+) -> HeadToHeadMeeting:
+    """When details() throws (blocked/403/empty on an older event) OR the
+    raw fixture list never had a matching MatchInfo, still publish the
+    meeting from the form window so the reader keeps the
+    scoreline/teams/venue instead of losing the head-to-head row
+    entirely. Formations/lineups stay None -- honest absence, not
+    fabrication. xG uses the form window's own enrichment when present,
+    mapped home-first using FormResult.venue (searched-team frame)."""
+    home_xg, away_xg = _form_result_xg_into_home_first(meeting, own_was_home=meeting.venue == "home")
+    return HeadToHeadMeeting(
+        date=meeting.date, competition=meeting.competition, scoreline=meeting.scoreline,
+        venue=meeting.venue,
+        home_formation=None, away_formation=None,
+        home_xg=home_xg, away_xg=away_xg, home_lineup=None, away_lineup=None,
+        home_team=home_team, away_team=away_team,
+    )
+
+
 async def compute_recent_meetings(
-    raw_matches: list[MatchInfo], form_results, opponent_name: str, source: Source
+    raw_matches: list[MatchInfo], form_results, opponent_name: str, source: Source,
+    team_name: str | None = None,
 ) -> list[HeadToHeadMeeting] | None:
     """Sofascore's h2h endpoint only returns an aggregate tally, confirmed
     live -- no per-meeting match list exists there. This finds actual past
     meetings the honest way: scanning the already-fetched recent-form
     sample for results against this specific opponent, then
     cross-referencing the raw fixture list to fetch full details for just
-    those matches. Capped at 3."""
+    those matches. Capped at 3.
+
+    When a form result against this opponent has no matching raw fixture
+    (older than every source's fixture window, or a name/date miss), the
+    row is still emitted form-only rather than dropped -- scoreline and
+    venue stay real; formations/lineups stay None. `team_name` names the
+    searched side so home/away can be filled from FormResult.venue."""
+    from .form import cache_match_details
     from .orchestrate import SCRAPERS
 
     meetings = [r for r in form_results if same_team(r.opponent, opponent_name)]
@@ -315,12 +379,16 @@ async def compute_recent_meetings(
             None,
         )
         if raw is None:
+            home_team, away_team = _form_only_home_away(meeting, team_name, opponent_name)
+            out.append(_build_h2h_meeting_from_form_only(meeting, home_team, away_team))
             continue
         try:
             details = await SCRAPERS[source].details(raw)
+            cache_match_details(raw, details)
             out.append(_build_h2h_meeting(meeting, details))
         except Exception as err:  # noqa: BLE001 - best-effort per past meeting
             record_step_failure("past meeting details", err)
+            out.append(_build_h2h_meeting_from_form_only(meeting, raw.home_team, raw.away_team))
     return out if out else None
 
 
@@ -501,12 +569,12 @@ def fill_standings_form(
     standings_table: list[StandingsTableRow] | None, position: int | None, results: list[FormResult] | None, competition: str | None
 ) -> None:
     """Sofascore's standings response has no `form` column, so it's null
-    for every row. For the teams this report actually has results for, fill
-    it from those real results: their last 5 matches in the fixture's own
-    competition (stage suffixes ignored, see _same_competition), oldest
-    first ("WWDLW"), matched to the row by table POSITION. Only the row(s)
-    we have data for are filled -- the other teams' rows stay None rather
-    than being guessed."""
+    for every row. For the two teams this report actually has match lists
+    for, fill it from those real results: their last 5 matches in the
+    fixture's own competition (stage suffixes ignored, see
+    _same_competition), oldest first ("WWDLW"), matched to the row by table
+    POSITION. Other rows stay None here -- fill_standings_form_from_map
+    (F10) fills them from football-data when that source is available."""
     if not standings_table or position is None or not results or not competition:
         return
     row = next((r for r in standings_table if r.position == position), None)
@@ -515,6 +583,23 @@ def fill_standings_form(
     league_results = [r for r in results if _same_competition(r.competition, competition)][:5]
     if league_results:
         row.form = "".join(r.result for r in reversed(league_results))
+
+
+def fill_standings_form_from_map(
+    standings_table: list[StandingsTableRow] | None, form_by_team: dict[str, str] | None
+) -> None:
+    """Fill still-null form cells from a team->form map (F10: football-data
+    season results for every table row). Never overwrites an existing form
+    value -- the two fixture teams keep whatever fill_standings_form already
+    set from their own richer match lists."""
+    if not standings_table or not form_by_team:
+        return
+    for row in standings_table:
+        if row.form is not None:
+            continue
+        form = form_by_team.get(canonical_for(row.team_name))
+        if form:
+            row.form = form
 
 
 _PROJECTED_XI_SIZE = 11
@@ -578,11 +663,10 @@ def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember]
     football shape (confirmed live: "6-2-2") -- home_formation/
     away_formation stay whatever a real source published, or null.
 
-    age comes straight from the matching SquadMember (real data already
-    on hand); shirt_number stays null -- no source publishes a team
-    profile's per-player shirt number, only per-match lineups do, so
-    there is nothing honest to put there for a derived entry. Every other
-    field beyond name/position/substitute/age stays None -- exactly how
+    age and shirt_number come straight from the matching SquadMember when
+    the squad source published them (real data already on hand); both
+    stay null when it didn't. Every other field beyond
+    name/position/substitute/age/shirt_number stays None -- exactly how
     a genuine unconfirmed prediction already looks pre-match (no minutes/
     stats exist yet either way)."""
     if not selected or not squad:
@@ -594,34 +678,58 @@ def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember]
             minutes_played=None, goals=None, assists=None, xg=None, xa=None, shots=None,
             shots_on_target=None, tackles=None, interceptions=None, fouls=None, rating=None, key_passes=None,
             age=(by_name[norm].age if norm in by_name else None),
+            shirt_number=(by_name[norm].shirt_number if norm in by_name else None),
         )
         for p in selected
         for norm in [normalize_team_name(p.name)]
     ]
 
 
-def derive_projected_bench(lineup: list[LineupPlayer] | None, squad: list[SquadMember] | None) -> list[LineupPlayer] | None:
-    """Projects a bench from squad members NOT in `lineup`, ranked by
+def derive_projected_bench(
+    lineup: list[LineupPlayer] | None,
+    squad: list[SquadMember] | None,
+    absent: set[str] | None = None,
+) -> list[LineupPlayer] | None:
+    """    Projects a bench from squad members NOT in `lineup`, ranked by
     recent starts/minutes -- only when no source has published a real
     bench for this fixture (Sofascore is the only source that does, and
     only once lineups are close to confirmed). Mirrors derive_lineup's
-    honesty rules: age from the squad, shirt_number left null (no source
-    publishes a team profile's per-player shirt number), everything else
-    None. Returns None when there's nothing meaningful to project (no
-    lineup to subtract, or no squad / no unused players)."""
+    honesty rules: age/shirt_number from the squad when published,
+    everything else None. Returns None when there's nothing meaningful
+    to project (no lineup to subtract, or no squad / no unused players).
+
+    `absent`: normalized names ruled out for this fixture (missing/
+    suspended/injured) -- never projected onto the bench, so a derived
+    bench can't contradict match.missing_players the way a source-
+    published one can (confirmed live: injured players listed both
+    places)."""
     if not lineup or not squad:
         return None
     if not all(getattr(p, "name", None) for p in lineup):
         return None
     starters = {normalize_team_name(p.name) for p in lineup}
+    unavailable = absent or set()
+
+    def _eligible(m: SquadMember) -> bool:
+        norm = normalize_team_name(m.name)
+        if norm in starters or norm in unavailable:
+            return False
+        # One-directional containment only (absent entry ⊆ player name),
+        # same safety rule as merge.filter_absent_players -- the reverse
+        # would drop a player whose name is merely a substring of someone
+        # else's longer absent entry.
+        if unavailable and any(len(a) >= 3 and a in norm for a in unavailable):
+            return False
+        return True
+
     candidates = [
         m for m in squad
-        if normalize_team_name(m.name) not in starters
+        if _eligible(m)
         and m.recent_usage
         and (m.recent_usage.matches_in_squad or 0) > 0
     ]
     if not candidates:
-        candidates = [m for m in squad if normalize_team_name(m.name) not in starters]
+        candidates = [m for m in squad if _eligible(m)]
     if not candidates:
         return None
     candidates.sort(key=lambda m: (m.recent_usage.total_minutes if m.recent_usage else 0), reverse=True)
@@ -631,6 +739,7 @@ def derive_projected_bench(lineup: list[LineupPlayer] | None, squad: list[SquadM
             minutes_played=None, goals=None, assists=None, xg=None, xa=None, shots=None,
             shots_on_target=None, tackles=None, interceptions=None, fouls=None, rating=None, key_passes=None,
             age=m.age,
+            shirt_number=m.shirt_number,
         )
         for m in candidates[:9]
     ]
@@ -650,7 +759,6 @@ def _in_name_set(name: str, name_set: dict[str, bool] | None) -> bool | None:
     "checked, not present")."""
     if name_set is None:
         return None
-    from .merge import find_by_name_containment
     from .merge import normalize_team_name as _normalize
 
     return _normalize(name) in name_set or find_by_name_containment(name, name_set) is not None
@@ -766,7 +874,12 @@ def _build_rotation_info(
 async def compute_rotation_info(team_name: str, source: Source, matches: list[MatchInfo]) -> RotationInfo | None:
     """Diffs the starting XI between the last TWO played matches (not the
     upcoming match's lineup, usually unpublished until close to kickoff)
-    -- a general rotation-tendency signal."""
+    -- a general rotation-tendency signal.
+
+    Reuses form.py's per-run details cache first: the same last-two
+    matches are usually already inside the enrichment window, and after
+    a Sofascore block a second details() launch would only fail."""
+    from .form import get_cached_match_details
     from .orchestrate import SCRAPERS
 
     played = sorted(
@@ -779,8 +892,8 @@ async def compute_rotation_info(team_name: str, source: Source, matches: list[Ma
     last, prev = played[0], played[1]
 
     try:
-        last_details = await SCRAPERS[source].details(last)
-        prev_details = await SCRAPERS[source].details(prev)
+        last_details = get_cached_match_details(last) or await SCRAPERS[source].details(last)
+        prev_details = get_cached_match_details(prev) or await SCRAPERS[source].details(prev)
         return _build_rotation_info(team_name, last, prev, last_details, prev_details)
     except Exception as err:  # noqa: BLE001 - mirrors TS's catch { return null }
         record_step_failure("rotation info", err)

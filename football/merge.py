@@ -52,7 +52,15 @@ _TEXT_CONFLICT_FIELDS = ("venue_name", "venue_city", "venue_country", "referee",
 # "derived" (not a real site) marks a field this project computed itself
 # from other data rather than any source actually publishing it -- e.g.
 # orchestrate.derive_lineup_and_formation's projected pre-match lineup.
-FieldSource = Literal["sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in", "derived"]
+# "mixed" means the final value is a splice of rows from more than one
+# source (recent_meetings deep+leftover is the only current case) --
+# neither a single site nor a pure derivation. "football-data" is the
+# football-data.co.uk fixtures CSV (odds/referee), distinct from its
+# per-season results CSV used for referee bias stats.
+FieldSource = Literal[
+    "sofascore", "fotmob", "soccerdesk", "goal", "365scores", "wttr.in",
+    "derived", "mixed", "football-data",
+]
 
 
 def is_empty(v: Any) -> bool:
@@ -942,6 +950,53 @@ def reconcile_missing_players(
     return result if result else None
 
 
+def absent_name_set(
+    missing_players: list[MissingPlayer] | None,
+    suspended: list[str] | None,
+    injuries: list[SquadMember] | None = None,
+) -> set[str]:
+    """Normalized names of every player ruled out for THIS fixture:
+    match-level missing_players, suspensions, and profile injuries.
+    Callers that already ran reconcile_missing_players can omit
+    `injuries` (those names are already on missing_players)."""
+    names = {normalize_team_name(p.name) for p in (missing_players or [])}
+    names.update(normalize_team_name(n) for n in (suspended or []))
+    names.update(normalize_team_name(m.name) for m in (injuries or []))
+    return names
+
+
+def filter_absent_players(players: list | None, absent: set[str]) -> list | None:
+    """Removes players in `absent` from a published lineup or bench.
+
+    Confirmed live: Sofascore lists injured/missing players on the bench
+    AND on match.missingPlayers (and presence marks them "A") -- the two
+    contradicted each other in the report. Runs after
+    reconcile_missing_players so profile injuries are included.
+
+    Matching is exact-normalized, plus one-directional containment: an
+    absent entry that is a substring of the player's normalized name
+    (e.g. absent "chido obi" vs player "chido obi-martin"). The reverse
+    (player name inside a longer absent entry) is deliberately NOT used
+    -- that would drop "Starter" whenever anyone else on the list is
+    "Injured Starter". Returns None only when the input was None; an
+    all-filtered non-empty list becomes [] (we checked, nobody remains)
+    rather than being confused with "never published"."""
+    if players is None or not absent:
+        return players
+    kept = []
+    for p in players:
+        norm = normalize_team_name(getattr(p, "name", "") or "")
+        if not norm or norm in absent:
+            if norm:
+                continue  # exact match -> absent
+            kept.append(p)
+            continue
+        if any(len(a) >= _MIN_CONTAINMENT_NAME_LEN and a in norm for a in absent):
+            continue
+        kept.append(p)
+    return kept
+
+
 def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source: Source) -> None:
     """Overwrites merged.recent_meetings with a richer, deeper computation
     (formations/xG/lineups per meeting) that only one specific `source`
@@ -963,14 +1018,17 @@ def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source:
     dropped -- replacing the whole list previously turned a 3-meeting
     fallback into a single detailed meeting. Same-date entries are taken
     from the deep result; the list is newest-first. When any fallback
-    entry survives, the existing provenance label is left as is, since
-    part of the list still comes from that source."""
+    entry survives alongside deep rows, provenance is labelled "mixed" --
+    claiming either single source would misattribute the other half of
+    the list (confirmed live: newest meeting detailed by Sofascore while
+    two older rows still came from Fotmob, labelled wholly "fotmob")."""
     if not deep_meetings:
         return
     deep_days = {m.date[:10] for m in deep_meetings}
     leftovers = [m for m in (merged.recent_meetings or []) if m.date[:10] not in deep_days]
     merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date, reverse=True)
     if leftovers:
+        merged.field_sources["recent_meetings"] = "mixed"
         return
     if source == merged.base_source:
         merged.field_sources.pop("recent_meetings", None)

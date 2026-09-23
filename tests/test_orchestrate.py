@@ -930,7 +930,7 @@ def test_apply_own_recent_meetings_and_form_applies_deep_meetings_and_venue_enri
     from football.orchestrate import _apply_own_recent_meetings_and_form
     from football.types import PlayerUsagePattern, SquadMember
 
-    async def fake_compute_recent_meetings(_raw_matches, _last20, _opponent_name, _source):
+    async def fake_compute_recent_meetings(_raw_matches, _last20, _opponent_name, _source, team_name=None):
         return [_meeting()]
 
     enriched_form = _form_summary(matches_last7_days=1)
@@ -1399,6 +1399,84 @@ def test_compute_prediction_and_trend_insights_populates_prediction_and_card_ris
     assert insights_result.prediction is None
 
 
+def test_compute_prediction_falls_back_to_sofascore_odds_when_football_data_missing(monkeypatch):
+    from football.orchestrate import _compute_prediction_and_trend_insights
+    from football.types import BettingOdds
+
+    async def fake_rotation(_team_name, _source, _matches):
+        return None
+
+    monkeypatch.setattr(orchestrate.ins, "compute_rotation_info", fake_rotation)
+
+    sofa_odds = BettingOdds(
+        home_win_odds=1.91, draw_odds=3.6, away_win_odds=3.9,
+        home_win_implied_pct=None, draw_implied_pct=None, away_win_implied_pct=None,
+        over_2_5_odds=None, under_2_5_odds=None,
+        home_win_fair_pct=48.0, draw_fair_pct=27.0, away_win_fair_pct=25.0,
+    )
+    merged = _all_none(
+        orchestrate.MergedMatch, base_source="sofascore",
+        betting_odds=None, sofascore_betting_odds=sofa_odds,
+        head_to_head_summary=None, referee=None, referee_stats=None,
+    )
+    insights_result = _insights_result()
+    from football.types import EloRating
+    insights_result.home_elo_rating = EloRating(elo=1500, as_of="2026-01-01")
+    insights_result.away_elo_rating = EloRating(elo=1500, as_of="2026-01-01")
+    ctx = _opponent_context(matches=[], matches_source=None)
+    form = _form_summary()
+    opponent_form = _form_summary()
+
+    asyncio.run(
+        _compute_prediction_and_trend_insights(
+            "Own Team", merged, None, None, "Opponent", insights_result, True,
+            5, ctx, (form, opponent_form), "sofascore", {"sofascore": []},
+            (None, None),
+        )
+    )
+    assert insights_result.prediction is not None
+    assert insights_result.prediction.market_implied is not None
+    assert insights_result.prediction.market_implied.home_win_pct == 48.0
+
+
+def test_compute_prediction_prefers_football_data_odds_over_sofascore_when_both_present(monkeypatch):
+    from football.orchestrate import _compute_prediction_and_trend_insights
+    from football.types import BettingOdds, EloRating
+
+    async def fake_rotation(_team_name, _source, _matches):
+        return None
+
+    monkeypatch.setattr(orchestrate.ins, "compute_rotation_info", fake_rotation)
+
+    def _odds(home, draw, away):
+        return BettingOdds(
+            home_win_odds=None, draw_odds=None, away_win_odds=None,
+            home_win_implied_pct=None, draw_implied_pct=None, away_win_implied_pct=None,
+            over_2_5_odds=None, under_2_5_odds=None,
+            home_win_fair_pct=home, draw_fair_pct=draw, away_win_fair_pct=away,
+        )
+
+    merged = _all_none(
+        orchestrate.MergedMatch, base_source="sofascore",
+        betting_odds=_odds(50.0, 25.0, 25.0),
+        sofascore_betting_odds=_odds(48.0, 27.0, 25.0),
+        head_to_head_summary=None, referee=None, referee_stats=None,
+    )
+    insights_result = _insights_result()
+    insights_result.home_elo_rating = EloRating(elo=1500, as_of="2026-01-01")
+    insights_result.away_elo_rating = EloRating(elo=1500, as_of="2026-01-01")
+    ctx = _opponent_context(matches=[], matches_source=None)
+
+    asyncio.run(
+        _compute_prediction_and_trend_insights(
+            "Own Team", merged, None, None, "Opponent", insights_result, True,
+            5, ctx, (_form_summary(), _form_summary()), "sofascore", {"sofascore": []},
+            (None, None),
+        )
+    )
+    assert insights_result.prediction.market_implied.home_win_pct == 50.0
+
+
 # --- _compute_match_context (top-level orchestrator) -------------------------------------
 
 
@@ -1462,10 +1540,10 @@ def _mock_full_pipeline(monkeypatch):
     monkeypatch.setattr(orchestrate.ins, "compute_season_match_stats_estimate", none_match_stats)
     monkeypatch.setattr(orchestrate.ins, "compute_possession_matchup", none_possession)
 
-    async def none_odds(_home, _away):
-        return None
+    async def none_fixture(_home, _away):
+        return None, None
 
-    monkeypatch.setattr(orchestrate.footballdata, "get_upcoming_match_odds", none_odds)
+    monkeypatch.setattr(orchestrate.footballdata, "get_upcoming_fixture", none_fixture)
 
     async def none_rotation(_team_name, _source, _matches):
         return None
@@ -1488,6 +1566,14 @@ def test_compute_match_context_runs_full_pipeline_and_identifies_opponent(monkey
     assert ctx.venue_details is None
     assert any("Fetching opponent" in m for m in progress_messages)
     assert any("Computing prediction" in m for m in progress_messages)
+    # Own-team enrichment is multi-minute and must announce itself BEFORE
+    # it runs, not only once it returns (regression: silent post-scrape
+    # stretch looked like a hang).
+    assert any("Enriching form and head-to-head" in m for m in progress_messages)
+    enrich_idx = next(i for i, m in enumerate(progress_messages) if "Enriching form and head-to-head" in m)
+    fetch_idx = next(i for i, m in enumerate(progress_messages) if "Fetching opponent" in m)
+    assert enrich_idx < fetch_idx
+    assert any("Enriching opponent form" in m for m in progress_messages)
 
 
 def test_compute_match_context_identifies_home_side_when_searched_team_is_away(monkeypatch):
@@ -1568,11 +1654,11 @@ def test_compute_match_context_tolerates_club_strength_and_odds_failures(monkeyp
     async def failing_strength(_home, _away):
         raise RuntimeError("blocked")
 
-    async def failing_odds(_home, _away):
+    async def failing_fixture(_home, _away):
         raise RuntimeError("blocked")
 
     monkeypatch.setattr(orchestrate.statsultra, "get_club_strength_ratings", failing_strength)
-    monkeypatch.setattr(orchestrate.footballdata, "get_upcoming_match_odds", failing_odds)
+    monkeypatch.setattr(orchestrate.footballdata, "get_upcoming_fixture", failing_fixture)
 
     merged = _merged_match()
     ctx = asyncio.run(
@@ -1887,7 +1973,13 @@ def test_derived_lineup_fills_home_lineup_but_never_a_fabricated_formation():
     assert merged.home_bench is not None
     assert merged.field_sources["home_bench"] == "derived"
     assert all(p.name for p in merged.home_bench)
+    # Squad fixture has no published shirt numbers -- projected bench
+    # leaves them None rather than inventing numbers.
     assert all(p.shirt_number is None for p in merged.home_bench)
+    # Derived lineup replaces the source's "confirmed=False / empty
+    # lineups object" claim -- no published lineup remains to confirm.
+    assert merged.lineup_confirmed is None
+    assert "lineup_confirmed" not in merged.field_sources
 
 
 def test_derived_lineup_leaves_a_real_published_lineup_untouched():
@@ -1945,3 +2037,145 @@ def test_derived_lineup_uses_exactly_the_selection_projected_xi_chose_never_a_mi
     projected_names = {p.name for p in presence if p.projected_starter}
     assert lineup_names == projected_names
     assert len(lineup_names) == len(merged.home_lineup)  # no duplicates either
+
+
+# --- N1: published lists must not include absent players -------------------------------
+
+
+def test_strip_absent_removes_injured_from_published_bench_and_keeps_available():
+    from football.orchestrate import _strip_absent_from_published_lists
+    from football.types import LineupPlayer, MissingPlayer
+
+    def _p(name, substitute=True):
+        return _all_none(LineupPlayer, name=name, substitute=substitute)
+
+    merged = _all_none(
+        orchestrate.MergedMatch,
+        status="notstarted",
+        home_lineup=[_p("Fit Starter", False), _p("Injured Starter", False)],
+        home_bench=[_p("Fit Sub"), _p("Richarlison"), _p("Xavi Simons")],
+        away_lineup=None,
+        away_bench=None,
+        home_missing_players=[
+            _all_none(MissingPlayer, name="Richarlison", description="coach_decision"),
+            _all_none(MissingPlayer, name="Injured Starter", description="Hamstring"),
+            _all_none(MissingPlayer, name="Xavi Simons", description="Injured"),
+        ],
+        away_missing_players=None,
+        home_suspended_players=None,
+        away_suspended_players=None,
+    )
+    _strip_absent_from_published_lists(merged)
+    assert [p.name for p in merged.home_lineup] == ["Fit Starter"]
+    assert [p.name for p in merged.home_bench] == ["Fit Sub"]
+
+
+def test_strip_absent_is_noop_once_the_match_has_started():
+    from football.orchestrate import _strip_absent_from_published_lists
+    from football.types import LineupPlayer, MissingPlayer
+
+    bench = [_all_none(LineupPlayer, name="Historical Player", substitute=True)]
+    merged = _all_none(
+        orchestrate.MergedMatch,
+        status="finished",
+        home_bench=bench,
+        home_missing_players=[_all_none(MissingPlayer, name="Historical Player", description="x")],
+        away_lineup=None, away_bench=None, home_lineup=None,
+        home_suspended_players=None, away_suspended_players=None, away_missing_players=None,
+    )
+    _strip_absent_from_published_lists(merged)
+    assert merged.home_bench is bench  # a played match's recorded XI is history
+
+
+# --- N2: derived lineup must not keep a stale formation -------------------------------
+
+
+def test_derived_lineup_clears_a_stale_formation_published_without_players():
+    # Confirmed live (v11): match-level home/away_formation equalled the
+    # previous H2H meeting's shapes while the projected XI was a different
+    # count -- a source can publish a formation string for this fixture
+    # with no players. Once we project the XI ourselves, that orphan
+    # formation is untrustworthy and must not sit beside the derived lineup.
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    selected = ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    result.away_presence = []
+    merged = _all_none(
+        orchestrate.MergedMatch,
+        status="notstarted",
+        home_lineup=None, away_lineup=None,
+        home_formation="4-2-3-1", away_formation="4-3-3",
+        home_bench=None, away_bench=None,
+        field_sources={"home_formation": "sofascore", "away_formation": "fotmob"},
+        additional_notes=[],
+    )
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
+
+    assert merged.home_lineup is not None
+    assert merged.home_formation is None
+    assert "home_formation" not in merged.field_sources
+    # Away side also had no published lineup -- same rule.
+    assert merged.away_formation is None
+    assert "away_formation" not in merged.field_sources
+
+
+def test_derived_lineup_keeps_a_formation_when_the_other_side_has_a_real_lineup():
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    selected = ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    result.away_presence = []
+    # Home has a real published lineup + formation; away has neither.
+    real_lineup = [object()]
+    merged = _all_none(
+        orchestrate.MergedMatch,
+        status="notstarted",
+        home_lineup=real_lineup, away_lineup=None,
+        home_formation="4-4-2", away_formation="3-4-3",
+        home_bench=None, away_bench=None,
+        field_sources={"away_formation": "sofascore"},
+        additional_notes=[],
+    )
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
+
+    assert merged.home_lineup is real_lineup
+    assert merged.home_formation == "4-4-2"  # real lineup's formation stays
+    assert merged.away_lineup is None  # no away squad to project from
+    assert merged.away_formation is None  # orphan formation with no XI is cleared
+
+
+def test_derived_bench_excludes_absent_players():
+    from football.orchestrate import _apply_derived_lineup_if_none_published
+
+    squad, presence = _projected_squad_and_presence()
+    selected = ins.mark_projected_starters(presence, squad)
+    result = _insights_result()
+    result.home_presence = presence
+    result.away_presence = []
+    # One projected-bench player is ruled out for this fixture.
+    merged = _all_none(
+        orchestrate.MergedMatch,
+        status="notstarted",
+        home_lineup=None, away_lineup=None, home_formation=None,
+        home_bench=None, away_bench=None,
+        home_missing_players=[],
+        home_suspended_players=["DB0"],  # first projected-bench defender
+        field_sources={}, additional_notes=[],
+    )
+    from football.types import MissingPlayer
+    merged.home_missing_players = [_all_none(MissingPlayer, name="DB0", description="Knock")]
+    own_profile = _profile_with_squad("Own", squad)
+
+    _apply_derived_lineup_if_none_published(result, merged, own_is_home=True, merged_profile=own_profile, opponent_profile=None, own_selected=selected, opponent_selected=None)
+
+    assert merged.home_bench is not None
+    assert "DB0" not in {p.name for p in merged.home_bench}

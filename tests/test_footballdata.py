@@ -9,7 +9,10 @@ from football.sites.footballdata import (
     _names_match,
     _parse_rows,
     _surname,
+    form_map_from_csv,
+    get_league_form,
     get_referee_home_away_bias,
+    get_upcoming_fixture,
     get_upcoming_match_odds,
 )
 
@@ -272,3 +275,104 @@ def test_get_upcoming_match_odds_handles_missing_empty_and_unparseable_cells(mon
     assert result.away_win_odds is None
     assert result.over_2_5_odds is None
     assert result.under_2_5_odds is None
+
+
+def test_get_upcoming_fixture_returns_odds_and_referee_from_one_fetch(monkeypatch):
+    csv = "Div,HomeTeam,AwayTeam,Referee,AvgH,AvgD,AvgA\nE0,Arsenal,Chelsea,M Taylor,2.0,3.5,4.0\n"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=csv)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    odds, referee = asyncio.run(get_upcoming_fixture("Arsenal", "Chelsea"))
+    assert odds is not None and odds.home_win_odds == 2.0
+    assert referee == "M Taylor"
+
+
+# --- form_map_from_csv / get_league_form (F10) -------------------------------------------
+
+
+def test_form_map_from_csv_builds_last_five_oldest_first():
+    # Chronological (oldest first) so last-5 is the window; FTR H/D/A
+    # becomes W/D/L from each side's perspective; keyed by canonical name.
+    csv = (
+        "Div,Date,HomeTeam,AwayTeam,FTR\n"
+        "E0,15/08/2025,Arsenal,Chelsea,H\n"
+        "E0,22/08/2025,Man United,Liverpool,A\n"
+        "E0,29/08/2025,Chelsea,Man United,D\n"
+        "E0,05/09/2025,Arsenal,Liverpool,H\n"
+        "E0,12/09/2025,Liverpool,Arsenal,A\n"
+        "E0,19/09/2025,Man United,Arsenal,H\n"
+    )
+    forms = form_map_from_csv(csv)
+    assert forms["arsenal"] == "WWWL"  # W,W,W,L chronological (4 matches)
+    assert forms["manchester united"] == "LDW"  # L, D, W
+    # Liverpool: away A (W), away H (L), home A (L) -> "WLL"
+    liverpool_key = next(k for k in forms if "liverpool" in k or "lfc" in k)
+    assert forms[liverpool_key] == "WLL"
+    assert forms["chelsea"] == "LD"  # L (away), D (home)
+
+
+def test_form_map_from_csv_requires_result_columns_and_skips_bad_ftr():
+    assert form_map_from_csv("Div,Date,HomeTeam\nE0,01/01/2026,Arsenal\n") == {}
+    assert form_map_from_csv("") == {}
+    # Unparseable FTR rows are skipped, not raised
+    forms = form_map_from_csv("Date,HomeTeam,AwayTeam,FTR\n01/01/2026,Arsenal,Chelsea,X\n")
+    assert forms == {}
+
+
+def test_get_league_form_none_without_competition_or_unmapped():
+    assert asyncio.run(get_league_form(None)) is None
+    assert asyncio.run(get_league_form("Not A Real League")) is None
+
+
+def test_get_league_form_fetches_season_csv(monkeypatch):
+    csv = (
+        "Div,Date,HomeTeam,AwayTeam,FTR\n"
+        "E0,15/08/2025,Arsenal,Chelsea,H\n"
+        "E0,22/08/2025,Chelsea,Arsenal,A\n"
+        "E0,29/08/2025,Arsenal,Liverpool,H\n"
+        "E0,05/09/2025,Liverpool,Arsenal,D\n"
+        "E0,12/09/2025,Arsenal,Man United,H\n"
+    )
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, text=csv)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    forms = asyncio.run(get_league_form("Premier League"))
+    assert forms is not None
+    assert forms["arsenal"] == "WWWDW"  # W,W,W,D,W
+    assert forms["chelsea"] == "LL"
+    assert len(calls) == 1
+    assert "/mmz4281/" in calls[0] and "E0.csv" in calls[0]
+
+
+def test_get_league_form_falls_back_to_last_season_when_current_missing(monkeypatch):
+    csv = "Div,Date,HomeTeam,AwayTeam,FTR\nE0,15/08/2025,Arsenal,Chelsea,H\n"
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if len(calls) == 1:
+            return httpx.Response(404)
+        return httpx.Response(200, text=csv)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    forms = asyncio.run(get_league_form("Premier League"))
+    assert forms is not None and "arsenal" in forms
+    assert len(calls) == 2
+
+
+def test_get_upcoming_fixture_referee_none_when_column_empty_or_absent(monkeypatch):
+    csv = "Div,HomeTeam,AwayTeam,AvgH,AvgD,AvgA\nE0,Arsenal,Chelsea,2.0,3.5,4.0\n"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=csv)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    odds, referee = asyncio.run(get_upcoming_fixture("Arsenal", "Chelsea"))
+    assert odds is not None
+    assert referee is None

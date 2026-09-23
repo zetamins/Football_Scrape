@@ -9,19 +9,27 @@ and Livescore) -- only standings pages and dated archive URLs are
 disallowed -- so hitting the same-origin JSON endpoints the site's own
 pages call (search, team events) is in scope here.
 
+Human emulation (user directive): never navigate the browser to a raw
+JSON URL (`page.goto("/api/...")` reads as a bot and trips the CDN).
+After a homepage warm-up, API bodies are obtained the way the site's own
+JS does -- same-origin `fetch()` from the page context via evaluate().
+Timing is deliberately non-metronomic: warm-up settles on the homepage
+for a randomized pause, `_pace` adds proportional jitter on top of the
+~800ms floor, and call-site `_sleep` gaps are jittered the same way.
+
 Cloudflare's challenge response time is variable -- observed anywhere from
 ~2s to 40s+ under repeated automated traffic -- so every navigation here
 goes through retry_with_backoff rather than a single fixed-timeout attempt.
-Requests within a session are also paced ~800ms apart (see sleep() calls
-below) and the orchestrator (search.py, once ported) should never run this
-concurrently with another source, to keep our own traffic pattern from
-looking bursty.
+The orchestrator should never run this concurrently with another source,
+to keep our own traffic pattern from looking bursty.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import random
+import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -63,6 +71,7 @@ from ..types import (
     TeamStanding,
     TimelineEvent,
     TransferRecord,
+    classify_absence,
 )
 
 _USER_AGENT = (
@@ -72,13 +81,52 @@ _USER_AGENT = (
 
 
 async def _sleep(ms: int) -> None:
-    await asyncio.sleep(ms / 1000)
+    """Documented inter-request gap, jittered so consecutive pauses are
+    not a fixed metronome (1.2-1.8x). Non-positive ms is a no-op. When
+    the suite zeros _MIN_INTERVAL_S the wait is skipped too so multi-fetch
+    tests stay fast; production always keeps a real floor."""
+    if ms <= 0:
+        await asyncio.sleep(0)
+        return
+    if _MIN_INTERVAL_S <= 0:
+        return
+    await asyncio.sleep((ms * random.uniform(1.2, 1.8)) / 1000)
+
+
+# Global inter-request floor across every browser session in a run.
+# Call-site _sleep(800) calls remain (they document intent at each gap),
+# but this enforces the same ~800ms minimum even when a call path forgot
+# one (warm-up -> first API, cross-session form enrichment, etc.).
+# _pace adds proportional jitter on top of the floor so the pattern is
+# human-like rather than metronomic; when tests zero the floor, jitter
+# collapses to 0 as well.
+_MIN_INTERVAL_S = 0.8
+_last_request_at = 0.0
+
+
+async def _pace() -> None:
+    global _last_request_at
+    now = time.monotonic()
+    gap = _MIN_INTERVAL_S * random.uniform(1.0, 1.75) if _MIN_INTERVAL_S else 0.0
+    wait = _last_request_at + gap - now
+    if wait > 0:
+        await asyncio.sleep(wait)
+    _last_request_at = time.monotonic()
 
 
 async def _warm_up(page: Page) -> None:
+    # A run already known-blocked must not open a browser or hit the
+    # homepage again -- form enrichment used to keep launching sessions
+    # after the first 403 because only _fetch_json checked the breaker.
+    _raise_if_blocked()
+    await _pace()
     await retry_with_backoff(
         lambda: page.goto("https://www.sofascore.com/", wait_until="domcontentloaded", timeout=30000)
     )
+    # Human settle on the homepage before the first API XHR (same-origin
+    # fetch needs this origin anyway). _sleep no-ops when the suite zeros
+    # the pacing floor.
+    await _sleep(random.randint(400, 1200))
 
 
 # A CDN-level block answers 200 with {"error":{"code":403,...}} (see
@@ -101,20 +149,51 @@ _block_reason: str | None = None
 
 
 def reset_block_state() -> None:
-    global _block_reason
+    global _block_reason, _last_request_at
     _block_reason = None
+    _last_request_at = 0.0
+
+
+def is_blocked() -> bool:
+    return _block_reason is not None
+
+
+def _raise_if_blocked() -> None:
+    if _block_reason is None:
+        return
+    skipped = SofascoreBlockedError(f"Sofascore blocked this run ({_block_reason}); further Sofascore requests were skipped")
+    skipped._failure_recorded = True  # the block itself was already reported once, with the skipped-requests note
+    raise skipped
+
+
+# Same-origin in-page fetch -- the pattern the site's own JS uses. Must
+# run from a sofascore.com page (callers _warm_up first). Never goto the
+# API URL: navigating the browser to a raw JSON path is machine-like and
+# is what the CDN blocks.
+# AbortSignal.timeout bounds a hung fetch: page.evaluate has no default
+# timeout on desktop Playwright (Android's WebView bridge passes its own
+# 30s), so a stalled same-origin request would otherwise pin the whole
+# run with no progress -- the same "looks hung" failure mode the progress
+# messages below the scrape loop exist to rule out.
+_FETCH_JSON_JS = """
+async (url) => {
+  const res = await fetch(url, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(30000),
+  });
+  return await res.text();
+}
+"""
 
 
 async def _fetch_json(page: Page, url: str) -> Any:
     global _block_reason
-    if _block_reason is not None:
-        skipped = SofascoreBlockedError(f"Sofascore blocked this run ({_block_reason}); further Sofascore requests were skipped")
-        skipped._failure_recorded = True  # the block itself was already reported once, with the skipped-requests note
-        raise skipped
+    _raise_if_blocked()
+    await _pace()
 
     async def attempt() -> Any:
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        text = await page.evaluate("() => document.body.innerText")
+        text = await page.evaluate(_FETCH_JSON_JS, url)
         return json.loads(text)
 
     try:
@@ -309,6 +388,7 @@ def _to_match_info(e: dict[str, Any]) -> MatchInfo:
 
 
 async def get_sofascore_matches(team_name: str) -> list[MatchInfo]:
+    _raise_if_blocked()
     async with launch_browser() as browser:
         context = await browser.new_context(user_agent=_USER_AGENT)
         page = await context.new_page()
@@ -370,6 +450,7 @@ async def get_sofascore_older_meeting_info(
     Keyed by "YYYY-MM-DD". Empty when nothing is found."""
     if not wanted_days:
         return {}
+    _raise_if_blocked()
     async with launch_browser() as browser:
         context = await browser.new_context(user_agent=_USER_AGENT)
         page = await context.new_page()
@@ -478,6 +559,22 @@ def _extract_missing_players(side: dict[str, Any] | None) -> list[MissingPlayer]
             expected_return=m.get("expectedEndDate"),
         )
         for m in missing
+    ]
+
+
+def _extract_suspended_players(side: dict[str, Any] | None) -> list[str] | None:
+    """Suspended subset of the same missingPlayers list Sofascore already
+    publishes on the lineups object. Key present -> list (possibly empty
+    when nobody on the missing list is suspended); key absent -> None
+    (CONFIRMED_EMPTY semantics for home/away_suspended_players). Only
+    absence_type == "suspension" counts -- injuries/coach decisions stay
+    out of this field and remain on missing_players."""
+    if not side or "missingPlayers" not in side:
+        return None
+    return [
+        m["player"]["name"]
+        for m in (side.get("missingPlayers") or [])
+        if classify_absence(m.get("description")) == "suspension"
     ]
 
 
@@ -1002,8 +1099,8 @@ def _build_sofascore_match_details(match: MatchInfo, e: dict[str, Any], raw: _So
         home_manager_vs_away_club=raw.home_manager_vs_away_club,
         away_manager_vs_home_club=raw.away_manager_vs_home_club,
         standings_table=_standings_table_from(raw.standing_rows),
-        home_suspended_players=None,
-        away_suspended_players=None,
+        home_suspended_players=_extract_suspended_players(lineups_home),
+        away_suspended_players=_extract_suspended_players(lineups_away),
         home_missing_players=_extract_missing_players(lineups_home),
         away_missing_players=_extract_missing_players(lineups_away),
         manager_duel=_summary_from_duel(h2h_manager_duel),
@@ -1031,7 +1128,12 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
     started; standings only exist for competitions that have a league
     table (not friendlies/one-off cups), resolved via the event's own
     tournament+season ids. All handled with _fetch_json_optional rather
-    than retried as transient failures."""
+    than retried as transient failures.
+
+    Refuses to open a browser at all when the run's circuit breaker is
+    already tripped -- form enrichment used to keep launching a fresh
+    session per past match after the first 403."""
+    _raise_if_blocked()
     event_id = [p for p in match.source_url.split("/") if p][-1]
     async with launch_browser() as browser:
         context = await browser.new_context(user_agent=_USER_AGENT)
@@ -1193,6 +1295,7 @@ def _build_sofascore_squad(players_data: dict[str, Any], top_player_stats: dict[
                 season_stats_source=("sofascore" if player["name"] in top_player_stats else None),
                 defensive_stats=None,
                 recent_usage=None,
+                shirt_number=(int(player["shirtNumber"]) if player.get("shirtNumber") is not None else None),
             )
         )
     return squad
@@ -1248,6 +1351,7 @@ async def get_sofascore_team_profile(team_name: str) -> TeamProfile:
     /api/v1/team/{id}/transfers -- both same-origin /api/, in scope. No
     separate /injuries endpoint exists (confirmed: 404) -- injury status is
     embedded per player instead."""
+    _raise_if_blocked()
     async with launch_browser() as browser:
         context = await browser.new_context(user_agent=_USER_AGENT)
         page = await context.new_page()

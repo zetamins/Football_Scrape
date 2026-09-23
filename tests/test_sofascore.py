@@ -252,6 +252,28 @@ def test_extract_missing_players_none_when_empty():
     assert _extract_missing_players(None) is None
 
 
+def test_extract_suspended_players_filters_by_suspension_absence_type():
+    from football.sites.sofascore import _extract_suspended_players
+
+    side = {
+        "missingPlayers": [
+            {"player": {"name": "Banned Player"}, "description": "Suspension", "expectedEndDate": "2026-03-01"},
+            {"player": {"name": "Injured Player"}, "description": "Knee Injury", "expectedEndDate": None},
+            {"player": {"name": "Red Carded"}, "description": "red card", "expectedEndDate": None},
+        ]
+    }
+    assert _extract_suspended_players(side) == ["Banned Player", "Red Carded"]
+
+
+def test_extract_suspended_players_confirmed_empty_vs_absent_key():
+    from football.sites.sofascore import _extract_suspended_players
+
+    assert _extract_suspended_players({"missingPlayers": []}) == []
+    assert _extract_suspended_players({"missingPlayers": [{"player": {"name": "X"}, "description": "Knee Injury"}]}) == []
+    assert _extract_suspended_players({}) is None
+    assert _extract_suspended_players(None) is None
+
+
 # --- _extract_referee_stats / _extract_season_stats / _extract_standing --------------------
 
 
@@ -310,6 +332,13 @@ def test_extract_streaks_formats_each_entry():
 def test_extract_streaks_none_without_head2head():
     assert _extract_streaks(None) is None
     assert _extract_streaks({}) is None
+
+
+def test_extract_streaks_none_on_live_empty_head2head_list():
+    # Confirmed live 2026-09-24 (event 16363879 /team-streaks after the
+    # human-like rewrite): payload is {"general": [], "head2head": []} --
+    # empty list, not missing key. Must yield honest null, not [].
+    assert _extract_streaks({"general": [], "head2head": []}) is None
 
 
 def test_extract_match_stats_flattens_groups():
@@ -443,6 +472,15 @@ def test_manager_event_outcome_none_when_ambiguous():
 def test_summary_from_duel():
     summary = _summary_from_duel({"homeWins": 3, "awayWins": 1, "draws": 2})
     assert summary.home_wins == 3
+
+
+def test_summary_from_live_h2h_payload_shape():
+    # Confirmed live 2026-09-24 (event 16363879 /h2h after the human-like
+    # rewrite): teamDuel is {"homeWins": 2, "awayWins": 5, "draws": 3};
+    # managerDuel is JSON null (not missing, not an error object).
+    team = _summary_from_duel({"homeWins": 2, "awayWins": 5, "draws": 3})
+    assert (team.home_wins, team.away_wins, team.draws, team.sample_size) == (2, 5, 3, 10)
+    assert _summary_from_duel(None) is None  # managerDuel: null
 
 
 def test_summary_from_duel_none_without_data():
@@ -592,22 +630,33 @@ def test_sleep_awaits_the_real_asyncio_sleep():
 
 
 def test_fetch_json_parses_page_body_as_json():
-    from football.sites.sofascore import _fetch_json
+    from football.sites.sofascore import _fetch_json, _FETCH_JSON_JS
 
     class _RealFetchPage:
         def __init__(self):
             self.goto_calls = []
+            self.evaluated_urls = []
+            self.scripts = []
 
         async def goto(self, url, **_kwargs):
             self.goto_calls.append(url)
 
-        async def evaluate(self, _script):
+        async def evaluate(self, _script, arg=None):
+            self.scripts.append(_script)
+            self.evaluated_urls.append(arg)
             return '{"ok": true}'
 
     page = _RealFetchPage()
     result = asyncio.run(_fetch_json(page, "https://example.com/api"))
     assert result == {"ok": True}
-    assert page.goto_calls == ["https://example.com/api"]
+    # Human-like: same-origin fetch from the page, never navigate to the API URL.
+    assert page.goto_calls == []
+    assert page.evaluated_urls == ["https://example.com/api"]
+    # In-page fetch must be bounded -- an unbounded fetch() pins
+    # page.evaluate (no default timeout on desktop Playwright) forever.
+    assert page.scripts == [_FETCH_JSON_JS]
+    assert "AbortSignal.timeout" in _FETCH_JSON_JS
+    assert "goto" not in _FETCH_JSON_JS
 
 
 def test_fetch_json_optional_none_on_error_payload(monkeypatch):
@@ -992,3 +1041,89 @@ def test_older_meeting_lookup_makes_no_request_when_nothing_is_wanted_and_handle
 
     monkeypatch.setattr(sofascore, "_fetch_json", _mock_fetch_json({"results": []}, []))
     assert asyncio.run(get_sofascore_older_meeting_info("Nobody", "Y", {"2025-05-21"})) == {}
+
+
+# --- circuit breaker checked before any browser / warm-up / search --------------------
+
+
+def test_get_sofascore_match_details_opens_no_browser_when_run_already_blocked(monkeypatch):
+    from football.types import MatchInfo
+
+    sofascore._block_reason = "HTTP 403 Forbidden"
+    launched = []
+    monkeypatch.setattr(sofascore, "launch_browser", lambda: launched.append("launch") or _FakeBrowserCM())
+    match = MatchInfo(
+        source="sofascore", source_url="https://www.sofascore.com/event/x/1", competition="Premier League",
+        home_team="Home FC", away_team="Away FC", kickoff_utc="2026-01-01T15:00:00.000Z",
+        venue=None, status="finished", home_score=1, away_score=0, home_score_ht=None, away_score_ht=None,
+        season=None, round=None, match_id="1",
+    )
+    with pytest.raises(sofascore.SofascoreBlockedError):
+        asyncio.run(get_sofascore_match_details(match))
+    assert launched == []
+
+
+def test_get_sofascore_matches_opens_no_browser_when_run_already_blocked(monkeypatch):
+    sofascore._block_reason = "HTTP 429 Too Many Requests"
+    launched = []
+    monkeypatch.setattr(sofascore, "launch_browser", lambda: launched.append("launch") or _FakeBrowserCM())
+    with pytest.raises(sofascore.SofascoreBlockedError):
+        asyncio.run(get_sofascore_matches("Home FC"))
+    assert launched == []
+
+
+def test_warm_up_refuses_to_hit_the_homepage_when_run_already_blocked(monkeypatch):
+    sofascore._block_reason = "HTTP 403 Forbidden"
+    gotos = []
+
+    async def fake_goto(*_a, **_k):
+        gotos.append("goto")
+
+    page = type("P", (), {"goto": fake_goto})()
+    with pytest.raises(sofascore.SofascoreBlockedError):
+        asyncio.run(sofascore._warm_up(page))
+    assert gotos == []
+
+
+def test_fetch_json_paces_requests_at_the_configured_floor(monkeypatch):
+    """_pace enforces _MIN_INTERVAL_S (plus proportional jitter) across
+    sessions even when no per-call-site _sleep sits between two
+    _fetch_json calls (the gap that warm-up -> first API used to leave
+    wide open). Network calls are in-page evaluate(), not goto()."""
+    from football.sites import sofascore as sc
+
+    class _JsonPage:
+        def __init__(self):
+            self.evaluates = 0
+
+        async def goto(self, *_a, **_k):
+            raise AssertionError("must not navigate to raw API URLs")
+
+        async def evaluate(self, *_a, **_k):
+            self.evaluates += 1
+            return "{}"
+
+    monkeypatch.setattr(sc, "_MIN_INTERVAL_S", 0.05)
+    page = _JsonPage()
+    real_fetch = sc._fetch_json
+    delays: list[float] = []
+    original_sleep = sc.asyncio.sleep
+
+    async def timed_sleep(seconds):
+        delays.append(seconds)
+        await original_sleep(seconds)
+
+    monkeypatch.setattr(sc.asyncio, "sleep", timed_sleep)
+    sc.reset_block_state()
+    asyncio.run(real_fetch(page, "https://www.sofascore.com/api/v1/a"))
+    asyncio.run(real_fetch(page, "https://www.sofascore.com/api/v1/b"))
+    assert page.evaluates == 2
+    assert delays and delays[0] >= 0.04  # second call waited for the floor
+
+
+def test_reset_block_state_clears_the_pacing_floor_timestamp():
+    sofascore._block_reason = "HTTP 403 Forbidden"
+    sofascore._last_request_at = 999.0
+    sofascore.reset_block_state()
+    assert sofascore._block_reason is None
+    assert sofascore._last_request_at == 0.0

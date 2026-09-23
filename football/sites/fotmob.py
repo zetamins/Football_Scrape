@@ -289,6 +289,20 @@ def _extract_unavailable(team: dict[str, Any] | None) -> list[MissingPlayer] | N
     return result
 
 
+def _extract_suspended_players(team: dict[str, Any] | None) -> list[str] | None:
+    """Suspension-typed subset of the same `unavailable` list
+    `_extract_unavailable` already parses. Key present -> list (possibly
+    empty when the published list has no suspensions); key absent -> None
+    (CONFIRMED_EMPTY semantics for home/away_suspended_players)."""
+    if not team or "unavailable" not in team:
+        return None
+    return [
+        p["name"]
+        for p in (team.get("unavailable") or [])
+        if (p.get("unavailability") or {}).get("type") == "suspension"
+    ]
+
+
 def _extract_recent_meetings(h2h_matches: list[dict[str, Any]] | None, own_team_name: str) -> list[HeadToHeadMeeting] | None:
     """Same match-page h2h fetch already made for headToHeadSummary --
     zero extra requests. Caught live: each entry's own top-level
@@ -544,8 +558,8 @@ async def get_fotmob_match_details(match: MatchInfo) -> MatchDetails:
         home_manager_vs_away_club=None,
         away_manager_vs_home_club=None,
         standings_table=None,
-        home_suspended_players=None,
-        away_suspended_players=None,
+        home_suspended_players=_extract_suspended_players(home_lineup_raw),
+        away_suspended_players=_extract_suspended_players(away_lineup_raw),
         home_missing_players=_extract_unavailable(home_lineup_raw),
         away_missing_players=_extract_unavailable(away_lineup_raw),
         # Fotmob's `table` field is just a pointer to a table file on a

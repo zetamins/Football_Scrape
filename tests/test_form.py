@@ -741,6 +741,108 @@ def test_enrich_form_with_venue_classification_leaves_out_of_window_entries_alon
     assert enriched.form.last5_home[0] is out_of_window
 
 
+def test_sofascore_form_enrichment_fetches_only_the_recent_detail_budget(monkeypatch):
+    """One details() call is a browser session + ~15 paced API endpoints.
+    A 20-match loop for both teams was ~600 Sofascore requests and got
+    clients blocked -- only the first FORM_ENRICH_DETAIL_LIMIT of
+    last20_overall may cost a details() fetch when source is sofascore."""
+    from football import orchestrate
+    from football.form import FORM_ENRICH_DETAIL_LIMIT
+
+    raw_matches = [
+        _match(home_team="Home FC", away_team=f"Opp{i}", kickoff_utc=f"2026-01-{i:02d}T15:00:00.000Z")
+        for i in range(1, 21)
+    ]
+    details = _match_details_for_enrichment()
+    calls: list[str] = []
+
+    async def counting_details(match_info):
+        calls.append(match_info.away_team)
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(counting_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    results = [
+        _result(opponent=f"Opp{i}", date=f"2026-01-{i:02d}T15:00:00.000Z", venue="home")
+        for i in range(1, 21)
+    ]
+    form = _form_summary_for_enrichment(last20_overall=results)
+
+    enriched = asyncio.run(enrich_form_with_venue_classification(raw_matches, form, "sofascore"))
+    assert len(calls) == FORM_ENRICH_DETAIL_LIMIT
+    assert len(enriched.form.last20_overall) == 20
+
+
+def test_plain_http_sources_still_enrich_the_full_last20_window(monkeypatch):
+    """The request-budget cap is Sofascore-only: goal/soccerdesk details()
+    is a single small HTTP request, not a browser session."""
+    from football import orchestrate
+    from football.form import FORM_ENRICH_DETAIL_LIMIT
+
+    raw_matches = [
+        _match(home_team="Home FC", away_team=f"Opp{i}", kickoff_utc=f"2026-01-{i:02d}T15:00:00.000Z")
+        for i in range(1, 21)
+    ]
+    details = _match_details_for_enrichment()
+    calls: list[str] = []
+
+    async def counting_details(match_info):
+        calls.append(match_info.away_team)
+        return details
+
+    fake_scrapers = {"goal": type("G", (), {"details": staticmethod(counting_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    results = [
+        _result(opponent=f"Opp{i}", date=f"2026-01-{i:02d}T15:00:00.000Z", venue="home")
+        for i in range(1, 21)
+    ]
+    form = _form_summary_for_enrichment(last20_overall=results)
+
+    enriched = asyncio.run(enrich_form_with_venue_classification(raw_matches, form, "goal"))
+    assert len(calls) == 20
+    assert len(calls) > FORM_ENRICH_DETAIL_LIMIT
+    assert len(enriched.form.last20_overall) == 20
+
+
+def test_sofascore_form_enrichment_stops_calling_details_once_the_breaker_trips(monkeypatch):
+    """After the first block, remaining last-20 entries must not each
+    open another browser session (the pre-fix path kept launching until
+    the window was exhausted)."""
+    from football import orchestrate
+    from football.sites import sofascore
+
+    raw_matches = [
+        _match(home_team="Home FC", away_team=f"Opp{i}", kickoff_utc=f"2026-01-{i:02d}T15:00:00.000Z")
+        for i in range(1, 8)
+    ]
+    details = _match_details_for_enrichment()
+    calls: list[str] = []
+
+    async def details_then_block(match_info):
+        calls.append(match_info.away_team)
+        if len(calls) == 1:
+            sofascore._block_reason = "HTTP 403 Forbidden"
+            return details
+        raise AssertionError("details() must not be called after the breaker trips")
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(details_then_block)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    results = [
+        _result(opponent=f"Opp{i}", date=f"2026-01-{i:02d}T15:00:00.000Z", venue="home")
+        for i in range(1, 8)
+    ]
+    form = _form_summary_for_enrichment(last20_overall=results)
+
+    enriched = asyncio.run(enrich_form_with_venue_classification(raw_matches, form, "sofascore"))
+    assert len(calls) == 1
+    assert len(enriched.form.last20_overall) == 7
+    assert enriched.form.last20_overall[0].ht_scoreline == "1-0"
+    assert enriched.form.last20_overall[1] is results[1]
+
+
 def _form_summary_for_enrichment(**overrides):
     from football.types import FormSummary
 
