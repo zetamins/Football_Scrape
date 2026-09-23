@@ -271,6 +271,18 @@ def test_extract_season_stats():
     assert stats.clean_sheets == 10
 
 
+def test_extract_season_stats_rounds_unrounded_possession_to_one_decimal():
+    # Confirmed live: Sofascore can return e.g. 42.666666666667, which
+    # leaked into markdown as "42.666666666667% avg possession".
+    stats = _extract_season_stats({"statistics": {"averageBallPossession": 42.666666666667}})
+    assert stats.average_ball_possession == 42.7
+
+
+def test_extract_season_stats_preserves_whole_number_possession():
+    stats = _extract_season_stats({"statistics": {"averageBallPossession": 59}})
+    assert stats.average_ball_possession == 59.0
+
+
 def test_extract_season_stats_none_without_statistics():
     assert _extract_season_stats(None) is None
     assert _extract_season_stats({}) is None

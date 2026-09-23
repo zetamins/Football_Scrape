@@ -452,6 +452,27 @@ def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results:
     season_stats.clean_sheets_recent_check_source = source
 
 
+def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue_split, source: str | None = None) -> None:
+    """Mutates season_stats in place with the n-weighted average of that
+    team's detailed_venue_split possession buckets -- the same window form
+    actually covers -- so markdown can explain a large gap against
+    average_ball_possession (season-to-date vs last-20, by design) instead
+    of showing two bare percentages that look like a contradiction. No-op
+    when either side is missing or no bucket has a possession figure."""
+    if not season_stats or not venue_split:
+        return
+    total_n = 0
+    weighted = 0.0
+    for bucket in (venue_split.home, venue_split.away, venue_split.neutral):
+        if bucket and bucket.possession_pct_avg is not None and bucket.sample_size:
+            total_n += bucket.sample_size
+            weighted += bucket.possession_pct_avg * bucket.sample_size
+    if not total_n:
+        return
+    season_stats.possession_venue_split_check = js_round_to(weighted / total_n, 1)
+    season_stats.possession_venue_split_check_source = source
+
+
 def fill_standings_form(
     standings_table: list[StandingsTableRow] | None, position: int | None, results: list[FormResult] | None, competition: str | None
 ) -> None:
@@ -831,9 +852,20 @@ def compute_streak_stability(streak: StreakInfo | None, rotation: RotationInfo |
 
 def compute_losing_streak_context(streak: StreakInfo | None, xg_estimate: SeasonXGEstimate | None) -> LosingStreakContextInfo | None:
     """"Potential turnaround" requires a losing streak of >=2 AND actual
-    goals scored at least 1 below the season xG estimate."""
-    if not streak or streak.result != "L" or streak.count < 2:
+    goals scored at least 1 below the season xG estimate.
+
+    None only when there's no streak data at all (form missing / no
+    results yet) -- a genuine completeness gap. When streak data exists
+    but the team isn't on a 2+ losing streak (the common, healthy case),
+    returns a checked-fine sentinel with streak_count=0 instead of None,
+    so the field has a real value and compute_data_completeness can count
+    it as populated. Previously both cases returned None and the field
+    was excluded from completeness entirely, so a null in the JSON was
+    unexplained (neither a value nor a listed gap)."""
+    if not streak:
         return None
+    if streak.result != "L" or streak.count < 2:
+        return LosingStreakContextInfo(streak_count=0, xg_delta=None, potential_turnaround=None)
     xg_delta = js_round_to(xg_estimate.actual_goals_for - xg_estimate.xg_for, 2) if xg_estimate else None
     return LosingStreakContextInfo(streak_count=streak.count, xg_delta=xg_delta, potential_turnaround=(xg_delta <= -1 if xg_delta is not None else None))
 
@@ -1324,9 +1356,18 @@ def _build_passing_style(acc: _SeasonStatsAccumulator) -> SeasonPassingStyleEsti
 def _build_goalkeeping_estimate(acc: _SeasonStatsAccumulator) -> SeasonGoalkeepingEstimate | None:
     if not acc.keeper_sample_size:
         return None
+    # Derive shots_on_target_faced from saves_for + goals_conceded so the
+    # three figures always reconcile arithmetically (the identity every
+    # reader adds up by hand: "25 saves on 41 shots faced, 16 conceded").
+    # The provider's independent "Shots on target" sum can disagree with
+    # saves + goals (own goals, provider quirks) -- confirmed live off by
+    # 1 in both directions on the two sides of one fixture -- which made
+    # the rendered line look wrong even though it was flagged. save_pct
+    # uses the derived denominator too (standard saves / (saves + goals)).
+    derived_sot = acc.saves_for + int(acc.keeper_goals_conceded)
     return SeasonGoalkeepingEstimate(
-        sample_size=acc.keeper_sample_size, saves_for=acc.saves_for, shots_on_target_faced=acc.shots_on_target_faced,
-        save_pct=(js_round_to(acc.saves_for / acc.shots_on_target_faced * 100, 1) if acc.shots_on_target_faced else None),
+        sample_size=acc.keeper_sample_size, saves_for=acc.saves_for, shots_on_target_faced=derived_sot,
+        save_pct=(js_round_to(acc.saves_for / derived_sot * 100, 1) if derived_sot else None),
         goals_conceded=int(acc.keeper_goals_conceded), source="fotmob",
     )
 
@@ -1503,14 +1544,13 @@ _COMPLETENESS_EXCLUDE = {
     # Same reasoning -- null whenever a real lineup already exists (no
     # projection was needed), not a gap.
     "projected_xi_basis",
-    # compute_losing_streak_context returns None for the common case (the
-    # team isn't currently on a losing streak of 2+) exactly the same way
-    # it returns None for "no streak data at all" -- there's no separate
-    # "checked, team is fine" value the type can hold. Counting the common,
-    # healthy case as a completeness gap would understate every team not
-    # currently struggling.
-    "home_losing_streak_context",
-    "away_losing_streak_context",
+    # home/away_losing_streak_context used to live here: they returned
+    # None both for "no streak data" and for "checked, team is fine", so
+    # excluding them hid nulls the customer couldn't explain. Fixed at the
+    # source instead -- compute_losing_streak_context now returns a
+    # streak_count=0 sentinel when streak data exists but there's no 2+
+    # losing streak (counted populated), and None only when there's no
+    # streak data at all (counted missing, like any other gap).
 }
 
 # MatchDetails fields that can only be known during or after the match

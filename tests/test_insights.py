@@ -436,12 +436,23 @@ def test_completeness_excludes_notes_that_are_null_by_design_when_theres_nothing
     assert "projected_xi_basis" not in result["missing"]
 
 
-def test_completeness_excludes_losing_streak_context_since_null_usually_means_the_team_is_fine():
+def test_completeness_counts_losing_streak_context_checked_fine_as_populated():
+    from football.types import LosingStreakContextInfo
+
     merged = _all_none(MatchDetails, status="finished")
-    insights = _all_none(MatchInsights, home_losing_streak_context=None, away_losing_streak_context=None)
+    sentinel = LosingStreakContextInfo(streak_count=0, xg_delta=None, potential_turnaround=None)
+    insights = _all_none(MatchInsights, home_losing_streak_context=sentinel, away_losing_streak_context=sentinel)
     result = compute_data_completeness(merged, insights)
     assert "home_losing_streak_context" not in result["missing"]
     assert "away_losing_streak_context" not in result["missing"]
+
+
+def test_completeness_lists_losing_streak_context_as_missing_when_no_streak_data():
+    merged = _all_none(MatchDetails, status="finished")
+    insights = _all_none(MatchInsights, home_losing_streak_context=None, away_losing_streak_context=None)
+    result = compute_data_completeness(merged, insights)
+    assert "home_losing_streak_context" in result["missing"]
+    assert "away_losing_streak_context" in result["missing"]
 
 
 def test_completeness_counts_a_real_populated_scalar_insights_field():
@@ -979,14 +990,25 @@ def test_losing_streak_context_no_turnaround_when_close_to_xg():
     assert info.potential_turnaround is False
 
 
-def test_losing_streak_context_none_when_not_a_losing_streak():
+def test_losing_streak_context_sentinel_when_not_a_losing_streak():
     streak = _all_none(StreakInfo, result="W", count=3)
-    assert compute_losing_streak_context(streak, None) is None
+    info = compute_losing_streak_context(streak, None)
+    assert info is not None
+    assert info.streak_count == 0
+    assert info.xg_delta is None
+    assert info.potential_turnaround is None
 
 
-def test_losing_streak_context_none_when_streak_too_short():
+def test_losing_streak_context_sentinel_when_streak_too_short():
     streak = _all_none(StreakInfo, result="L", count=1)
-    assert compute_losing_streak_context(streak, None) is None
+    info = compute_losing_streak_context(streak, None)
+    assert info is not None
+    assert info.streak_count == 0
+    assert info.potential_turnaround is None
+
+
+def test_losing_streak_context_none_only_when_no_streak_data_at_all():
+    assert compute_losing_streak_context(None, None) is None
 
 
 # --- compute_card_risks ------------------------------------------------------
@@ -1822,7 +1844,9 @@ def test_build_estimates_from_a_fully_populated_accumulator():
 
     keeper = _build_goalkeeping_estimate(acc)
     assert keeper.goals_conceded == 1
-    assert keeper.save_pct == pytest.approx(66.7, abs=0.1)  # 2 saves / 3 SOT faced
+    assert keeper.shots_on_target_faced == 3  # derived 2 saves + 1 conceded
+    assert keeper.unreconciled_shots_on_target == 0
+    assert keeper.save_pct == pytest.approx(66.7, abs=0.1)  # 2 saves / 3 derived SOT faced
 
 
 # --- possession/corners accumulator family (compute_possession_matchup's
@@ -1938,7 +1962,31 @@ def test_build_estimates_return_none_from_an_empty_accumulator():
     assert _build_goalkeeping_estimate(acc) is None
 
 
-def test_goalkeeping_estimate_quantifies_the_saves_plus_conceded_gap_without_adjusting_anything():
+def test_build_goalkeeping_estimate_derives_sot_from_saves_plus_goals_so_arithmetic_reconciles():
+    from football.insights import (
+        _accumulate_shots_and_keeper,
+        _build_goalkeeping_estimate,
+        _SeasonStatsAccumulator,
+    )
+
+    acc = _SeasonStatsAccumulator()
+    m = _match(home_score=5, away_score=3)  # home team concedes away_score=3
+    # Provider SOT sum (away=1) deliberately disagrees with saves(2)+conceded(3)=5
+    _accumulate_shots_and_keeper(
+        acc,
+        [_stat("Total shots", "10", "8"), _stat("Shots on target", "6", "1"), _stat("Keeper saves", "2", "4")],
+        m,
+        home=True,
+    )
+    keeper = _build_goalkeeping_estimate(acc)
+    # Customer bug: "Home: 25 + 16 = 41 != 40" -- derived SOT must equal saves + goals
+    assert keeper.saves_for + keeper.goals_conceded == keeper.shots_on_target_faced
+    assert keeper.shots_on_target_faced == 5  # 2 saves + 3 conceded, NOT the provider's 1
+    assert keeper.unreconciled_shots_on_target == 0
+    assert keeper.save_pct == pytest.approx(40.0)  # 2/5 * 100
+
+
+def test_goalkeeping_estimate_quantifies_the_saves_plus_conceded_gap_when_constructed_directly_with_independent_sot():
     from football.types import SeasonGoalkeepingEstimate
 
     over = SeasonGoalkeepingEstimate(sample_size=10, saves_for=25, shots_on_target_faced=40, save_pct=62.5, goals_conceded=16, source="fotmob")
@@ -2212,6 +2260,53 @@ def test_add_clean_sheets_recent_check_noop_without_stats_or_results():
     add_clean_sheets_recent_check(stats, None)
     assert stats.clean_sheets_recent_check is None
     add_clean_sheets_recent_check(None, [_all_none(FormResult, scoreline="0-0", venue="home", competition="Premier League")])  # must not raise
+
+
+# --- add_possession_venue_split_check --------------------------------------------------------------
+
+
+def test_add_possession_venue_split_check_weights_buckets_by_sample_size():
+    from football.insights import add_possession_venue_split_check
+    from football.types import DetailedVenueSplitForm, TeamSeasonStats, VenueSplitStats
+
+    def bucket(n: int, poss: float | None) -> VenueSplitStats:
+        return VenueSplitStats(
+            sample_size=n, xg_for=0, xg_against=0, shots_for=0, shots_against=0,
+            shots_on_target_for=0, shots_on_target_against=0, possession_pct_avg=poss,
+            corners_for=0, corners_against=0, fouls_for=0, fouls_against=0,
+            yellow_cards_for=0, yellow_cards_against=0, red_cards_for=0, red_cards_against=0,
+            big_chances_created_for=0, big_chances_created_against=0,
+        )
+
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=59.0)
+    split = DetailedVenueSplitForm(
+        home=bucket(9, 56.4), away=bucket(6, 52.5), neutral=bucket(3, 63.0),
+    )
+    add_possession_venue_split_check(stats, split, "sofascore")
+    # (56.4*9 + 52.5*6 + 63.0*3) / 18 = 56.2
+    assert stats.possession_venue_split_check == 56.2
+    assert stats.possession_venue_split_check_source == "sofascore"
+
+
+def test_add_possession_venue_split_check_noop_when_no_possession_buckets():
+    from football.insights import add_possession_venue_split_check
+    from football.types import DetailedVenueSplitForm, TeamSeasonStats, VenueSplitStats
+
+    def empty_bucket() -> VenueSplitStats:
+        return VenueSplitStats(
+            sample_size=5, xg_for=0, xg_against=0, shots_for=0, shots_against=0,
+            shots_on_target_for=0, shots_on_target_against=0, possession_pct_avg=None,
+            corners_for=0, corners_against=0, fouls_for=0, fouls_against=0,
+            yellow_cards_for=0, yellow_cards_against=0, red_cards_for=0, red_cards_against=0,
+            big_chances_created_for=0, big_chances_created_against=0,
+        )
+
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=59.0)
+    split = DetailedVenueSplitForm(home=empty_bucket(), away=empty_bucket(), neutral=empty_bucket())
+    add_possession_venue_split_check(stats, split)
+    assert stats.possession_venue_split_check is None
+    add_possession_venue_split_check(stats, None)
+    add_possession_venue_split_check(None, split)
 
 
 def test_a_real_lineup_with_a_spelling_mismatch_still_blocks_the_competing_projection():

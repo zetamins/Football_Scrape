@@ -726,6 +726,13 @@ def _apply_standings_derived_insights(
     ins.fill_standings_form(merged.standings_table, opponent_position, opponent_results, merged.competition)
     ins.add_clean_sheets_recent_check(merged.home_team_season_stats if own_is_home else merged.away_team_season_stats, own_results, form_source)
     ins.add_clean_sheets_recent_check(merged.away_team_season_stats if own_is_home else merged.home_team_season_stats, opponent_results, opponent_matches_source)
+    # Same pattern as the clean-sheet cross-check: season avg possession
+    # (sofascore, season-to-date) next to the form window's venue-split
+    # average can look contradictory without saying which window each is.
+    own_stats = merged.home_team_season_stats if own_is_home else merged.away_team_season_stats
+    opp_stats = merged.away_team_season_stats if own_is_home else merged.home_team_season_stats
+    ins.add_possession_venue_split_check(own_stats, form.detailed_venue_split if form else None, form_source)
+    ins.add_possession_venue_split_check(opp_stats, opponent_form.detailed_venue_split if opponent_form else None, opponent_matches_source)
 
     own_elo = with_league_rank(compute_elo_rating(own_results or []), merged.standings_table, own_position)
     opponent_elo = with_league_rank(compute_elo_rating(opponent_results), merged.standings_table, opponent_position)

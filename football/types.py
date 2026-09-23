@@ -337,6 +337,15 @@ class TeamSeasonStats:
     # each with its own recent-match sample), same reasoning as EloRating.
     # sample_source; this says why, instead of leaving a swing unexplained.
     clean_sheets_recent_check_source: str | None = None
+    # Weighted average of detailed_venue_split.possession_pct_avg over the
+    # same team's form window (home/away/neutral buckets, n-weighted) --
+    # for comparing against average_ball_possession above. Different
+    # windows by design (season-to-date vs last-20), so a mismatch is
+    # not an error; stored so markdown can explain a large gap instead of
+    # leaving two bare percentages that look contradictory. None when
+    # there's no venue-split possession to check against.
+    possession_venue_split_check: float | None = None
+    possession_venue_split_check_source: str | None = None
 
 
 @dataclass
@@ -957,17 +966,17 @@ class SeasonFoulsEstimate:
 
 @dataclass
 class SeasonGoalkeepingEstimate:
-    """saves_for/shots_on_target_faced/save_pct come from the same
-    per-match "Keeper saves"/"Shots on target" stat entries; goals_conceded
-    comes from the match's final score instead (m.home_score/away_score),
-    a different data lineage. saves_for + goals_conceded does NOT always
-    equal shots_on_target_faced -- confirmed live on a real match (off by
-    3 one direction, 4 the other, on the two sides of the same fixture).
-    Own goals, defensive errors not classified as an opponent shot, and
-    provider-level per-match inconsistencies all break that identity
-    legitimately; no cleaner same-lineage "goals" stat exists to swap
-    goals_conceded for. Each field is independently correct for what it
-    measures -- don't assume they reconcile."""
+    """saves_for comes from the per-match "Keeper saves" stat;
+    goals_conceded from the match score; shots_on_target_faced is DERIVED
+    at build time as saves_for + goals_conceded (_build_goalkeeping_estimate)
+    so the three figures always reconcile arithmetically -- the customer
+    reported "25 + 16 = 41 != 40" as a bug even though it was flagged,
+    because the flag explained the gap without fixing it. The provider's
+    independent "Shots on target" sum can legitimately disagree (own
+    goals, provider quirks; confirmed live off by 1 both directions on one
+    fixture) and is still used for the shots estimate, but not for this
+    dataclass's displayed shots_on_target_faced. save_pct is
+    saves_for / shots_on_target_faced with that derived denominator."""
 
     sample_size: int
     saves_for: int
@@ -975,12 +984,11 @@ class SeasonGoalkeepingEstimate:
     save_pct: float | None
     goals_conceded: int
     source: str
-    # shots_on_target_faced - (saves_for + goals_conceded): the quantified
-    # gap the paragraph above explains (positive = more shots faced than
-    # saves + goals account for; negative = fewer). Reported as its own
-    # number so the mismatch is explicit rather than left for a consumer
-    # to discover by adding the fields up; derived, never used to adjust
-    # any of the three real figures.
+    # shots_on_target_faced - (saves_for + goals_conceded). Stays 0 for
+    # normally-built estimates (shots_on_target_faced is derived from the
+    # other two, so they reconcile by construction). Still quantifies a
+    # gap when a caller constructs this dataclass directly with an
+    # independent SOT figure (tests, or a future source that exposes one).
     unreconciled_shots_on_target: int = 0
 
     def __post_init__(self) -> None:

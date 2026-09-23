@@ -499,13 +499,21 @@ def _extract_season_stats(data: dict[str, Any] | None) -> TeamSeasonStats | None
     s = (data or {}).get("statistics")
     if not s:
         return None
+    # Sofascore sometimes returns a raw unrounded average (e.g.
+    # 42.666666666667) -- every other possession figure in the report is
+    # 1dp, so store rounded rather than leaking the float into markdown.
+    raw_poss = s.get("averageBallPossession")
+    if raw_poss is None:
+        poss: float | None = None
+    else:
+        poss = js_round_to(float(raw_poss), 1)
     return TeamSeasonStats(
         goals_scored=s.get("goalsScored", 0),
         goals_conceded=s.get("goalsConceded", 0),
         clean_sheets=s.get("cleanSheets", 0),
         yellow_cards=s.get("yellowCards", 0),
         red_cards=s.get("redCards", 0),
-        average_ball_possession=s.get("averageBallPossession"),
+        average_ball_possession=poss,
     )
 
 

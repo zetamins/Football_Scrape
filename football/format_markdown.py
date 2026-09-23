@@ -224,7 +224,7 @@ def _append_form_venue_splits(f: FormSummary, lines: list[str]) -> None:
     if f.venue_split_form:
         lines.append(f"- Venue split (true venue not fixture label): {venue_split_form_str(f.venue_split_form)}")
     if f.detailed_venue_split:
-        lines.append(f"- Detailed venue split: {detailed_venue_split_str(f.detailed_venue_split)}")
+        lines.append(f"- Detailed venue split (last 20 by true venue): {detailed_venue_split_str(f.detailed_venue_split)}")
 
 
 def form_summary_markdown(f: FormSummary, lines: list[str]) -> None:
@@ -407,12 +407,54 @@ def _append_match_season_stats(d, lines: list[str]) -> None:
     docstring."""
     if d.home_team_season_stats:
         s = d.home_team_season_stats
-        poss = f", {s.average_ball_possession}% avg possession" if s.average_ball_possession else ""
+        poss = f", {js_number_to_string(s.average_ball_possession)}% avg possession (season to date)" if s.average_ball_possession else ""
         lines.append(f"- {d.home_team} season: {s.goals_scored} scored, {s.goals_conceded} conceded, {s.clean_sheets} clean sheets, {s.yellow_cards} yellow / {s.red_cards} red{poss}")
+        _append_clean_sheet_discrepancy(d.home_team, s, lines)
+        _append_possession_cross_check(d.home_team, s, lines)
     if d.away_team_season_stats:
         s = d.away_team_season_stats
-        poss = f", {s.average_ball_possession}% avg possession" if s.average_ball_possession else ""
+        poss = f", {js_number_to_string(s.average_ball_possession)}% avg possession (season to date)" if s.average_ball_possession else ""
         lines.append(f"- {d.away_team} season: {s.goals_scored} scored, {s.goals_conceded} conceded, {s.clean_sheets} clean sheets, {s.yellow_cards} yellow / {s.red_cards} red{poss}")
+        _append_clean_sheet_discrepancy(d.away_team, s, lines)
+        _append_possession_cross_check(d.away_team, s, lines)
+
+
+def _append_possession_cross_check(team: str, s, lines: list[str]) -> None:
+    """Surfaces possession_venue_split_check when the form-window average
+    diverges from season average_ball_possession by >5pp -- large enough
+    that a reader comparing the two lines side-by-side would call it a
+    contradiction, which is exactly the N5 report. Windows differ by
+    design (season-to-date vs last-20 venue buckets), so the note names
+    both figures and both windows rather than picking a winner. Silent
+    when either side is missing or the gap is within normal rounding."""
+    season = s.average_ball_possession
+    check = s.possession_venue_split_check
+    if season is None or check is None or abs(season - check) <= 5.0:
+        return
+    src = f" ({s.possession_venue_split_check_source})" if s.possession_venue_split_check_source else ""
+    lines.append(
+        f"- {team} possession cross-check: season {js_number_to_string(season)}% vs "
+        f"last-20 venue-split {js_number_to_string(check)}%{src} -- different windows "
+        f"(season-to-date vs form), not necessarily an error"
+    )
+
+
+def _append_clean_sheet_discrepancy(team: str, s, lines: list[str]) -> None:
+    """Surfaces clean_sheets_recent_check only when it exceeds the source's
+    own season aggregate -- an impossibility if the source were current
+    (recent competitive results are a subset of the season), i.e. the
+    exact lag TeamSeasonStats documents ("showing 0 the same week a 0-0
+    was actually played"). The field existed only in JSON before, so
+    markdown readers saw a bare "0 clean sheets" with no signal. When
+    recent_check <= clean_sheets (the normal case: fewer clean sheets in
+    the last 20 than over the whole season) nothing is appended."""
+    if s.clean_sheets_recent_check is None or s.clean_sheets_recent_check <= s.clean_sheets:
+        return
+    src = f" ({s.clean_sheets_recent_check_source})" if s.clean_sheets_recent_check_source else ""
+    lines.append(
+        f"- {team} clean-sheet cross-check: source reports {s.clean_sheets}, "
+        f"recent competitive results show {s.clean_sheets_recent_check}{src} -- source aggregate may be lagging"
+    )
 
 
 def _lineup_label(lineup_confirmed: bool | None) -> str:
@@ -1066,9 +1108,12 @@ def _append_insights_risk_flags(insights: MatchInsights, home_team: str, away_te
         lines.append(f"- {streak_stability_str(insights.home_streak_stability, home_team)}")
     if insights.away_streak_stability:
         lines.append(f"- {streak_stability_str(insights.away_streak_stability, away_team)}")
-    if insights.home_losing_streak_context:
+    # streak_count == 0 is the "checked, no 2+ losing streak" sentinel
+    # (see compute_losing_streak_context) -- a real completeness value in
+    # JSON, but nothing to render as a narrative line here.
+    if insights.home_losing_streak_context and insights.home_losing_streak_context.streak_count > 0:
         lines.append(f"- {losing_streak_context_str(insights.home_losing_streak_context, home_team)}")
-    if insights.away_losing_streak_context:
+    if insights.away_losing_streak_context and insights.away_losing_streak_context.streak_count > 0:
         lines.append(f"- {losing_streak_context_str(insights.away_losing_streak_context, away_team)}")
 
 

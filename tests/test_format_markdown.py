@@ -217,6 +217,25 @@ def test_losing_streak_context_str_unavailable_xg():
     assert "xG data unavailable" in losing_streak_context_str(losing, "Home FC")
 
 
+def test_insights_markdown_skips_losing_streak_sentinel_with_zero_count():
+    from football.types import LosingStreakContextInfo
+
+    sentinel = LosingStreakContextInfo(streak_count=0, xg_delta=None, potential_turnaround=None)
+    insights = _insights_full(home_losing_streak_context=sentinel, away_losing_streak_context=sentinel)
+    lines: list[str] = []
+    insights_markdown(insights, "Home FC", "Away FC", lines)
+    text = "\n".join(lines)
+    assert "losing streak context" not in text
+
+
+def test_insights_markdown_renders_losing_streak_when_count_positive():
+    insights = _insights_full()
+    lines: list[str] = []
+    insights_markdown(insights, "Home FC", "Away FC", lines)
+    text = "\n".join(lines)
+    assert "Home FC losing streak context" in text
+
+
 # --- standings_impact_str ------------------------------------------------------------
 
 
@@ -1072,6 +1091,7 @@ def test_merged_match_markdown_renders_every_optional_section():
     assert "Recent meetings:" in text
     assert "Home FC rank: #4" in text
     assert "Home FC season: 45 scored" in text
+    assert "clean-sheet cross-check" not in text  # recent_check is None / not greater than season total
     assert "Match stats: Possession 55-45" in text
     assert "Timeline: 23' Goal (Some Player)" in text
     assert "Player of the match: Some Player (8.5)" in text
@@ -1083,6 +1103,106 @@ def test_merged_match_markdown_renders_every_optional_section():
     assert "Note: A sourced note" in text
     assert "gusts 18" in text
     assert "feels like 14" in text
+
+
+def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_recent_exceeds_season():
+    from football.merge import MergedMatch
+    from football.types import TeamSeasonStats
+
+    lagging = TeamSeasonStats(
+        goals_scored=20, goals_conceded=25, clean_sheets=0, yellow_cards=30, red_cards=2,
+        average_ball_possession=None, clean_sheets_recent_check=5, clean_sheets_recent_check_source="sofascore",
+    )
+    d = _all_none(
+        MergedMatch, home_team="Man Utd", away_team="Away FC", status="finished",
+        home_team_season_stats=lagging, away_team_season_stats=None,
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "Man Utd season: 20 scored" in text
+    assert "Man Utd clean-sheet cross-check: source reports 0, recent competitive results show 5 (sofascore)" in text
+
+
+def test_merged_match_markdown_omits_clean_sheet_cross_check_when_recent_is_plausible():
+    from football.merge import MergedMatch
+    from football.types import TeamSeasonStats
+
+    normal = TeamSeasonStats(
+        goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
+        average_ball_possession=None, clean_sheets_recent_check=3, clean_sheets_recent_check_source="fotmob",
+    )
+    d = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        home_team_season_stats=normal, away_team_season_stats=None,
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "clean-sheet cross-check" not in text
+
+
+def test_merged_match_markdown_labels_season_possession_as_season_to_date():
+    from football.merge import MergedMatch
+    from football.types import TeamSeasonStats
+
+    stats = TeamSeasonStats(
+        goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
+        average_ball_possession=59.0,
+    )
+    d = _all_none(
+        MergedMatch, home_team="Tottenham Hotspur", away_team="Away FC", status="finished",
+        home_team_season_stats=stats, away_team_season_stats=None,
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "59% avg possession (season to date)" in text
+
+
+def test_merged_match_markdown_surfaces_possession_cross_check_when_windows_diverge():
+    from football.merge import MergedMatch
+    from football.types import TeamSeasonStats
+
+    # Tottenham N5 case: season 59% vs last-20 venue-split 56.2 is within
+    # 5pp so silent; force a larger gap to prove the note renders.
+    stats = TeamSeasonStats(
+        goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
+        average_ball_possession=59.0, possession_venue_split_check=52.5,
+        possession_venue_split_check_source="sofascore",
+    )
+    d = _all_none(
+        MergedMatch, home_team="Tottenham Hotspur", away_team="Away FC", status="finished",
+        home_team_season_stats=stats, away_team_season_stats=None,
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "Tottenham Hotspur possession cross-check: season 59% vs last-20 venue-split 52.5% (sofascore)" in text
+    assert "different windows" in text
+
+
+def test_merged_match_markdown_omits_possession_cross_check_when_gap_is_small():
+    from football.merge import MergedMatch
+    from football.types import TeamSeasonStats
+
+    stats = TeamSeasonStats(
+        goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
+        average_ball_possession=56.6, possession_venue_split_check=56.2,
+    )
+    d = _all_none(
+        MergedMatch, home_team="Tottenham Hotspur", away_team="Away FC", status="finished",
+        home_team_season_stats=stats, away_team_season_stats=None,
+        field_sources={}, additional_notes=[],
+    )
+    lines: list[str] = []
+    merged_match_markdown(d, lines)
+    text = "\n".join(lines)
+    assert "possession cross-check" not in text
 
 
 def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
@@ -1175,7 +1295,7 @@ def test_form_summary_markdown_renders_every_optional_section():
     assert "Fixture congestion: 1 match in last 7 days, 2 in last 14 days" in text
     assert "Rates (last 10): W55.0%" in text
     assert "Venue split (true venue not fixture label):" in text
-    assert "Detailed venue split:" in text
+    assert "Detailed venue split (last 20 by true venue):" in text
 
 
 def test_form_summary_markdown_scoreless_streak_line():
