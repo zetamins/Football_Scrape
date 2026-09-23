@@ -11,7 +11,6 @@ has no /api/-style disallow either, and even explicitly allows team pages.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import quote
@@ -213,10 +212,11 @@ async def get365_scores_matches(team_name: str) -> list[MatchInfo]:
     if team is None:
         raise ValueError(f'No 365scores team found matching "{team_name}"')
 
-    recent, current = await asyncio.gather(
-        fetch_json(f"{_BASE}/competitors/recentForm?{_COMMON}&competitor={team.id}&numOfGames=15"),
-        fetch_json(f"{_BASE}/games/current/?{_COMMON}&competitors={team.id}&showOdds=false"),
-    )
+    # Sequential, not asyncio.gather -- 365scores is a small third-party
+    # plain-HTTP site; concurrent bursts look like hammering. Same rule
+    # as orchestrate's source loop and cli.py's team loop.
+    recent = await fetch_json(f"{_BASE}/competitors/recentForm?{_COMMON}&competitor={team.id}&numOfGames=15")
+    current = await fetch_json(f"{_BASE}/games/current/?{_COMMON}&competitors={team.id}&showOdds=false")
 
     by_id: dict[int, dict[str, Any]] = {}
     for g in [*(recent.get("games") or []), *(current.get("games") or [])]:
@@ -411,10 +411,9 @@ async def get365_scores_match_details(match: MatchInfo) -> MatchDetails:
     away_bench = _extract_lineup_side(g.get("awayCompetitor"), name_by_id, is_bench=True)
     player_of_the_match = _extract_player_of_the_match(g.get("homeCompetitor"), g.get("awayCompetitor"), name_by_id)
 
-    home_standing, away_standing = await asyncio.gather(
-        _fetch_standings_for(meta.home_id, meta.competition_id),
-        _fetch_standings_for(meta.away_id, meta.competition_id),
-    )
+    # Sequential -- see get365_scores_matches; don't burst a small site.
+    home_standing = await _fetch_standings_for(meta.home_id, meta.competition_id)
+    away_standing = await _fetch_standings_for(meta.away_id, meta.competition_id)
 
     officials = g.get("officials") or []
 

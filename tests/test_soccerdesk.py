@@ -26,9 +26,6 @@ from football.sites.soccerdesk import (
 )
 
 
-async def _no_sleep(*_args, **_kwargs):
-    return None
-
 # --- _normalize / _slugify / _parse_timestamp -------------------------------------
 
 
@@ -272,7 +269,7 @@ def test_build_name_to_id_handles_missing_sides():
     assert _build_name_to_id(None, None) == {}
 
 
-# --- _fetch_json (async, retry logic) ------------------------------------------------------
+# --- _fetch_json (async, single-attempt by design) ------------------------------------------
 
 
 def _mock_client_factory(handler):
@@ -290,28 +287,25 @@ def test_fetch_json_returns_on_first_success(monkeypatch):
     assert result == {"ok": True}
 
 
-def test_fetch_json_retries_then_succeeds(monkeypatch):
+def test_fetch_json_does_not_retry_on_failure(monkeypatch):
+    """No-hammer policy: a failed plain-HTTP fetch is NOT re-sent."""
     calls = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         calls.append(1)
-        if len(calls) < 3:
-            return httpx.Response(500)
-        return httpx.Response(200, json={"ok": True})
+        return httpx.Response(500)
 
     monkeypatch.setattr(soccerdesk, "new_client", _mock_client_factory(handler))
-    monkeypatch.setattr(soccerdesk.asyncio, "sleep", _no_sleep)
-    result = asyncio.run(_fetch_json("https://example.com"))
-    assert result == {"ok": True}
-    assert len(calls) == 3
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(_fetch_json("https://example.com"))
+    assert len(calls) == 1
 
 
-def test_fetch_json_raises_last_error_after_exhausting_retries(monkeypatch):
+def test_fetch_json_raises_on_http_error(monkeypatch):
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503)
 
     monkeypatch.setattr(soccerdesk, "new_client", _mock_client_factory(handler))
-    monkeypatch.setattr(soccerdesk.asyncio, "sleep", _no_sleep)
     with pytest.raises(httpx.HTTPStatusError):
         asyncio.run(_fetch_json("https://example.com"))
 
@@ -517,7 +511,6 @@ def test_fetch_standings_and_h2h_tolerates_h2h_fetch_failure(monkeypatch):
         return httpx.Response(500)
 
     monkeypatch.setattr(soccerdesk, "new_client", _mock_client_factory(handler))
-    monkeypatch.setattr(soccerdesk.asyncio, "sleep", _no_sleep)
     match = MatchInfo(
         source="soccerdesk", source_url="https://x", competition=None, home_team="Home FC", away_team="Away FC",
         kickoff_utc=None, venue=None, status=None, home_score=None, away_score=None, home_score_ht=None,
@@ -562,7 +555,6 @@ def test_fetch_standings_and_h2h_tolerates_stage_fetch_failure(monkeypatch):
         return httpx.Response(500)
 
     monkeypatch.setattr(soccerdesk, "new_client", _mock_client_factory(handler))
-    monkeypatch.setattr(soccerdesk.asyncio, "sleep", _no_sleep)
     match = MatchInfo(
         source="soccerdesk", source_url="https://x", competition=None, home_team="Home FC", away_team="Away FC",
         kickoff_utc=None, venue=None, status=None, home_score=None, away_score=None, home_score_ht=None,

@@ -10,7 +10,6 @@ crawling restrictions apply.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -43,31 +42,21 @@ from ..types import (
 )
 
 
-async def _fetch_json(url: str, attempts: int = 3) -> Any:
-    """Observed one-off ETIMEDOUT/ENETUNREACH-style transient failures
-    (IPv6-first dual-stack resolution failing before falling back to
-    IPv4) that a plain retry immediately resolved -- a couple of quick
-    retries absorbs that without needing Sofascore's heavier
-    Cloudflare-oriented backoff schedule."""
-    last_err: Exception | None = None
-    for i in range(attempts):
-        try:
-            async with new_client() as client:
-                resp = await client.get(url, headers={"User-Agent": USER_AGENT})
-                resp.raise_for_status()
-                return resp.json()
-        # Exception, not BaseException -- catching BaseException would also
-        # retry-then-delay a genuine KeyboardInterrupt/SystemExit instead of
-        # honoring it immediately. Re-raised below once retries (or a
-        # non-transient error) exhaust them, mirroring the TS original's
-        # catch-all in effect, not in exact exception class.
-        except Exception as err:  # noqa: BLE001
-            last_err = err
-            if i < attempts - 1:
-                await asyncio.sleep(1 * (i + 1))
-    assert last_err is not None
-    record_failure(url, last_err)
-    raise last_err
+async def _fetch_json(url: str) -> Any:
+    """Single attempt, no retry -- matches the project-wide "don't hammer
+    plain-HTTP sources" rule (goal.com/soccerdesk.com/365scores.com are
+    small third-party sites; retrying a failure multiplies load on an
+    already-unhappy server). Previously had attempts=3 with 1s/2s sleeps
+    for one-off IPv6 dual-stack ETIMEDOUT flakes; a failed fetch is
+    reported via record_failure instead of being re-sent."""
+    try:
+        async with new_client() as client:
+            resp = await client.get(url, headers={"User-Agent": USER_AGENT})
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as err:  # noqa: BLE001 - record and re-raise; no retry by design
+        record_failure(url, err)
+        raise
 
 
 @dataclass

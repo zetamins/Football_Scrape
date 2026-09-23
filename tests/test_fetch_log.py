@@ -273,13 +273,9 @@ def test_footballdata_csv_network_error_is_recorded_then_raised(monkeypatch):
     assert seen[0].source == "football-data"
 
 
-def test_soccerdesk_fetch_json_records_the_url_after_retries_are_exhausted(monkeypatch):
+def test_soccerdesk_fetch_json_records_the_url_on_failure(monkeypatch):
     from football.sites import soccerdesk
 
-    async def instant(_s):
-        return None
-
-    monkeypatch.setattr(soccerdesk.asyncio, "sleep", instant)
     monkeypatch.setattr(soccerdesk, "new_client", _mock_client_factory(lambda _r: httpx.Response(500)))
     seen: list[FetchFailure] = []
     with capture_failures(seen.append), pytest.raises(httpx.HTTPStatusError):

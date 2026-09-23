@@ -3,9 +3,11 @@ scrapers (everything except sofascore/squawka/worldfootball, which need
 real Chromium -- see browser.py). Each original TS file duplicated its own
 fetchJson/fetchText with the same User-Agent header and `if (!res.ok) throw`
 handling; consolidated here since porting touches every one of these files
-anyway. Per-site deviations (retry loops, "return null instead of throw")
-stay local to that site's module rather than being forced into one generic
-shape here.
+anyway. Per-site deviations ("return null instead of throw") stay local
+to that site's module rather than being forced into one generic shape
+here. No retries in this module or its call sites -- small third-party
+plain-HTTP hosts (goal.com, soccerdesk.com, 365scores.com) must not be
+re-hit on failure (user's explicit no-hammer rule).
 
 `http2=True` is load-bearing, not an optimization: found while porting
 wikipedia.py -- en.wikipedia.org's edge returns 403 ("please respect our
