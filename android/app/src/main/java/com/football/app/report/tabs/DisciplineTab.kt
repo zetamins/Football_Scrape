@@ -154,34 +154,22 @@ private fun MatchedSampleSection(
     val a = insights.awayAdvancedStats
     if (h == null || a == null) return
     SectionCard("Matched sample (sofascore)") {
-        BarComparison(
+        AdvancedStatBar(
             "Yellow cards",
-            h.yellowCardsFor.toFloat(),
-            a.yellowCardsFor.toFloat(),
-            AppTheme.colors.homeSeries,
-            AppTheme.colors.awaySeries,
-            "$homeTeam ${h.yellowCardsFor}",
-            "$awayTeam ${a.yellowCardsFor}",
+            h.yellowCardsFor, a.yellowCardsFor,
+            homeTeam, awayTeam,
         )
         Spacer(Modifier.height(8.dp))
-        BarComparison(
+        AdvancedStatBar(
             "Red cards",
-            h.redCardsFor.toFloat(),
-            a.redCardsFor.toFloat(),
-            AppTheme.colors.homeSeries,
-            AppTheme.colors.awaySeries,
-            "$homeTeam ${h.redCardsFor}",
-            "$awayTeam ${a.redCardsFor}",
+            h.redCardsFor, a.redCardsFor,
+            homeTeam, awayTeam,
         )
         Spacer(Modifier.height(8.dp))
-        BarComparison(
+        AdvancedStatBar(
             "Fouls",
-            h.foulsFor.toFloat(),
-            a.foulsFor.toFloat(),
-            AppTheme.colors.homeSeries,
-            AppTheme.colors.awaySeries,
-            "$homeTeam ${h.foulsFor}",
-            "$awayTeam ${a.foulsFor}",
+            h.foulsFor, a.foulsFor,
+            homeTeam, awayTeam,
         )
         Spacer(Modifier.height(8.dp))
         InfoRow(
@@ -195,6 +183,31 @@ private fun MatchedSampleSection(
             valueColor = if (a.penaltiesAwardedAgainst > 0) AppTheme.colors.statusWarning else Color.Unspecified,
         )
     }
+}
+
+/** Bar for a nullable advanced-stat pair -- null means this source never
+ * reported the stat, so show n/a instead of a fabricated 0 bar. */
+@Composable
+private fun AdvancedStatBar(
+    label: String,
+    home: Int?,
+    away: Int?,
+    homeTeam: String,
+    awayTeam: String,
+) {
+    if (home == null || away == null) {
+        InfoRow(label, "n/a (${homeTeam} ${home ?: "n/a"} / ${awayTeam} ${away ?: "n/a"})")
+        return
+    }
+    BarComparison(
+        label,
+        home.toFloat(),
+        away.toFloat(),
+        AppTheme.colors.homeSeries,
+        AppTheme.colors.awaySeries,
+        "$homeTeam $home",
+        "$awayTeam $away",
+    )
 }
 
 @Composable

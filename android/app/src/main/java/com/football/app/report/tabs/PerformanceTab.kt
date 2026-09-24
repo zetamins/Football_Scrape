@@ -40,6 +40,10 @@ private fun AttackProfileRadar(insights: InsightsPerformance) {
     val away = insights.awayAdvancedStats
     if (home == null || away == null) return
     SectionCard("Attack profile") {
+        // Null advanced-stat fields mean "source never reported this" --
+        // plot as 0 on the radar (needs a number) rather than fabricate a
+        // non-zero; bars/rows below render n/a instead.
+        fun v(n: Int?): Float = n?.toFloat() ?: 0f
         val axes =
             listOf(
                 RadarAxis(
@@ -48,10 +52,10 @@ private fun AttackProfileRadar(insights: InsightsPerformance) {
                     (insights.awayXgEstimate?.xgFor ?: 0.0).toFloat(),
                     maxValue = 3f,
                 ),
-                RadarAxis("Shots", home.totalShotsFor.toFloat(), away.totalShotsFor.toFloat(), maxValue = 20f),
-                RadarAxis("Big chances", home.bigChancesCreatedFor.toFloat(), away.bigChancesCreatedFor.toFloat(), maxValue = 8f),
-                RadarAxis("Touches in box", home.touchesInBoxFor.toFloat(), away.touchesInBoxFor.toFloat(), maxValue = 40f),
-                RadarAxis("Dribbles", home.dribblesFor.toFloat(), away.dribblesFor.toFloat(), maxValue = 15f),
+                RadarAxis("Shots", v(home.totalShotsFor), v(away.totalShotsFor), maxValue = 20f),
+                RadarAxis("Big chances", v(home.bigChancesCreatedFor), v(away.bigChancesCreatedFor), maxValue = 8f),
+                RadarAxis("Touches in box", v(home.touchesInBoxFor), v(away.touchesInBoxFor), maxValue = 40f),
+                RadarAxis("Dribbles", v(home.dribblesFor), v(away.dribblesFor), maxValue = 15f),
             )
         RadarChart(axes = axes, homeColor = AppTheme.colors.homeSeries, awayColor = AppTheme.colors.awaySeries)
     }
@@ -186,16 +190,16 @@ private fun AdvancedStatsSection(
         InfoRow("$awayTeam set-piece goals (corner/pen/FK)", "${a.cornerGoalsFor}/${a.penaltyGoalsFor}/${a.freeKickGoalsFor}")
         InfoRow(
             "$homeTeam errors -> shot/goal",
-            "${h.errorsLeadToShotFor} / ${h.errorsLeadToGoalFor}",
-            valueColor = if (h.errorsLeadToGoalFor > 0) AppTheme.colors.statusCritical else androidx.compose.ui.graphics.Color.Unspecified,
+            "${h.errorsLeadToShotFor ?: "n/a"} / ${h.errorsLeadToGoalFor ?: "n/a"}",
+            valueColor = if ((h.errorsLeadToGoalFor ?: 0) > 0) AppTheme.colors.statusCritical else androidx.compose.ui.graphics.Color.Unspecified,
         )
         InfoRow(
             "$awayTeam errors -> shot/goal",
-            "${a.errorsLeadToShotFor} / ${a.errorsLeadToGoalFor}",
-            valueColor = if (a.errorsLeadToGoalFor > 0) AppTheme.colors.statusCritical else androidx.compose.ui.graphics.Color.Unspecified,
+            "${a.errorsLeadToShotFor ?: "n/a"} / ${a.errorsLeadToGoalFor ?: "n/a"}",
+            valueColor = if ((a.errorsLeadToGoalFor ?: 0) > 0) AppTheme.colors.statusCritical else androidx.compose.ui.graphics.Color.Unspecified,
         )
-        InfoRow("$homeTeam offsides / dispossessed", "${h.offsidesFor} / ${h.dispossessedFor}")
-        InfoRow("$awayTeam offsides / dispossessed", "${a.offsidesFor} / ${a.dispossessedFor}")
+        InfoRow("$homeTeam offsides / dispossessed", "${h.offsidesFor ?: "n/a"} / ${h.dispossessedFor ?: "n/a"}")
+        InfoRow("$awayTeam offsides / dispossessed", "${a.offsidesFor ?: "n/a"} / ${a.dispossessedFor ?: "n/a"}")
         val possessionLine1 = "${h.possessionPctAvg ?: "n/a"}% poss, ${h.fieldTiltPct ?: "n/a"}% field tilt"
         val possessionLine2 = "${a.possessionPctAvg ?: "n/a"}% poss, ${a.fieldTiltPct ?: "n/a"}% field tilt"
         InfoRow("$homeTeam possession / field tilt", possessionLine1)
@@ -205,17 +209,22 @@ private fun AdvancedStatsSection(
     }
 }
 
-/** One bar comparison row for an Int- or Double-valued advanced stat --
- * previously two byte-for-byte identical functions (AdvancedBar/
- * AdvancedBarDouble) differing only in parameter type. */
+/** One bar comparison row for an Int- or Double-valued advanced stat.
+ * Null on either side means this source never reported the stat -- show
+ * n/a rather than a fabricated 0 bar. */
 @Composable
 private fun AdvancedBar(
     label: String,
-    home: Number,
-    away: Number,
+    home: Number?,
+    away: Number?,
     homeTeam: String,
     awayTeam: String,
 ) {
+    if (home == null || away == null) {
+        InfoRow(label, "n/a (${homeTeam} ${home ?: "n/a"} / ${awayTeam} ${away ?: "n/a"})")
+        Spacer(Modifier.height(8.dp))
+        return
+    }
     BarComparison(
         label,
         home.toFloat(),

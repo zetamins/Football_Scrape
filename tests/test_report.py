@@ -214,6 +214,15 @@ def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
     report = build_report_json(_run_search_result())
     assert report["dataWindows"]["team_season_stats"].startswith("current season")
     assert "last 20" in report["dataWindows"]["recent_form_leaders"]
+    # Field-level labels for values whose section description is too coarse
+    # (possession cross-check and clean-sheet check sit under season stats
+    # but cover the form window).
+    assert "last 20" in report["dataWindows"]["team_season_stats.possession_venue_split_check"]
+    assert "last 20" in report["dataWindows"]["team_season_stats.clean_sheets_recent_check"]
+    assert "sample_size" in report["dataWindows"]["team_season_stats.clean_sheets_recent_check"]
+    assert "season to date" in report["dataWindows"]["team_season_stats.average_ball_possession"]
+    assert "current season" in report["dataWindows"]["squad_season_stats"]
+    assert "last 20" in report["dataWindows"]["squad_recent_usage"]
 
 
 def test_build_report_json_data_completeness_lists_missing_fields():

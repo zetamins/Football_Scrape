@@ -1121,7 +1121,29 @@ def test_compute_advanced_stats_names_the_stats_this_sources_sample_never_report
     stat_totals["recoveries"] = {"for": 0, "against": 0, "n": 0}
     estimate = _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "fotmob")
     assert estimate.unavailable_stats == ["recoveries", "through_balls"]
-    assert estimate.through_balls_for == 0  # structural 0 -- unavailable_stats says why
+    assert estimate.through_balls_for is None  # null, not a fabricated 0
+    assert estimate.through_balls_against is None
+    assert estimate.recoveries_for is None
+    assert estimate.touches_in_box_for == 1  # available stats keep real values
+
+
+def test_compute_advanced_stats_nulls_red_cards_pair_when_source_never_reported_them():
+    from football.form import ADVANCED_STAT_NAMES, _compute_advanced_stats, _SetPieceAccumulator
+    from dataclasses import asdict
+
+    stat_totals = {k: {"n": 5, "for": 2.0, "against": 1.0} for k in ADVANCED_STAT_NAMES}
+    stat_totals["red_cards"] = {"n": 0, "for": 0.0, "against": 0.0}
+    estimate = _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "sofascore")
+    assert estimate is not None
+    assert estimate.unavailable_stats == ["red_cards"]
+    assert estimate.red_cards_for is None
+    assert estimate.red_cards_against is None
+    assert estimate.yellow_cards_for == 2
+    # acc-derived fields stay a real 0, never null
+    d = asdict(estimate)
+    assert d["red_cards_for"] is None
+    assert d["xa_for"] == 0.0
+    assert d["penalties_awarded_for"] == 0
 
 
 def test_compute_advanced_stats_unavailable_stats_none_when_every_stat_had_data():

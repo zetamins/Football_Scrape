@@ -51,66 +51,73 @@ data class PossessionMatchupInfo(
 )
 
 /**
- * The single largest object in the whole report (65 fields on the
- * Python side, matched exactly here) -- shared between Performance and
- * Discipline tabs (frontend/DESIGN.md lists overlapping fields from this
- * same object for both), so it's modeled once here rather than twice.
- * Every field transcribed directly from SeasonAdvancedStatsEstimate in
- * types.py, cross-checked against a real sample's actual key list (not
- * just the dataclass) -- confirms `source` is the only field genuinely
- * absent from JSON.
+ * The single largest object in the whole report -- shared between
+ * Performance and Discipline tabs (frontend/DESIGN.md lists overlapping
+ * fields from this same object for both), so it's modeled once here
+ * rather than twice. Every field transcribed from
+ * SeasonAdvancedStatsEstimate in types.py, cross-checked against a real
+ * sample's actual key list -- confirms `source` is the only field
+ * genuinely absent from JSON.
+ *
+ * Fields Python marks Optional (stat_totals pairs the source never
+ * reported this run) are Int?/Double? here: JSON null means "this source
+ * never reported that stat", not a zero. Fields derived from the
+ * set-piece accumulator (xa, corner/pen/FK goals, non-pen xG, set-piece
+ * xG, penalties awarded) stay non-null -- a real 0 when no such events
+ * occurred. `source` is stripped from JSON by report.py and never
+ * modeled here.
  */
 @Serializable
 data class AdvancedStats(
     val sampleSize: Int,
-    val touchesInBoxFor: Int,
-    val touchesInBoxAgainst: Int,
-    val crossesFor: Int,
-    val crossesAgainst: Int,
-    val dribblesFor: Int,
-    val dribblesAgainst: Int,
-    val throughBallsFor: Int,
-    val throughBallsAgainst: Int,
-    val finalThirdEntriesFor: Int,
-    val finalThirdEntriesAgainst: Int,
-    val recoveriesFor: Int,
-    val recoveriesAgainst: Int,
-    val errorsLeadToShotFor: Int,
-    val errorsLeadToShotAgainst: Int,
-    val errorsLeadToGoalFor: Int,
-    val errorsLeadToGoalAgainst: Int,
-    val shotsInsideBoxFor: Int,
-    val shotsInsideBoxAgainst: Int,
-    val shotsOutsideBoxFor: Int,
-    val shotsOutsideBoxAgainst: Int,
-    val shotsOffTargetFor: Int,
-    val shotsOffTargetAgainst: Int,
-    val blockedShotsFor: Int,
-    val blockedShotsAgainst: Int,
-    val offsidesFor: Int,
-    val offsidesAgainst: Int,
-    val bigChancesScoredFor: Int,
-    val bigChancesScoredAgainst: Int,
-    val dispossessedFor: Int,
-    val dispossessedAgainst: Int,
-    val teamTacklesFor: Int,
-    val teamTacklesAgainst: Int,
-    val teamInterceptionsFor: Int,
-    val teamInterceptionsAgainst: Int,
-    val goalsPreventedFor: Double,
-    val goalsPreventedAgainst: Double,
-    val bigSavesFor: Int,
-    val bigSavesAgainst: Int,
-    val highClaimsFor: Int,
-    val highClaimsAgainst: Int,
-    val distanceCoveredKmFor: Double,
-    val distanceCoveredKmAgainst: Double,
-    val sprintsFor: Int,
-    val sprintsAgainst: Int,
-    val teamClearancesFor: Int,
-    val teamClearancesAgainst: Int,
-    val freeKicksFor: Int,
-    val freeKicksAgainst: Int,
+    val touchesInBoxFor: Int? = null,
+    val touchesInBoxAgainst: Int? = null,
+    val crossesFor: Int? = null,
+    val crossesAgainst: Int? = null,
+    val dribblesFor: Int? = null,
+    val dribblesAgainst: Int? = null,
+    val throughBallsFor: Int? = null,
+    val throughBallsAgainst: Int? = null,
+    val finalThirdEntriesFor: Int? = null,
+    val finalThirdEntriesAgainst: Int? = null,
+    val recoveriesFor: Int? = null,
+    val recoveriesAgainst: Int? = null,
+    val errorsLeadToShotFor: Int? = null,
+    val errorsLeadToShotAgainst: Int? = null,
+    val errorsLeadToGoalFor: Int? = null,
+    val errorsLeadToGoalAgainst: Int? = null,
+    val shotsInsideBoxFor: Int? = null,
+    val shotsInsideBoxAgainst: Int? = null,
+    val shotsOutsideBoxFor: Int? = null,
+    val shotsOutsideBoxAgainst: Int? = null,
+    val shotsOffTargetFor: Int? = null,
+    val shotsOffTargetAgainst: Int? = null,
+    val blockedShotsFor: Int? = null,
+    val blockedShotsAgainst: Int? = null,
+    val offsidesFor: Int? = null,
+    val offsidesAgainst: Int? = null,
+    val bigChancesScoredFor: Int? = null,
+    val bigChancesScoredAgainst: Int? = null,
+    val dispossessedFor: Int? = null,
+    val dispossessedAgainst: Int? = null,
+    val teamTacklesFor: Int? = null,
+    val teamTacklesAgainst: Int? = null,
+    val teamInterceptionsFor: Int? = null,
+    val teamInterceptionsAgainst: Int? = null,
+    val goalsPreventedFor: Double? = null,
+    val goalsPreventedAgainst: Double? = null,
+    val bigSavesFor: Int? = null,
+    val bigSavesAgainst: Int? = null,
+    val highClaimsFor: Int? = null,
+    val highClaimsAgainst: Int? = null,
+    val distanceCoveredKmFor: Double? = null,
+    val distanceCoveredKmAgainst: Double? = null,
+    val sprintsFor: Int? = null,
+    val sprintsAgainst: Int? = null,
+    val teamClearancesFor: Int? = null,
+    val teamClearancesAgainst: Int? = null,
+    val freeKicksFor: Int? = null,
+    val freeKicksAgainst: Int? = null,
     val xaFor: Double,
     val xaAgainst: Double,
     val cornerGoalsFor: Int,
@@ -119,21 +126,21 @@ data class AdvancedStats(
     val penaltyGoalsAgainst: Int,
     val freeKickGoalsFor: Int,
     val freeKickGoalsAgainst: Int,
-    val totalShotsFor: Int,
-    val totalShotsAgainst: Int,
-    val shotsOnTargetFor: Int,
-    val shotsOnTargetAgainst: Int,
-    val cornersFor: Int,
-    val cornersAgainst: Int,
-    val foulsFor: Int,
-    val foulsAgainst: Int,
-    val yellowCardsFor: Int,
-    val yellowCardsAgainst: Int,
-    val redCardsFor: Int,
-    val redCardsAgainst: Int,
+    val totalShotsFor: Int? = null,
+    val totalShotsAgainst: Int? = null,
+    val shotsOnTargetFor: Int? = null,
+    val shotsOnTargetAgainst: Int? = null,
+    val cornersFor: Int? = null,
+    val cornersAgainst: Int? = null,
+    val foulsFor: Int? = null,
+    val foulsAgainst: Int? = null,
+    val yellowCardsFor: Int? = null,
+    val yellowCardsAgainst: Int? = null,
+    val redCardsFor: Int? = null,
+    val redCardsAgainst: Int? = null,
     val possessionPctAvg: Double? = null,
-    val bigChancesCreatedFor: Int,
-    val bigChancesCreatedAgainst: Int,
+    val bigChancesCreatedFor: Int? = null,
+    val bigChancesCreatedAgainst: Int? = null,
     val nonPenaltyXgFor: Double,
     val nonPenaltyXgAgainst: Double,
     val setPieceXgFor: Double,
@@ -141,6 +148,9 @@ data class AdvancedStats(
     val penaltiesAwardedFor: Int,
     val penaltiesAwardedAgainst: Int,
     val fieldTiltPct: Double? = null,
+    /** Python's `unavailable_stats` -- ADVANCED_STAT_NAMES keys the source
+     * never reported this run (their numeric pairs above are null). */
+    val unavailableStats: List<String>? = null,
 )
 
 /**

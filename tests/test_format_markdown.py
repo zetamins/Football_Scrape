@@ -927,6 +927,54 @@ def test_advanced_stats_str_na_without_possession_or_tilt():
     assert "field tilt n/a%" in result
 
 
+def test_advanced_stats_str_null_unavailable_pair_renders_na_not_zero():
+    """JSON null (source never reported the stat) must not print as 0-0."""
+    from football.format_markdown import advanced_stats_str
+
+    result = advanced_stats_str(
+        _advanced_stats(
+            unavailable_stats=["red_cards", "through_balls"],
+            red_cards_for=None,
+            red_cards_against=None,
+            through_balls_for=None,
+            through_balls_against=None,
+        ),
+        "Home",
+    )
+    assert "cards 1Y/n/a-1Y/n/a" in result
+    assert "through balls n/a" in result
+    assert "unavailable from source: red_cards, through_balls" in result
+    # yellow stayed available (helper default = 1)
+    assert "0R" not in result
+
+
+def test_advanced_stats_str_null_pair_even_without_unavailable_stats_name():
+    """Null field alone is enough for n/a -- unavailable_stats is belt-and-braces."""
+    from football.format_markdown import advanced_stats_str
+
+    result = advanced_stats_str(_advanced_stats(red_cards_for=None, red_cards_against=None), "Home")
+    assert "cards 1Y/n/a-1Y/n/a" in result
+
+
+def test_advanced_stats_str_null_goals_prevented_and_distance_render_na():
+    """goals_prevented / distance_covered_km can now be null when the source
+    never reported them -- must not crash js_number_to_string(None)."""
+    from football.format_markdown import advanced_stats_str
+
+    result = advanced_stats_str(
+        _advanced_stats(
+            unavailable_stats=["goals_prevented", "distance_covered_km"],
+            goals_prevented_for=None,
+            goals_prevented_against=None,
+            distance_covered_km_for=None,
+            distance_covered_km_against=None,
+        ),
+        "Home",
+    )
+    assert "goals prevented n/a" in result
+    assert "distance n/akm" in result
+
+
 def test_passing_style_str_formats_pass_accuracy():
     from football.format_markdown import passing_style_str
     from football.types import SeasonPassingStyleEstimate
@@ -1145,7 +1193,8 @@ def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_windows_dif
 
     lagging = TeamSeasonStats(
         goals_scored=20, goals_conceded=25, clean_sheets=2, yellow_cards=30, red_cards=2,
-        average_ball_possession=None, clean_sheets_recent_check=5, clean_sheets_recent_check_source="sofascore",
+        average_ball_possession=None, clean_sheets_recent_check=5, clean_sheets_recent_check_sample_size=17,
+        clean_sheets_recent_check_source="sofascore",
     )
     d = _all_none(
         MergedMatch, home_team="Man Utd", away_team="Away FC", status="finished",
@@ -1156,7 +1205,7 @@ def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_windows_dif
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
     assert "Man Utd season: 20 scored, 25 conceded, 2 clean sheets" in text
-    assert "Man Utd clean-sheet cross-check: season aggregate 2, last-20 competitive results show 5 (sofascore)" in text
+    assert "Man Utd clean-sheet cross-check: season aggregate 2, last-20 competitive results show 5 of 17 competitive results in the window (sofascore)" in text
     assert "different windows, not reconciled" in text
 
 

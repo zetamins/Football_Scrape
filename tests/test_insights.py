@@ -2406,6 +2406,7 @@ def test_add_clean_sheets_recent_check_counts_competitive_clean_sheets():
     ]
     add_clean_sheets_recent_check(stats, results)
     assert stats.clean_sheets_recent_check == 2  # the friendly clean sheet doesn't count
+    assert stats.clean_sheets_recent_check_sample_size == 3  # competitive results only
     assert stats.clean_sheets == 0  # season aggregate untouched -- form window is a different slice
     assert stats.clean_sheets_source_aggregate is None  # no reconciliation (never mutates clean_sheets)
 
@@ -2420,6 +2421,7 @@ def test_add_clean_sheets_recent_check_leaves_source_aggregate_when_already_curr
     assert stats.clean_sheets == 5  # season aggregate unchanged
     assert stats.clean_sheets_source_aggregate is None  # no reconciliation happened
     assert stats.clean_sheets_recent_check == 1
+    assert stats.clean_sheets_recent_check_sample_size == 1
 
 
 def test_add_clean_sheets_recent_check_records_which_source_the_results_came_from():
@@ -2435,6 +2437,7 @@ def test_add_clean_sheets_recent_check_records_which_source_the_results_came_fro
     add_clean_sheets_recent_check(stats, results, "fotmob")
     assert stats.clean_sheets_recent_check_source == "fotmob"
     assert stats.clean_sheets_recent_check == 1
+    assert stats.clean_sheets_recent_check_sample_size == 1
 
 
 def test_add_clean_sheets_recent_check_noop_without_stats_or_results():
@@ -2444,6 +2447,7 @@ def test_add_clean_sheets_recent_check_noop_without_stats_or_results():
     stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=None)
     add_clean_sheets_recent_check(stats, None)
     assert stats.clean_sheets_recent_check is None
+    assert stats.clean_sheets_recent_check_sample_size is None
     add_clean_sheets_recent_check(None, [_all_none(FormResult, scoreline="0-0", venue="home", competition="Premier League")])  # must not raise
 
 

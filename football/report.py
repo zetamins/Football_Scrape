@@ -98,11 +98,25 @@ def _strip_source_labels(obj: Any) -> Any:
 # differ (season stats and top scorers are current-season-to-date; form
 # blocks are trailing match windows), so the same team can legitimately
 # show e.g. 60% season possession beside 52% last-20 possession -- this
-# says so explicitly instead of leaving consumers to guess.
+# says so explicitly instead of leaving consumers to guess. Field-level
+# entries name individual JSON keys that sit inside a section whose own
+# description is too coarse to cover them (e.g. possession cross-check
+# lives beside season goals under match.*_team_season_stats).
 _DATA_WINDOWS = {
     "team_season_stats": "current season to date (goals, cards, average possession)",
+    "team_season_stats.average_ball_possession": (
+        "season to date from the source; when possession_venue_split_check diverges by >5pp this becomes the "
+        "last-20 venue-split figure and the original is kept in average_ball_possession_source_season"
+    ),
+    "team_season_stats.possession_venue_split_check": "last 20 competitive matches, n-weighted venue-split possession",
+    "team_season_stats.clean_sheets_recent_check": (
+        "last 20 competitive matches (friendlies excluded); clean_sheets_recent_check_sample_size is how many "
+        "competitive results in that window fed the count"
+    ),
     "top_scorers_and_assists": "current season to date",
     "recent_form_leaders": "last 20 matches",
+    "squad_season_stats": "current season to date (squad[].season_stats -- goals/assists/cards/rating)",
+    "squad_recent_usage": "last 20 matches with lineup/stats detail (squad[].recent_usage -- totals and per-90)",
     "form_by_competition": "last 20 competitive matches (friendlies excluded)",
     "form_by_competition_half_split_venue_split_last20": "last 20 competitive matches (friendlies excluded)",
     "win_rate_points_goals_per_game_over_btts": "last 10 competitive matches",

@@ -338,6 +338,12 @@ class TeamSeasonStats:
     # season_stats.clean_sheets, kept for comparison only (never used to
     # overwrite the season figure). None when there's no recent form.
     clean_sheets_recent_check: int | None = None
+    # How many competitive (non-friendly) results in that same last-20
+    # window fed clean_sheets_recent_check -- without this the count alone
+    # can look impossible beside a short season sample (e.g. check=5 beside
+    # 5 league games / 8 conceded: the form window may be almost all
+    # previous-season fixtures). None when there's no recent form.
+    clean_sheets_recent_check_sample_size: int | None = None
     # Which source's recent match results fed clean_sheets_recent_check --
     # that count can legitimately swing between two runs of the same team
     # (e.g. Sofascore blocked one run, Fotmob used as a fallback the next,
@@ -1028,58 +1034,62 @@ class SeasonDefensiveErrorsEstimate:
 @dataclass
 class SeasonAdvancedStatsEstimate:
     sample_size: int
-    # Names (ADVANCED_STAT_NAMES keys) whose *_for/*_against below are a
-    # structural 0 -- this run's source never reported that stat at all,
-    # not "zero of these events happened". None when every stat had data.
+    # Names (ADVANCED_STAT_NAMES keys) whose *_for/*_against below are
+    # null -- this run's source never reported that stat at all, not "zero
+    # of these events happened". None when every stat had data. The paired
+    # numeric fields are null for those keys (not structural 0), so JSON
+    # consumers don't read a fabricated 0 as real data.
     unavailable_stats: list[str] | None
-    touches_in_box_for: int
-    touches_in_box_against: int
-    crosses_for: int
-    crosses_against: int
-    dribbles_for: int
-    dribbles_against: int
-    through_balls_for: int
-    through_balls_against: int
-    final_third_entries_for: int
-    final_third_entries_against: int
-    recoveries_for: int
-    recoveries_against: int
-    errors_lead_to_shot_for: int
-    errors_lead_to_shot_against: int
-    errors_lead_to_goal_for: int
-    errors_lead_to_goal_against: int
-    shots_inside_box_for: int
-    shots_inside_box_against: int
-    shots_outside_box_for: int
-    shots_outside_box_against: int
-    shots_off_target_for: int
-    shots_off_target_against: int
-    blocked_shots_for: int
-    blocked_shots_against: int
-    offsides_for: int
-    offsides_against: int
-    big_chances_scored_for: int
-    big_chances_scored_against: int
-    dispossessed_for: int
-    dispossessed_against: int
-    team_tackles_for: int
-    team_tackles_against: int
-    team_interceptions_for: int
-    team_interceptions_against: int
-    goals_prevented_for: float
-    goals_prevented_against: float
-    big_saves_for: int
-    big_saves_against: int
-    high_claims_for: int
-    high_claims_against: int
-    distance_covered_km_for: float
-    distance_covered_km_against: float
-    sprints_for: int
-    sprints_against: int
-    team_clearances_for: int
-    team_clearances_against: int
-    free_kicks_for: int
-    free_kicks_against: int
+    touches_in_box_for: int | None
+    touches_in_box_against: int | None
+    crosses_for: int | None
+    crosses_against: int | None
+    dribbles_for: int | None
+    dribbles_against: int | None
+    through_balls_for: int | None
+    through_balls_against: int | None
+    final_third_entries_for: int | None
+    final_third_entries_against: int | None
+    recoveries_for: int | None
+    recoveries_against: int | None
+    errors_lead_to_shot_for: int | None
+    errors_lead_to_shot_against: int | None
+    errors_lead_to_goal_for: int | None
+    errors_lead_to_goal_against: int | None
+    shots_inside_box_for: int | None
+    shots_inside_box_against: int | None
+    shots_outside_box_for: int | None
+    shots_outside_box_against: int | None
+    shots_off_target_for: int | None
+    shots_off_target_against: int | None
+    blocked_shots_for: int | None
+    blocked_shots_against: int | None
+    offsides_for: int | None
+    offsides_against: int | None
+    big_chances_scored_for: int | None
+    big_chances_scored_against: int | None
+    dispossessed_for: int | None
+    dispossessed_against: int | None
+    team_tackles_for: int | None
+    team_tackles_against: int | None
+    team_interceptions_for: int | None
+    team_interceptions_against: int | None
+    goals_prevented_for: float | None
+    goals_prevented_against: float | None
+    big_saves_for: int | None
+    big_saves_against: int | None
+    high_claims_for: int | None
+    high_claims_against: int | None
+    distance_covered_km_for: float | None
+    distance_covered_km_against: float | None
+    sprints_for: int | None
+    sprints_against: int | None
+    team_clearances_for: int | None
+    team_clearances_against: int | None
+    free_kicks_for: int | None
+    free_kicks_against: int | None
+    # Derived from the set-piece event accumulator, not stat_totals --
+    # stays a real 0 when the sample simply had no such events.
     xa_for: float
     xa_against: float
     corner_goals_for: int
@@ -1088,21 +1098,23 @@ class SeasonAdvancedStatsEstimate:
     penalty_goals_against: int
     free_kick_goals_for: int
     free_kick_goals_against: int
-    total_shots_for: int
-    total_shots_against: int
-    shots_on_target_for: int
-    shots_on_target_against: int
-    corners_for: int
-    corners_against: int
-    fouls_for: int
-    fouls_against: int
-    yellow_cards_for: int
-    yellow_cards_against: int
-    red_cards_for: int
-    red_cards_against: int
+    total_shots_for: int | None
+    total_shots_against: int | None
+    shots_on_target_for: int | None
+    shots_on_target_against: int | None
+    corners_for: int | None
+    corners_against: int | None
+    fouls_for: int | None
+    fouls_against: int | None
+    yellow_cards_for: int | None
+    yellow_cards_against: int | None
+    red_cards_for: int | None
+    red_cards_against: int | None
     possession_pct_avg: float | None
-    big_chances_created_for: int
-    big_chances_created_against: int
+    big_chances_created_for: int | None
+    big_chances_created_against: int | None
+    # From the set-piece accumulator, not stat_totals -- real 0 when no
+    # such events occurred in the sample.
     non_penalty_xg_for: float
     non_penalty_xg_against: float
     set_piece_xg_for: float

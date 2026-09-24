@@ -481,14 +481,18 @@ def _append_clean_sheet_discrepancy(team: str, s, lines: list[str]) -> None:
     different windows -- last20 can span the previous season -- so they are
     never reconciled into one number (raising the season figure produced
     impossible stats). Silent when the form window is missing or matches
-    the season figure."""
+    the season figure. Includes the competitive sample size so a count that
+    looks impossible beside a short season sample can be checked against
+    the window that actually produced it."""
     check = s.clean_sheets_recent_check
     if check is None or check == s.clean_sheets:
         return
     src = f" ({s.clean_sheets_recent_check_source})" if s.clean_sheets_recent_check_source else ""
+    sample = s.clean_sheets_recent_check_sample_size
+    sample_note = f" of {sample} competitive results in the window" if sample is not None else ""
     lines.append(
         f"- {team} clean-sheet cross-check: season aggregate {s.clean_sheets}, "
-        f"last-20 competitive results show {check}{src} -- different windows, not reconciled"
+        f"last-20 competitive results show {check}{sample_note}{src} -- different windows, not reconciled"
     )
 
 
@@ -810,23 +814,25 @@ def big_chances_estimate_str(x: SeasonBigChancesEstimate, label: str) -> str:
 
 
 def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
-    poss = js_number_to_string(x.possession_pct_avg) if x.possession_pct_avg is not None else "n/a"
-    tilt = js_number_to_string(x.field_tilt_pct) if x.field_tilt_pct is not None else "n/a"
+    def num_or_na(n) -> str:
+        return "n/a" if n is None else js_number_to_string(n)
+
+    poss = num_or_na(x.possession_pct_avg)
+    tilt = num_or_na(x.field_tilt_pct)
     unavailable = set(x.unavailable_stats or ())
 
     def pair(key: str, for_v, against_v) -> str:
-        # Structural 0 from a source that never reported this stat must not
-        # read as "zero events happened" -- unavailable_stats names those
-        # keys; render them n/a instead of 0-0.
-        if key in unavailable:
+        # Null (or an unavailable_stats name) means this source never
+        # reported the stat -- render n/a, not a fabricated 0-0.
+        if key in unavailable or for_v is None or against_v is None:
             return "n/a"
         return f"{for_v}-{against_v}"
 
     def cards_pair(for_y, for_r, against_y, against_r) -> str:
-        left_y = "n/a" if "yellow_cards" in unavailable else f"{for_y}Y"
-        right_y = "n/a" if "yellow_cards" in unavailable else f"{against_y}Y"
-        left_r = "n/a" if "red_cards" in unavailable else f"{for_r}R"
-        right_r = "n/a" if "red_cards" in unavailable else f"{against_r}R"
+        left_y = "n/a" if "yellow_cards" in unavailable or for_y is None else f"{for_y}Y"
+        right_y = "n/a" if "yellow_cards" in unavailable or against_y is None else f"{against_y}Y"
+        left_r = "n/a" if "red_cards" in unavailable or for_r is None else f"{for_r}R"
+        right_r = "n/a" if "red_cards" in unavailable or against_r is None else f"{against_r}R"
         return f"{left_y}/{left_r}-{right_y}/{right_r}"
 
     parts = [
@@ -852,10 +858,10 @@ def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
         f"recoveries {pair('recoveries', x.recoveries_for, x.recoveries_against)}",
         f"errors->shot {pair('errors_lead_to_shot', x.errors_lead_to_shot_for, x.errors_lead_to_shot_against)}",
         f"errors->goal {pair('errors_lead_to_goal', x.errors_lead_to_goal_for, x.errors_lead_to_goal_against)}",
-        f"goals prevented {js_number_to_string(x.goals_prevented_for)}-{js_number_to_string(x.goals_prevented_against)}",
+        f"goals prevented {pair('goals_prevented', x.goals_prevented_for, x.goals_prevented_against)}",
         f"big saves {pair('big_saves', x.big_saves_for, x.big_saves_against)}",
         f"high claims {pair('high_claims', x.high_claims_for, x.high_claims_against)}",
-        f"distance {js_number_to_string(x.distance_covered_km_for)}km-{js_number_to_string(x.distance_covered_km_against)}km",
+        f"distance {pair('distance_covered_km', x.distance_covered_km_for, x.distance_covered_km_against)}km",
         f"sprints {pair('sprints', x.sprints_for, x.sprints_against)}",
         f"total shots {pair('total_shots', x.total_shots_for, x.total_shots_against)} ({pair('shots_on_target', x.shots_on_target_for, x.shots_on_target_against)} on target)",
         f"corners {pair('corner_kicks', x.corners_for, x.corners_against)}",

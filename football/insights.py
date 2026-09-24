@@ -519,8 +519,12 @@ def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results:
     run-to-run swing can be attributed to a source change."""
     if not season_stats or not results:
         return
-    check = sum(1 for r in results if not is_friendly_competition(r.competition) and result_goals(r)["against"] == 0)
-    season_stats.clean_sheets_recent_check = check
+    competitive = [r for r in results if not is_friendly_competition(r.competition)]
+    season_stats.clean_sheets_recent_check = sum(1 for r in competitive if result_goals(r)["against"] == 0)
+    # Sample size of THAT count (competitive results only) -- last20 can
+    # span the previous season, so 5 clean sheets beside a 5-game season
+    # sample is only impossible if the windows were the same size.
+    season_stats.clean_sheets_recent_check_sample_size = len(competitive)
     season_stats.clean_sheets_recent_check_source = source
 
 

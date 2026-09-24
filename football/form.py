@@ -1165,53 +1165,145 @@ def _compute_advanced_stats(
     # A key whose own n stayed 0 across a sample where OTHER keys did find
     # data means this specific stat is absent from the source used this
     # run (e.g. Fotmob has no "Through balls") -- its for/against below are
-    # a structural 0, not "zero events happened". Named here so a consumer
-    # doesn't read that 0 as real.
+    # null, not "zero events happened". Named here so a consumer doesn't
+    # read a missing 0 as real either.
     unavailable_stats = sorted(key for key, totals in st.items() if totals["n"] == 0) or None
+    unavail = set(unavailable_stats or ())
+
+    def pair(key: str, for_v, against_v):
+        """Null both sides when this source never reported the stat."""
+        if key in unavail:
+            return None, None
+        return for_v, against_v
+
     final_third_total = st["final_third_entries"]["for"] + st["final_third_entries"]["against"]
+    (
+        touches_in_box_for, touches_in_box_against,
+    ) = pair("touches_in_box", int(st["touches_in_box"]["for"]), int(st["touches_in_box"]["against"]))
+    crosses_for, crosses_against = pair("crosses", int(st["crosses"]["for"]), int(st["crosses"]["against"]))
+    dribbles_for, dribbles_against = pair("dribbles", int(st["dribbles"]["for"]), int(st["dribbles"]["against"]))
+    through_balls_for, through_balls_against = pair("through_balls", int(st["through_balls"]["for"]), int(st["through_balls"]["against"]))
+    final_third_entries_for, final_third_entries_against = pair(
+        "final_third_entries", int(st["final_third_entries"]["for"]), int(st["final_third_entries"]["against"])
+    )
+    recoveries_for, recoveries_against = pair("recoveries", int(st["recoveries"]["for"]), int(st["recoveries"]["against"]))
+    errors_lead_to_shot_for, errors_lead_to_shot_against = pair(
+        "errors_lead_to_shot", int(st["errors_lead_to_shot"]["for"]), int(st["errors_lead_to_shot"]["against"])
+    )
+    errors_lead_to_goal_for, errors_lead_to_goal_against = pair(
+        "errors_lead_to_goal", int(st["errors_lead_to_goal"]["for"]), int(st["errors_lead_to_goal"]["against"])
+    )
+    shots_inside_box_for, shots_inside_box_against = pair(
+        "shots_inside_box", int(st["shots_inside_box"]["for"]), int(st["shots_inside_box"]["against"])
+    )
+    shots_outside_box_for, shots_outside_box_against = pair(
+        "shots_outside_box", int(st["shots_outside_box"]["for"]), int(st["shots_outside_box"]["against"])
+    )
+    shots_off_target_for, shots_off_target_against = pair(
+        "shots_off_target", int(st["shots_off_target"]["for"]), int(st["shots_off_target"]["against"])
+    )
+    blocked_shots_for, blocked_shots_against = pair(
+        "blocked_shots", int(st["blocked_shots"]["for"]), int(st["blocked_shots"]["against"])
+    )
+    offsides_for, offsides_against = pair("offsides", int(st["offsides"]["for"]), int(st["offsides"]["against"]))
+    big_chances_scored_for, big_chances_scored_against = pair(
+        "big_chances_scored", int(st["big_chances_scored"]["for"]), int(st["big_chances_scored"]["against"])
+    )
+    dispossessed_for, dispossessed_against = pair(
+        "dispossessed", int(st["dispossessed"]["for"]), int(st["dispossessed"]["against"])
+    )
+    team_tackles_for, team_tackles_against = pair(
+        "team_tackles", int(st["team_tackles"]["for"]), int(st["team_tackles"]["against"])
+    )
+    team_interceptions_for, team_interceptions_against = pair(
+        "team_interceptions", int(st["team_interceptions"]["for"]), int(st["team_interceptions"]["against"])
+    )
+    goals_prevented_for, goals_prevented_against = pair(
+        "goals_prevented", st["goals_prevented"]["for"], st["goals_prevented"]["against"]
+    )
+    big_saves_for, big_saves_against = pair("big_saves", int(st["big_saves"]["for"]), int(st["big_saves"]["against"]))
+    high_claims_for, high_claims_against = pair(
+        "high_claims", int(st["high_claims"]["for"]), int(st["high_claims"]["against"])
+    )
+    distance_covered_km_for, distance_covered_km_against = pair(
+        "distance_covered_km", st["distance_covered_km"]["for"], st["distance_covered_km"]["against"]
+    )
+    sprints_for, sprints_against = pair("sprints", int(st["sprints"]["for"]), int(st["sprints"]["against"]))
+    team_clearances_for, team_clearances_against = pair(
+        "team_clearances", int(st["team_clearances"]["for"]), int(st["team_clearances"]["against"])
+    )
+    free_kicks_for, free_kicks_against = pair("free_kicks", int(st["free_kicks"]["for"]), int(st["free_kicks"]["against"]))
+    total_shots_for, total_shots_against = pair(
+        "total_shots", int(st["total_shots"]["for"]), int(st["total_shots"]["against"])
+    )
+    shots_on_target_for, shots_on_target_against = pair(
+        "shots_on_target", int(st["shots_on_target"]["for"]), int(st["shots_on_target"]["against"])
+    )
+    corners_for, corners_against = pair("corner_kicks", int(st["corner_kicks"]["for"]), int(st["corner_kicks"]["against"]))
+    fouls_for, fouls_against = pair("fouls", int(st["fouls"]["for"]), int(st["fouls"]["against"]))
+    yellow_cards_for, yellow_cards_against = pair(
+        "yellow_cards", int(st["yellow_cards"]["for"]), int(st["yellow_cards"]["against"])
+    )
+    red_cards_for, red_cards_against = pair("red_cards", int(st["red_cards"]["for"]), int(st["red_cards"]["against"]))
+    big_chances_created_for, big_chances_created_against = pair(
+        "big_chances", int(st["big_chances"]["for"]), int(st["big_chances"]["against"])
+    )
+    # field_tilt and possession already null when their own n is 0; also
+    # force null when final_third_entries / ball_possession is unavailable
+    # so the derived figure isn't computed from structural zeros.
+    field_tilt_pct = (
+        None
+        if "final_third_entries" in unavail or not final_third_total
+        else js_round_to(st["final_third_entries"]["for"] / final_third_total * 100, 1)
+    )
+    possession_pct_avg = (
+        None
+        if "ball_possession" in unavail or not st["ball_possession"]["n"]
+        else js_round_to(st["ball_possession"]["for"] / st["ball_possession"]["n"], 1)
+    )
     return SeasonAdvancedStatsEstimate(
         sample_size=int(max_n),
         unavailable_stats=unavailable_stats,
-        touches_in_box_for=int(st["touches_in_box"]["for"]), touches_in_box_against=int(st["touches_in_box"]["against"]),
-        crosses_for=int(st["crosses"]["for"]), crosses_against=int(st["crosses"]["against"]),
-        dribbles_for=int(st["dribbles"]["for"]), dribbles_against=int(st["dribbles"]["against"]),
-        through_balls_for=int(st["through_balls"]["for"]), through_balls_against=int(st["through_balls"]["against"]),
-        final_third_entries_for=int(st["final_third_entries"]["for"]), final_third_entries_against=int(st["final_third_entries"]["against"]),
-        recoveries_for=int(st["recoveries"]["for"]), recoveries_against=int(st["recoveries"]["against"]),
-        errors_lead_to_shot_for=int(st["errors_lead_to_shot"]["for"]), errors_lead_to_shot_against=int(st["errors_lead_to_shot"]["against"]),
-        errors_lead_to_goal_for=int(st["errors_lead_to_goal"]["for"]), errors_lead_to_goal_against=int(st["errors_lead_to_goal"]["against"]),
-        shots_inside_box_for=int(st["shots_inside_box"]["for"]), shots_inside_box_against=int(st["shots_inside_box"]["against"]),
-        shots_outside_box_for=int(st["shots_outside_box"]["for"]), shots_outside_box_against=int(st["shots_outside_box"]["against"]),
-        shots_off_target_for=int(st["shots_off_target"]["for"]), shots_off_target_against=int(st["shots_off_target"]["against"]),
-        blocked_shots_for=int(st["blocked_shots"]["for"]), blocked_shots_against=int(st["blocked_shots"]["against"]),
-        offsides_for=int(st["offsides"]["for"]), offsides_against=int(st["offsides"]["against"]),
-        big_chances_scored_for=int(st["big_chances_scored"]["for"]), big_chances_scored_against=int(st["big_chances_scored"]["against"]),
-        dispossessed_for=int(st["dispossessed"]["for"]), dispossessed_against=int(st["dispossessed"]["against"]),
-        team_tackles_for=int(st["team_tackles"]["for"]), team_tackles_against=int(st["team_tackles"]["against"]),
-        team_interceptions_for=int(st["team_interceptions"]["for"]), team_interceptions_against=int(st["team_interceptions"]["against"]),
-        goals_prevented_for=st["goals_prevented"]["for"], goals_prevented_against=st["goals_prevented"]["against"],
-        big_saves_for=int(st["big_saves"]["for"]), big_saves_against=int(st["big_saves"]["against"]),
-        high_claims_for=int(st["high_claims"]["for"]), high_claims_against=int(st["high_claims"]["against"]),
-        distance_covered_km_for=st["distance_covered_km"]["for"], distance_covered_km_against=st["distance_covered_km"]["against"],
-        sprints_for=int(st["sprints"]["for"]), sprints_against=int(st["sprints"]["against"]),
-        team_clearances_for=int(st["team_clearances"]["for"]), team_clearances_against=int(st["team_clearances"]["against"]),
-        free_kicks_for=int(st["free_kicks"]["for"]), free_kicks_against=int(st["free_kicks"]["against"]),
+        touches_in_box_for=touches_in_box_for, touches_in_box_against=touches_in_box_against,
+        crosses_for=crosses_for, crosses_against=crosses_against,
+        dribbles_for=dribbles_for, dribbles_against=dribbles_against,
+        through_balls_for=through_balls_for, through_balls_against=through_balls_against,
+        final_third_entries_for=final_third_entries_for, final_third_entries_against=final_third_entries_against,
+        recoveries_for=recoveries_for, recoveries_against=recoveries_against,
+        errors_lead_to_shot_for=errors_lead_to_shot_for, errors_lead_to_shot_against=errors_lead_to_shot_against,
+        errors_lead_to_goal_for=errors_lead_to_goal_for, errors_lead_to_goal_against=errors_lead_to_goal_against,
+        shots_inside_box_for=shots_inside_box_for, shots_inside_box_against=shots_inside_box_against,
+        shots_outside_box_for=shots_outside_box_for, shots_outside_box_against=shots_outside_box_against,
+        shots_off_target_for=shots_off_target_for, shots_off_target_against=shots_off_target_against,
+        blocked_shots_for=blocked_shots_for, blocked_shots_against=blocked_shots_against,
+        offsides_for=offsides_for, offsides_against=offsides_against,
+        big_chances_scored_for=big_chances_scored_for, big_chances_scored_against=big_chances_scored_against,
+        dispossessed_for=dispossessed_for, dispossessed_against=dispossessed_against,
+        team_tackles_for=team_tackles_for, team_tackles_against=team_tackles_against,
+        team_interceptions_for=team_interceptions_for, team_interceptions_against=team_interceptions_against,
+        goals_prevented_for=goals_prevented_for, goals_prevented_against=goals_prevented_against,
+        big_saves_for=big_saves_for, big_saves_against=big_saves_against,
+        high_claims_for=high_claims_for, high_claims_against=high_claims_against,
+        distance_covered_km_for=distance_covered_km_for, distance_covered_km_against=distance_covered_km_against,
+        sprints_for=sprints_for, sprints_against=sprints_against,
+        team_clearances_for=team_clearances_for, team_clearances_against=team_clearances_against,
+        free_kicks_for=free_kicks_for, free_kicks_against=free_kicks_against,
         xa_for=js_round_to(acc.xa_for, 2), xa_against=js_round_to(acc.xa_against, 2),
         corner_goals_for=acc.corner_goals_for, corner_goals_against=acc.corner_goals_against,
         penalty_goals_for=acc.penalty_goals_for, penalty_goals_against=acc.penalty_goals_against,
         free_kick_goals_for=acc.free_kick_goals_for, free_kick_goals_against=acc.free_kick_goals_against,
-        total_shots_for=int(st["total_shots"]["for"]), total_shots_against=int(st["total_shots"]["against"]),
-        shots_on_target_for=int(st["shots_on_target"]["for"]), shots_on_target_against=int(st["shots_on_target"]["against"]),
-        corners_for=int(st["corner_kicks"]["for"]), corners_against=int(st["corner_kicks"]["against"]),
-        fouls_for=int(st["fouls"]["for"]), fouls_against=int(st["fouls"]["against"]),
-        yellow_cards_for=int(st["yellow_cards"]["for"]), yellow_cards_against=int(st["yellow_cards"]["against"]),
-        red_cards_for=int(st["red_cards"]["for"]), red_cards_against=int(st["red_cards"]["against"]),
-        possession_pct_avg=(js_round_to(st["ball_possession"]["for"] / st["ball_possession"]["n"], 1) if st["ball_possession"]["n"] else None),
-        big_chances_created_for=int(st["big_chances"]["for"]), big_chances_created_against=int(st["big_chances"]["against"]),
+        total_shots_for=total_shots_for, total_shots_against=total_shots_against,
+        shots_on_target_for=shots_on_target_for, shots_on_target_against=shots_on_target_against,
+        corners_for=corners_for, corners_against=corners_against,
+        fouls_for=fouls_for, fouls_against=fouls_against,
+        yellow_cards_for=yellow_cards_for, yellow_cards_against=yellow_cards_against,
+        red_cards_for=red_cards_for, red_cards_against=red_cards_against,
+        possession_pct_avg=possession_pct_avg,
+        big_chances_created_for=big_chances_created_for, big_chances_created_against=big_chances_created_against,
         non_penalty_xg_for=js_round_to(acc.non_penalty_xg_for, 2), non_penalty_xg_against=js_round_to(acc.non_penalty_xg_against, 2),
         set_piece_xg_for=js_round_to(acc.set_piece_xg_for, 2), set_piece_xg_against=js_round_to(acc.set_piece_xg_against, 2),
         penalties_awarded_for=acc.penalties_awarded_for, penalties_awarded_against=acc.penalties_awarded_against,
-        field_tilt_pct=(js_round_to(st["final_third_entries"]["for"] / final_third_total * 100, 1) if final_third_total > 0 else None),
+        field_tilt_pct=field_tilt_pct,
         source=source,
     )
 
