@@ -32,6 +32,37 @@ def _parse_team_names(raw: str) -> list[str]:
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
+def _strip_team_flag(argv: list[str]) -> list[str]:
+    """Drop a bare `--team` flag (and accept `--team=Name`) so it never
+    leaks into the joined team-name string.
+
+    `football-search --team "Tottenham Hotspur"` and the unquoted form
+    `football-search --team Tottenham Hotspur` both must search for
+    "Tottenham Hotspur", not "--team Tottenham Hotspur". Unknown flags
+    are left alone (they are either a team name quirk or a future option);
+    only the known `--team` token is consumed here.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--team":
+            i += 1
+            if i < len(argv):
+                out.append(argv[i])
+                i += 1
+            continue
+        if tok.startswith("--team="):
+            val = tok[len("--team="):]
+            if val:
+                out.append(val)
+            i += 1
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
 async def _run_one(team_name: str, *, announce: bool) -> None:
     # flush=True on every progress/markdown line: stdout is block-buffered
     # when piped (redirect to a file, CI, `| tee`), so without it a long
@@ -59,7 +90,7 @@ async def _run_one(team_name: str, *, announce: bool) -> None:
 
 
 async def _main() -> None:
-    raw = " ".join(sys.argv[1:]).strip()
+    raw = " ".join(_strip_team_flag(sys.argv[1:])).strip()
     if not raw:
         print('Usage: football-search "Team Name"[, "Team Name 2", ...]', file=sys.stderr)
         sys.exit(1)

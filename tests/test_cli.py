@@ -4,11 +4,58 @@ from dataclasses import fields as _dc_fields
 import pytest
 
 from football import cli
-from football.cli import _main, _parse_team_names, _run_one, main
+from football.cli import _main, _parse_team_names, _run_one, _strip_team_flag, main
 
 
 def test_single_team_no_comma():
     assert _parse_team_names("Real Madrid") == ["Real Madrid"]
+
+
+def test_strip_team_flag_bare_token():
+    assert _strip_team_flag(["--team", "Tottenham Hotspur"]) == ["Tottenham Hotspur"]
+
+
+def test_strip_team_flag_unquoted_multiword():
+    assert _strip_team_flag(["--team", "Tottenham", "Hotspur"]) == ["Tottenham", "Hotspur"]
+
+
+def test_strip_team_flag_equals_form():
+    assert _strip_team_flag(["--team=Tottenham Hotspur"]) == ["Tottenham Hotspur"]
+
+
+def test_strip_team_flag_leaves_other_args_alone():
+    assert _strip_team_flag(["Real Madrid"]) == ["Real Madrid"]
+    assert _strip_team_flag([]) == []
+
+
+def test_main_does_not_leak_team_flag_into_team_name(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("sys.argv", ["football-search", "--team", "Tottenham Hotspur"])
+    monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)
+    seen: list[str] = []
+
+    async def fake_run_search(team_name, on_progress):
+        seen.append(team_name)
+        return _fake_result(team_name)
+
+    monkeypatch.setattr(cli, "run_search", fake_run_search)
+    asyncio.run(_main())
+    assert seen == ["Tottenham Hotspur"]
+    out = capsys.readouterr().out
+    assert "--team" not in out
+
+
+def test_main_equals_form_does_not_leak(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr("sys.argv", ["football-search", "--team=Tottenham Hotspur"])
+    monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)
+    seen: list[str] = []
+
+    async def fake_run_search(team_name, on_progress):
+        seen.append(team_name)
+        return _fake_result(team_name)
+
+    monkeypatch.setattr(cli, "run_search", fake_run_search)
+    asyncio.run(_main())
+    assert seen == ["Tottenham Hotspur"]
 
 
 def test_multiple_teams_comma_separated():
