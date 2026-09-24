@@ -1550,7 +1550,7 @@ def test_presence_marks_missing_players_absent_even_without_injury():
     )
     by_name = {e.name: e for e in entries}
     assert by_name["Rested Player"].status == "A"
-    assert by_name["Rested Player"].reason == "coach_decision"
+    assert by_name["Rested Player"].reason == "Coach decision (not injured)"
     assert by_name["Fit Player"].status == "P"
 
 

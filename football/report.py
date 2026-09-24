@@ -121,7 +121,31 @@ _DATA_WINDOWS = {
     "form_by_competition_half_split_venue_split_last20": "last 20 competitive matches (friendlies excluded)",
     "win_rate_points_goals_per_game_over_btts": "last 10 competitive matches",
     "recent_competitions": "last 10 competitive matches plus upcoming fixtures",
-    "head_to_head_summary": "all meetings the source records; recent_meetings lists only those found in either team's match history",
+    "head_to_head_summary": (
+        "all meetings the source records (aggregate sample_size); recent_meetings lists only the "
+        "up-to-3 meetings found in either team's recent match history -- the two counts differ by design"
+    ),
+    "recent_meetings": (
+        "capped at 3 most recent H2H fixtures found in either team's form window; "
+        "not the full head_to_head_summary.sample_size"
+    ),
+    "insights.home_corners_estimate": (
+        "Goal.com Corner total summed over that team's own last finished matches with the stat present "
+        "(independent per side; equal home/away totals are coincidence, not a shared total)"
+    ),
+    "insights.away_corners_estimate": (
+        "Goal.com Corner total summed over that team's own last finished matches with the stat present "
+        "(independent per side; equal home/away totals are coincidence, not a shared total)"
+    ),
+    "teamProfile.missing_attackers": (
+        "teamProfile.injuries by role PLUS match-level missing_players not in injuries "
+        "(e.g. coach_decision) -- non-injury absences can appear here without appearing under injuries"
+    ),
+    "match.away_missing_players.absence_type": (
+        "injury / suspension / coach_decision / other -- coach_decision is a non-injury absence "
+        "(not in teamProfile.injuries; expected_return forced null)"
+    ),
+    "lineups": "home_lineup/away_lineup/benches are projected/derived unless lineup_confirmed is true",
 }
 
 

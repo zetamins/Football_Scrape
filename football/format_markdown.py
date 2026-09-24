@@ -266,7 +266,10 @@ def performer_str(t) -> str:
     # than print a misleading "in None apps".
     apps = f" in {t.appearances} apps" if t.appearances is not None else ""
     rating = f", {t.rating:.2f} avg rating" if t.rating else ""
-    return f"{t.name} ({stat}{apps}{rating})"
+    # Window in the player row itself -- top_scorers (season) and
+    # recent_form_leaders (last 20) can legitimately disagree for the
+    # same player (e.g. Gallagher 1 season goal vs 2 recent_usage goals).
+    return f"{t.name} ({stat}{apps}{rating}, season to date)"
 
 
 def defender_str(d) -> str:
@@ -281,7 +284,9 @@ def recent_form_leader_str(r: RecentFormLeader) -> str:
     per90 = f", {js_number_to_string(r.goals_per90)}g/{js_number_to_string(r.assists_per90)}a per 90" if r.goals_per90 is not None else ""
     key_passes = f", {r.key_passes} key passes" if r.key_passes > 0 else ""
     rating = f", {js_number_to_string(r.avg_rating)} avg rating" if r.avg_rating is not None else ""
-    return f"{r.name} ({r.goals}g/{r.assists}a, {js_number_to_string(r.xg)}xG/{js_number_to_string(r.xa)}xA{key_passes}{per90}{rating}, n={r.sample_size})"
+    # Window in the player row itself -- may differ from season_stats.goals
+    # (top scorers) for the same player; say which window these G/A are.
+    return f"{r.name} ({r.goals}g/{r.assists}a, {js_number_to_string(r.xg)}xG/{js_number_to_string(r.xa)}xA{key_passes}{per90}{rating}, last 20, n={r.sample_size})"
 
 
 def role_form_entry_str(r: RoleFormEntry) -> str:
@@ -398,7 +403,13 @@ def _append_head_to_head(d, lines: list[str]) -> None:
     recent-meetings one-liner. Split out of _append_match_odds_and_standings."""
     if d.head_to_head_summary:
         h = d.head_to_head_summary
-        detail = f" (detailed list below shows {len(d.recent_meetings)} of {h.sample_size})" if d.recent_meetings and h.sample_size and h.sample_size > len(d.recent_meetings) else ""
+        listed = len(d.recent_meetings or [])
+        detail = (
+            f" -- aggregate sample_size={h.sample_size}; detailed list below shows only {listed} of {h.sample_size} "
+            f"(capped at 3 found in either team's recent match history)"
+            if h.sample_size and listed and h.sample_size > listed
+            else ""
+        )
         lines.append(f"- H2H: {d.home_team} {h.home_wins}W - {h.draws}D - {h.away_wins}W {d.away_team}{detail}")
     if d.head_to_head_streaks:
         lines.append(f"- H2H streaks: {'; '.join(d.head_to_head_streaks)}")
@@ -590,13 +601,44 @@ def _append_profile_squad_and_injuries(p, lines: list[str]) -> None:
     if p.missing_midfielders:
         lines.append(f"- Missing midfielders: {', '.join(p.missing_midfielders)}")
     if p.missing_attackers:
-        lines.append(f"- Missing attackers: {', '.join(p.missing_attackers)}")
+        lines.append(
+            f"- Missing attackers (injuries + non-injury match absences e.g. coach decision): "
+            f"{', '.join(p.missing_attackers)}"
+        )
     if p.missing_defenders:
         lines.append(f"- Missing defenders: {', '.join(p.missing_defenders)}")
     if p.missing_goalkeepers:
         lines.append(f"- Missing goalkeepers: {', '.join(p.missing_goalkeepers)}")
+    non_injury_absent = _non_injury_absent_names(p)
+    if non_injury_absent:
+        lines.append(
+            f"- Non-injury absences (coach decision / not in squad; not in the injuries list): "
+            f"{', '.join(non_injury_absent)}"
+        )
     if p.recent_transfers:
         lines.append(f"- Recent transfers: {'; '.join(transfer_str(t) for t in p.recent_transfers)}")
+
+
+def _non_injury_absent_names(p) -> list[str]:
+    """Names on the profile's missing_*_role lists that are NOT in
+    teamProfile.injuries -- confirmed live for Richarlison (coach_decision
+    on match.away_missing_players, correctly in missing_attackers, absent
+    from injuries/key_injuries). Surfaced as an explicit note so the
+    inconsistency reads as intentional non-injury absence, not a bug."""
+    injury_names = {m.name for m in (p.injuries or [])}
+    missing = [
+        *(p.missing_midfielders or []),
+        *(p.missing_attackers or []),
+        *(p.missing_defenders or []),
+        *(p.missing_goalkeepers or []),
+    ]
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in missing:
+        if name not in injury_names and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
 
 
 def _append_profile_performers(p, lines: list[str]) -> None:
@@ -954,7 +996,10 @@ def possession_matchup_str(p: PossessionMatchupInfo, team_name: str) -> str:
 
 
 def corners_estimate_str(x: SeasonCornersEstimate, label: str) -> str:
-    return f"{label} corners estimate (last {x.sample_size} finished): {x.corners_for} for / {x.corners_against} against"
+    return (
+        f"{label} corners estimate (last {x.sample_size} finished with Corner total, own Goal.com list): "
+        f"{x.corners_for} for / {x.corners_against} against"
+    )
 
 
 def defensive_errors_estimate_str(x: SeasonDefensiveErrorsEstimate, label: str) -> str:
@@ -1233,6 +1278,15 @@ def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, a
         lines.append(f"- {corners_estimate_str(insights.home_corners_estimate, home_team)}")
     if insights.away_corners_estimate:
         lines.append(f"- {corners_estimate_str(insights.away_corners_estimate, away_team)}")
+    h, a = insights.home_corners_estimate, insights.away_corners_estimate
+    if h and a and h.corners_for == a.corners_for and h.sample_size == a.sample_size:
+        # Confirmed live (Man Utd vs Tottenham 2026-09: both 47 over n=7)
+        # as a genuine coincidence across two independent Goal.com match
+        # lists -- say so rather than leaving readers to assume a copy bug.
+        lines.append(
+            f"- Note: equal corners_for ({h.corners_for}) on both sides is coincidence across "
+            f"independent Goal.com match lists (each team's own fixtures), not a shared total"
+        )
     if insights.home_defensive_errors_estimate:
         lines.append(f"- {defensive_errors_estimate_str(insights.home_defensive_errors_estimate, home_team)}")
     if insights.away_defensive_errors_estimate:

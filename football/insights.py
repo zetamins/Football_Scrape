@@ -803,7 +803,9 @@ def compute_presence(
     injury_by_name = {_normalize(p.name): p.injury for p in (injuries or [])}
     suspended_names = {_normalize(n) for n in (suspended or [])}
     note_injury_by_name = _note_injury_reasons(squad, additional_notes, set(injury_by_name))
-    missing_reason_by_name = {_normalize(p.name): (p.description or "Not in squad") for p in (missing_players or [])}
+    missing_reason_by_name = {
+        _normalize(p.name): _presence_reason_for(p) for p in (missing_players or [])
+    }
 
     result = []
     for m in squad:
@@ -821,6 +823,14 @@ def compute_presence(
             )
         )
     return result
+
+
+def _presence_reason_for(p) -> str:
+    """Human label for a match-level MissingPlayer -- coach_decision is a
+    non-injury absence and must not read like a medical injury description."""
+    if p.absence_type == "coach_decision":
+        return "Coach decision (not injured)"
+    return p.description or "Not in squad"
 
 
 def _defender_count(f: str | None) -> int | None:

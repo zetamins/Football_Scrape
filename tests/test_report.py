@@ -223,6 +223,14 @@ def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
     assert "season to date" in report["dataWindows"]["team_season_stats.average_ball_possession"]
     assert "current season" in report["dataWindows"]["squad_season_stats"]
     assert "last 20" in report["dataWindows"]["squad_recent_usage"]
+    # H2H aggregate vs capped listed meetings must be explicit in JSON.
+    assert "capped at 3" in report["dataWindows"]["recent_meetings"]
+    assert "sample_size" in report["dataWindows"]["head_to_head_summary"]
+    # Corners: independent per-side Goal.com lists; equal totals are coincidence.
+    assert "independent" in report["dataWindows"]["insights.home_corners_estimate"]
+    # Non-injury absences can sit on missing_* without injuries.
+    assert "coach_decision" in report["dataWindows"]["match.away_missing_players.absence_type"]
+    assert "projected" in report["dataWindows"]["lineups"]
 
 
 def test_build_report_json_data_completeness_lists_missing_fields():

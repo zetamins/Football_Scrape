@@ -499,7 +499,7 @@ def test_performer_str_goals_only_omits_apps():
 
     t = TopPerformer(name="Striker", goals=8, assists=0, appearances=None, rating=None, source="sofascore")
     result = performer_str(t)
-    assert result == "Striker (8g)"
+    assert result == "Striker (8g, season to date)"
 
 
 def test_performer_str_assists_only():
@@ -507,7 +507,19 @@ def test_performer_str_assists_only():
     from football.merge import TopPerformer
 
     t = TopPerformer(name="Playmaker", goals=0, assists=3, appearances=None, rating=None, source="sofascore")
-    assert performer_str(t) == "Playmaker (3a)"
+    assert performer_str(t) == "Playmaker (3a, season to date)"
+
+
+def test_performer_str_labels_window_in_the_player_row():
+    """Cross-window goal totals (season_stats vs recent_usage) must be
+    readable from the row itself, not only from a section header."""
+    from football.format_markdown import performer_str
+    from football.merge import TopPerformer
+
+    t = TopPerformer(name="Conor Gallagher", goals=1, assists=0, appearances=3, rating=7.1, source="sofascore")
+    result = performer_str(t)
+    assert "season to date" in result
+    assert "1g" in result
 
 
 def test_defender_str_formats_tackles_and_interceptions():
@@ -532,7 +544,12 @@ def test_recent_form_leader_str_includes_per90_and_key_passes():
 
     r = RecentFormLeader(name="Winger", goals=4, assists=3, xg=3.5, xa=2.1, avg_rating=7.6, goals_per90=0.5, assists_per90=0.3, key_passes=12, sample_size=10)
     result = recent_form_leader_str(r)
+    assert "4g/3a" in result
+    assert "3.5xG" in result
     assert "0.5g/0.3a per 90" in result
+    assert "12 key passes" in result
+    assert "last 20" in result
+    assert "n=10" in result
     assert "12 key passes" in result
     assert "n=10" in result
 
@@ -1097,7 +1114,41 @@ def test_corners_estimate_str_formats_estimate():
     from football.types import SeasonCornersEstimate
 
     x = SeasonCornersEstimate(sample_size=10, corners_for=55, corners_against=40, source="fotmob")
-    assert corners_estimate_str(x, "Home") == "Home corners estimate (last 10 finished): 55 for / 40 against"
+    result = corners_estimate_str(x, "Home")
+    assert "last 10 finished with Corner total, own Goal.com list" in result
+    assert "55 for / 40 against" in result
+
+
+def test_equal_corners_for_renders_a_coincidence_not_a_copy_bug_note():
+    from football.format_markdown import insights_markdown
+    from football.types import MatchInsights, SeasonCornersEstimate
+
+    corners = SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=24, source="goal")
+    other = SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=28, source="goal")
+    insights = _all_none(
+        MatchInsights,
+        home_corners_estimate=corners, away_corners_estimate=other,
+    )
+    lines: list[str] = []
+    insights_markdown(insights, "Manchester United", "Tottenham Hotspur", lines)
+    text = "\n".join(lines)
+    assert "equal corners_for (47)" in text
+    assert "independent Goal.com match lists" in text
+    assert "not a shared total" in text
+
+
+def test_non_coincident_corners_do_not_render_the_coincidence_note():
+    from football.format_markdown import insights_markdown
+    from football.types import MatchInsights, SeasonCornersEstimate
+
+    insights = _all_none(
+        MatchInsights,
+        home_corners_estimate=SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=24, source="goal"),
+        away_corners_estimate=SeasonCornersEstimate(sample_size=7, corners_for=33, corners_against=21, source="goal"),
+    )
+    lines: list[str] = []
+    insights_markdown(insights, "Home", "Away", lines)
+    assert "equal corners_for" not in "\n".join(lines)
 
 
 def test_defensive_errors_estimate_str_formats_estimate():
@@ -1246,7 +1297,8 @@ def test_merged_match_markdown_notes_h2h_detail_subset_of_sample():
     lines: list[str] = []
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
-    assert "detailed list below shows 1 of 10" in text
+    assert "detailed list below shows only 1 of 10" in text
+    assert "aggregate sample_size=10" in text
     assert "2026-03-22 0-3" in text
 
 
@@ -1404,7 +1456,10 @@ def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
     assert "Injuries: Injured Player - hamstring" in text
     assert "Key injuries" in text
     assert "Missing midfielders: Some Mid" in text
-    assert "Missing attackers: Some Att" in text
+    assert "Missing attackers (injuries + non-injury match absences e.g. coach decision): Some Att" in text
+    # Some Mid / Some Att / Some GK are on missing_* but not in injuries
+    assert "Non-injury absences" in text
+    assert "Some Att" in text
     assert "Missing defenders: Injured Player" in text
     assert "Missing goalkeepers: Some GK" in text
     assert "Recent transfers: New Signing" in text
@@ -1613,6 +1668,9 @@ def test_insights_markdown_renders_every_field_when_fully_populated():
         "Experience/H2H:", "Home FC fatigue risk", "Home FC home advantage:", "Home FC streak:",
         "Home FC losing streak context", "Home FC card risk:", "Referee Some Ref books", "Home FC defensive duel risk",
         "Home FC vs high-possession", "Home FC corners estimate", "Home FC defensive errors",
+        # equal corners_for on both sides (shared fixture object) -> coincidence note
+        "equal corners_for (55) on both sides is coincidence",
+        "independent Goal.com match lists",
         "Home FC attacking-defender exposure", "Home FC new standing if",
     ]:
         assert expected in text, f"missing: {expected!r}"
