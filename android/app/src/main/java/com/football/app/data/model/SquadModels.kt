@@ -91,6 +91,7 @@ data class SquadMember(
     val seasonStats: SeasonPlayerStats? = null,
     val defensiveStats: DefensiveStats? = null,
     val recentUsage: PlayerUsagePattern? = null,
+    val statWindowNote: String? = null,
 )
 
 @Serializable
@@ -109,6 +110,7 @@ data class TopPerformer(
     val assists: Int,
     val appearances: Int? = null,
     val rating: Double? = null,
+    val window: String? = null,
 )
 
 @Serializable
@@ -139,6 +141,7 @@ data class RecentFormLeader(
     val assistsPer90: Double? = null,
     val keyPasses: Int,
     val sampleSize: Int,
+    val window: String? = null,
 )
 
 @Serializable
@@ -173,6 +176,7 @@ data class TeamProfileData(
     val missingAttackers: List<String>? = null,
     val missingDefenders: List<String>? = null,
     val missingGoalkeepers: List<String>? = null,
+    val nonInjuryAbsences: List<String>? = null,
     val topScorers: List<TopPerformer>? = null,
     val topAssists: List<TopPerformer>? = null,
     val topDefenders: List<TopDefender>? = null,

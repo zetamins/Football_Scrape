@@ -133,8 +133,8 @@ def venue_bucket_str(b: VenueSplitStats) -> str:
     if not b.sample_size:
         return "n=0"
 
-    def per(n: float) -> str:
-        return f"{n / b.sample_size:.1f}"
+    def per(n: float | None) -> str:
+        return "n/a" if n is None else f"{n / b.sample_size:.1f}"
 
     poss = b.possession_pct_avg if b.possession_pct_avg is not None else "n/a"
     return (
@@ -406,7 +406,7 @@ def _append_head_to_head(d, lines: list[str]) -> None:
         listed = len(d.recent_meetings or [])
         detail = (
             f" -- aggregate sample_size={h.sample_size}; detailed list below shows only {listed} of {h.sample_size} "
-            f"(capped at 3 found in either team's recent match history)"
+            f"(capped at 3 H2H meetings found in either team's recent match history)"
             if h.sample_size and listed and h.sample_size > listed
             else ""
         )
@@ -585,6 +585,31 @@ def venue_details_markdown(v: VenueDetails, lines: list[str], source_conflicts=N
         lines.append(f"  - Record attendance: {v.record_attendance}")
 
 
+def source_conflicts_markdown(source_conflicts, lines: list[str]) -> None:
+    """Render every cross-source conflict as its own bullet -- independent
+    of whether venueDetails resolved (StadiumDB fails for national teams,
+    so venue_details was null on the Germany report and the wrong-fixture
+    venue_city/venue_country conflicts never rendered at all). Capacity
+    conflicts are still also annotated on the Stadium line above when that
+    line exists, but here every field is always visible with its
+    resolution note."""
+    if not source_conflicts:
+        return
+    for c in source_conflicts:
+        field = getattr(c, "field", None)
+        kept = getattr(c, "kept", None)
+        kept_source = getattr(c, "kept_source", None)
+        resolution = getattr(c, "resolution", None)
+        alts = getattr(c, "alternatives", None) or []
+        alt_str = "; ".join(f"{a.from_source}={a.value}" for a in alts)
+        parts = [f"{field}={kept!r} kept ({kept_source})"]
+        if alt_str:
+            parts.append(f"alts: {alt_str}")
+        if resolution:
+            parts.append(resolution)
+        lines.append(f"- Conflict: {' -- '.join(parts)}")
+
+
 def _append_profile_squad_and_injuries(p, lines: list[str]) -> None:
     """First half of merged_profile_markdown -- extracted purely to keep
     that function's own cognitive complexity down (python:S3776); each
@@ -609,7 +634,7 @@ def _append_profile_squad_and_injuries(p, lines: list[str]) -> None:
         lines.append(f"- Missing defenders: {', '.join(p.missing_defenders)}")
     if p.missing_goalkeepers:
         lines.append(f"- Missing goalkeepers: {', '.join(p.missing_goalkeepers)}")
-    non_injury_absent = _non_injury_absent_names(p)
+    non_injury_absent = p.non_injury_absences or _non_injury_absent_names(p)
     if non_injury_absent:
         lines.append(
             f"- Non-injury absences (coach decision / not in squad; not in the injuries list): "
@@ -807,7 +832,18 @@ def fatigue_flag_str(f: FatigueFlag, label: str) -> str:
 
 def home_advantage_str(h: HomeAdvantageInfo, label: str) -> str:
     sign = "+" if h.gap_pct is not None and h.gap_pct >= 0 else ""
-    return f"{label} home advantage: {h.strength} (home {h.home_win_rate_pct}% / away {h.away_win_rate_pct}% win rate, {sign}{h.gap_pct}pp)"
+    rate_part = (
+        f"home {h.home_win_rate_pct}% / away {h.away_win_rate_pct}% win rate, {sign}{h.gap_pct}pp"
+    )
+    sample_part = ""
+    if h.home_sample_size is not None and h.away_sample_size is not None:
+        sample_part = f", n={h.home_sample_size}/{h.away_sample_size} home/away"
+    if h.strength is None:
+        # Withheld because a sample floor was not met (n<3 on either side)
+        # -- confirmed live: "strong" off a single home match. The rates
+        # and gap are still real; only the categorical label is missing.
+        return f"{label} home advantage: label withheld (small sample: {rate_part}{sample_part})"
+    return f"{label} home advantage: {h.strength} ({rate_part}{sample_part})"
 
 
 def streak_stability_str(s: StreakStabilityInfo, label: str) -> str:
@@ -1287,10 +1323,23 @@ def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, a
             f"- Note: equal corners_for ({h.corners_for}) on both sides is coincidence across "
             f"independent Goal.com match lists (each team's own fixtures), not a shared total"
         )
+    if insights.corners_cross_source_note:
+        lines.append(f"- Note: {insights.corners_cross_source_note}")
     if insights.home_defensive_errors_estimate:
         lines.append(f"- {defensive_errors_estimate_str(insights.home_defensive_errors_estimate, home_team)}")
     if insights.away_defensive_errors_estimate:
         lines.append(f"- {defensive_errors_estimate_str(insights.away_defensive_errors_estimate, away_team)}")
+    # Defensive-error null is honest (Goal.com published no "Defensive error"
+    # stat in that side's window) -- say so rather than silence reading as 0.
+    for label, est, corners in (
+        (home_team, insights.home_defensive_errors_estimate, insights.home_corners_estimate),
+        (away_team, insights.away_defensive_errors_estimate, insights.away_corners_estimate),
+    ):
+        if corners and not est:
+            lines.append(
+                f"- {label} defensive errors: n/a -- no Goal.com match in this side's "
+                f"window published a Defensive error stat (not zero errors)"
+            )
     if insights.home_fullback_exposure:
         lines.append(f"- {fullback_exposure_str(insights.home_fullback_exposure, home_team)}")
     if insights.away_fullback_exposure:

@@ -305,6 +305,28 @@ def test_squad_value_basis_note_set_only_when_the_two_profiles_used_different_so
     assert _squad_value_basis_note(strength, strength, None, fotmob) is None
 
 
+def test_compute_corners_cross_source_note_names_both_series_when_they_disagree():
+    from football.insights import compute_corners_cross_source_note
+    from football.types import SeasonAdvancedStatsEstimate, SeasonCornersEstimate
+
+    def _adv(corners_for, n=5, source="fotmob"):
+        base = {f.name: 1 for f in _dc_fields(SeasonAdvancedStatsEstimate)}
+        base.update(sample_size=n, source=source, unavailable_stats=None, possession_pct_avg=50.0, field_tilt_pct=50.0, corners_for=corners_for)
+        return SeasonAdvancedStatsEstimate(**base)
+
+    est = SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=28, source="goal")
+    note = compute_corners_cross_source_note(None, _adv(44), None, est, "Manchester United", "Tottenham Hotspur")
+    assert note is not None
+    assert "Tottenham Hotspur" in note
+    assert "corners_for=44" in note
+    assert "corners_for=47" in note
+    assert "Goal.com" in note
+    # Agreeing series -> no note (nothing to flag).
+    assert compute_corners_cross_source_note(_adv(47), _adv(47), SeasonCornersEstimate(7, 47, 24, "goal"), est, "A", "B") is None
+    # Either figure unavailable -> no note (can't compare).
+    assert compute_corners_cross_source_note(_adv(44), None, None, est, "A", "B") is None
+
+
 def test_apply_squad_derived_insights_runs_all_three_without_error():
     merged = _all_none(
         orchestrate.MergedMatch, home_lineup=None, away_lineup=None, home_bench=None, away_bench=None,
@@ -792,6 +814,9 @@ def test_enrich_referee_stats_populates_from_all_three_sources(monkeypatch):
     assert merged.referee_stats.home_away_bias == "bias-object"
     assert merged.referee_stats.fouls_per_game == 22.0
     assert merged.referee_stats.referee_matches == 15
+    # Multiple external sources contributed -- claiming any one of them
+    # wholesale would misattribute the rest of the enriched stats.
+    assert merged.field_sources.get("referee_stats") == "mixed"
 
 
 def test_enrich_referee_stats_tolerates_individual_source_failures(monkeypatch):

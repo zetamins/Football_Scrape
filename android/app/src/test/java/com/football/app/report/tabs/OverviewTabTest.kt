@@ -188,7 +188,7 @@ class OverviewTabTest {
                         refereeStats =
                             RefereeStats(
                                 games = 200,
-                                yellowCardsPerGame = "3.6",
+                                yellowCardsPerGame = 3.6,
                                 foulsPerGame = 21.5,
                                 penaltiesAwarded = 8,
                                 homeAwayBias = RefereeHomeAwayBias(sampleSize = 50, homeCardsPerGame = 2.1, awayCardsPerGame = 3.4),
@@ -224,7 +224,7 @@ class OverviewTabTest {
                 overview =
                     MatchOverview(
                         referee = "Michael Oliver",
-                        refereeStats = RefereeStats(games = 200, yellowCardsPerGame = "3.6"),
+                        refereeStats = RefereeStats(games = 200, yellowCardsPerGame = 3.6),
                     ),
                 venueDetails = null,
                 homeTeam = "Arsenal",
@@ -245,7 +245,7 @@ class OverviewTabTest {
                         refereeStats =
                             RefereeStats(
                                 games = 200,
-                                yellowCardsPerGame = "3.6",
+                                yellowCardsPerGame = 3.6,
                                 homeAwayBias = RefereeHomeAwayBias(sampleSize = 50, homeCardsPerGame = 3.0, awayCardsPerGame = 2.0),
                             ),
                     ),

@@ -993,6 +993,24 @@ def test_finalize_venue_bucket_averages_possession():
     assert stats.possession_pct_avg == 55.0
 
 
+def test_finalize_venue_bucket_nulls_all_stats_when_sample_size_zero():
+    # Confirmed live: a neutral bucket with sample_size=0 still reported
+    # xg_for=0.0/shots=0/etc next to possession_pct_avg=None. Zero claims
+    # "we observed 0.0 xG"; null means nothing was observed.
+    from football.form import _empty_venue_bucket, _finalize_venue_bucket
+
+    stats = _finalize_venue_bucket(_empty_venue_bucket())
+    assert stats.sample_size == 0
+    for field_name in (
+        "xg_for", "xg_against", "shots_for", "shots_against",
+        "shots_on_target_for", "shots_on_target_against", "possession_pct_avg",
+        "corners_for", "corners_against", "fouls_for", "fouls_against",
+        "yellow_cards_for", "yellow_cards_against", "red_cards_for", "red_cards_against",
+        "big_chances_created_for", "big_chances_created_against",
+    ):
+        assert getattr(stats, field_name) is None, field_name
+
+
 def test_compute_detailed_venue_split_none_when_all_buckets_empty():
     from football.form import _compute_detailed_venue_split, _empty_venue_bucket
 

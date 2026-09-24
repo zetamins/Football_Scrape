@@ -514,11 +514,15 @@ def test_completeness_excludes_notes_that_are_null_by_design_when_theres_nothing
     # squad_value_basis_note/projected_xi_basis are null in the common
     # case (both squads from the same source; a real lineup already
     # exists) -- that's a checked "nothing to report", not an unknown gap.
+    # corners_cross_source_note: null when the two corner series agree.
     merged = _all_none(MatchDetails, status="finished")
-    insights = _all_none(MatchInsights, squad_value_basis_note=None, projected_xi_basis=None)
+    insights = _all_none(
+        MatchInsights, squad_value_basis_note=None, projected_xi_basis=None, corners_cross_source_note=None
+    )
     result = compute_data_completeness(merged, insights)
     assert "squad_value_basis_note" not in result["missing"]
     assert "projected_xi_basis" not in result["missing"]
+    assert "corners_cross_source_note" not in result["missing"]
 
 
 def test_completeness_counts_losing_streak_context_checked_fine_as_populated():
@@ -1021,6 +1025,38 @@ def test_home_advantage_reverse():
 def test_home_advantage_none_without_rates():
     assert compute_home_advantage(None) is None
     assert compute_home_advantage(_all_none(FormSummary, home_win_rate_pct=None, away_win_rate_pct=50.0)) is None
+
+
+def test_home_advantage_label_withheld_when_either_sample_under_floor():
+    # Confirmed live (Germany): "strong" was computed off home n=1 (a
+    # single 100% win rate). Sample sizes ride along so a consumer can
+    # see why the categorical label is absent.
+    form = _all_none(
+        FormSummary, home_win_rate_pct=100.0, away_win_rate_pct=30.0,
+        home_win_rate_sample_size=1, away_win_rate_sample_size=10,
+    )
+    info = compute_home_advantage(form)
+    assert info.strength is None
+    assert info.gap_pct == 70.0  # rates/gap still reported
+    assert info.home_sample_size == 1
+    assert info.away_sample_size == 10
+
+
+def test_home_advantage_label_kept_when_both_samples_meet_floor():
+    form = _all_none(
+        FormSummary, home_win_rate_pct=70.0, away_win_rate_pct=30.0,
+        home_win_rate_sample_size=5, away_win_rate_sample_size=5,
+    )
+    info = compute_home_advantage(form)
+    assert info.strength == "strong"
+    assert info.home_sample_size == 5
+
+
+def test_home_advantage_floor_not_applied_when_sample_sizes_are_none():
+    # No form at all for a side's rates -> sample is None, floor is
+    # skipped (the rates themselves would already have been None).
+    form = _all_none(FormSummary, home_win_rate_pct=70.0, away_win_rate_pct=30.0)
+    assert compute_home_advantage(form).strength == "strong"
 
 
 # --- compute_streak_stability -----------------------------------------------
@@ -1552,6 +1588,112 @@ def test_presence_marks_missing_players_absent_even_without_injury():
     assert by_name["Rested Player"].status == "A"
     assert by_name["Rested Player"].reason == "Coach decision (not injured)"
     assert by_name["Fit Player"].status == "P"
+
+
+def test_presence_appends_non_squad_missing_players_as_absent():
+    """Regression: confirmed live (Germany) -- de Jong/Wieffer/Simons/
+    Goretzka/Stiller appeared in match.*_missing_players but never in the
+    squad list, so availability undercounted five absences to zero."""
+    from football.types import MissingPlayer
+
+    fit = _all_none(SquadMember, name="Fit Player")
+    entries = compute_presence(
+        squad=[fit],
+        lineup=None,
+        bench=None,
+        injuries=None,
+        suspended=None,
+        missing_players=[MissingPlayer(name="De Jong", description="Knee Injury", expected_return=None)],
+    )
+    by_name = {e.name: e for e in entries}
+    assert by_name["De Jong"].status == "A"
+    assert by_name["De Jong"].starting is False
+    assert by_name["Fit Player"].status == "P"
+
+
+def test_xg_estimate_from_form_builds_from_deduped_rows_with_source_form():
+    """Regression: confirmed live -- Germany's fotmob xg sample was empty
+    (n=0) while its form had five usable xG rows; away_xg_estimate went
+    null while the home side had n=6."""
+    from football.insights import xg_estimate_from_form
+
+    form = _all_none(
+        FormSummary,
+        last10_overall=[
+            _form_result(date="2026-01-01", scoreline="2-1", venue="home", xg_for=1.5, xg_against=0.8),
+            _form_result(date="2026-01-08", scoreline="1-2", venue="away", xg_for=1.0, xg_against=1.4),
+        ],
+        last20_overall=[
+            # last10 is a prefix of last20 -- same rows must not double-count
+            _form_result(date="2026-01-01", scoreline="2-1", venue="home", xg_for=1.5, xg_against=0.8),
+            _form_result(date="2026-01-08", scoreline="1-2", venue="away", xg_for=1.0, xg_against=1.4),
+            _form_result(date="2025-12-01", scoreline="0-0", venue="home", xg_for=2.0, xg_against=0.5),
+        ],
+    )
+    est = xg_estimate_from_form(form)
+    assert est is not None
+    assert est.source == "form"
+    assert est.sample_size == 3
+    assert est.xg_for == 4.5
+    assert est.xg_against == 2.7
+    # goals parsed off scoreline, away venue swapped to the team's frame
+    assert est.actual_goals_for == 4  # 2 + 2 + 0
+    assert est.actual_goals_against == 2  # 1 + 1 + 0
+
+
+def test_xg_estimate_from_form_none_without_xg_annotated_rows():
+    from football.insights import xg_estimate_from_form
+
+    assert xg_estimate_from_form(None) is None
+    form = _all_none(FormSummary, last10_overall=[_form_result()], last20_overall=[])
+    assert xg_estimate_from_form(form) is None
+
+
+def test_card_discipline_from_venue_split_sample_weighted_average():
+    """Regression: confirmed live -- card_discipline was null on both
+    sides (national team: no season stats + standing) while
+    card_discipline_venue_split was populated."""
+    from football.insights import card_discipline_from_venue_split
+    from football.types import CardDisciplineVenueSplit
+
+    split = CardDisciplineVenueSplit(
+        at_home_sample_size=5, at_home_yellow_per_game=2.0, at_home_red_per_game=0.1,
+        away_sample_size=15, away_yellow_per_game=3.0, away_red_per_game=0.3,
+        source="fotmob",
+    )
+    info = card_discipline_from_venue_split(split)
+    # weighted: (2*5 + 3*15)/20 = 2.75, (0.1*5 + 0.3*15)/20 = 0.25
+    assert info.yellow_per_game == 2.75
+    assert info.red_per_game == 0.25
+    assert info.elevated_risk is True  # yellow > 2.5 OR red > 0.2
+
+
+def test_card_discipline_from_venue_split_none_without_sample():
+    from football.insights import card_discipline_from_venue_split
+    from football.types import CardDisciplineVenueSplit
+
+    assert card_discipline_from_venue_split(None) is None
+    empty = CardDisciplineVenueSplit(
+        at_home_sample_size=0, at_home_yellow_per_game=None, at_home_red_per_game=None,
+        away_sample_size=0, away_yellow_per_game=None, away_red_per_game=None,
+        source="fotmob",
+    )
+    assert card_discipline_from_venue_split(empty) is None
+
+
+def test_card_discipline_from_venue_split_not_elevated_when_under_thresholds():
+    from football.insights import card_discipline_from_venue_split
+    from football.types import CardDisciplineVenueSplit
+
+    split = CardDisciplineVenueSplit(
+        at_home_sample_size=10, at_home_yellow_per_game=2.0, at_home_red_per_game=0.1,
+        away_sample_size=10, away_yellow_per_game=2.0, away_red_per_game=0.1,
+        source="fotmob",
+    )
+    info = card_discipline_from_venue_split(split)
+    assert info.yellow_per_game == 2.0
+    assert info.red_per_game == 0.1
+    assert info.elevated_risk is False
 
 
 # --- season-stats accumulator family (compute_season_match_stats_estimate's
@@ -2519,8 +2661,58 @@ def test_add_possession_venue_split_check_noop_when_no_possession_buckets():
     split = DetailedVenueSplitForm(home=empty_bucket(), away=empty_bucket(), neutral=empty_bucket())
     add_possession_venue_split_check(stats, split)
     assert stats.possession_venue_split_check is None
+    assert stats.possession_window_note is None
     add_possession_venue_split_check(stats, None)
     add_possession_venue_split_check(None, split)
+
+
+def test_possession_window_note_names_both_windows_when_gap_exceeds_5pp():
+    from football.insights import add_possession_venue_split_check
+    from football.types import DetailedVenueSplitForm, TeamSeasonStats, VenueSplitStats
+
+    def bucket(n: int, poss: float) -> VenueSplitStats:
+        return VenueSplitStats(
+            sample_size=n, xg_for=0, xg_against=0, shots_for=0, shots_against=0,
+            shots_on_target_for=0, shots_on_target_against=0, possession_pct_avg=poss,
+            corners_for=0, corners_against=0, fouls_for=0, fouls_against=0,
+            yellow_cards_for=0, yellow_cards_against=0, red_cards_for=0, red_cards_against=0,
+            big_chances_created_for=0, big_chances_created_against=0,
+        )
+
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=60.0)
+    split = DetailedVenueSplitForm(home=bucket(10, 53.0), away=bucket(10, 53.0), neutral=None)
+    add_possession_venue_split_check(stats, split, "sofascore")
+    note = stats.possession_window_note
+    assert note is not None
+    assert "last-20 venue-split" in note
+    assert "60" in note and "average_ball_possession_source_season" in note
+    assert ">5pp" in note
+
+
+def test_possession_window_note_names_both_windows_when_gap_is_within_5pp():
+    from football.insights import add_possession_venue_split_check
+    from football.types import DetailedVenueSplitForm, TeamSeasonStats, VenueSplitStats
+
+    def bucket(n: int, poss: float) -> VenueSplitStats:
+        return VenueSplitStats(
+            sample_size=n, xg_for=0, xg_against=0, shots_for=0, shots_against=0,
+            shots_on_target_for=0, shots_on_target_against=0, possession_pct_avg=poss,
+            corners_for=0, corners_against=0, fouls_for=0, fouls_against=0,
+            yellow_cards_for=0, yellow_cards_against=0, red_cards_for=0, red_cards_against=0,
+            big_chances_created_for=0, big_chances_created_against=0,
+        )
+
+    # Man Utd audit case: 60.0 season vs 55.2 check = 4.8pp <=5, season kept.
+    stats = TeamSeasonStats(goals_scored=0, goals_conceded=0, clean_sheets=0, yellow_cards=0, red_cards=0, average_ball_possession=60.0)
+    split = DetailedVenueSplitForm(home=bucket(10, 55.2), away=bucket(10, 55.2), neutral=None)
+    add_possession_venue_split_check(stats, split, "sofascore")
+    note = stats.possession_window_note
+    assert note is not None
+    assert "season-to-date" in note
+    assert "55.2" in note
+    assert "<=5pp" in note
+    assert stats.average_ball_possession == 60.0
+    assert stats.average_ball_possession_source_season is None
 
 
 def test_a_real_lineup_with_a_spelling_mismatch_still_blocks_the_competing_projection():

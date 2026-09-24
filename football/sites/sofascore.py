@@ -38,7 +38,7 @@ from urllib.parse import quote
 if TYPE_CHECKING:
     from playwright.async_api import Page
 
-from .._jsmath import js_round_to, js_to_fixed
+from .._jsmath import js_round_to
 from ..browser import launch_browser
 from ..fetch_log import record_failure
 from ..form import parse_leading_int
@@ -588,7 +588,7 @@ def _extract_referee_stats(referee: dict[str, Any] | None) -> RefereeStats | Non
         games=referee["games"],
         yellow_cards=referee.get("yellowCards", 0),
         red_cards=referee.get("redCards", 0),
-        yellow_cards_per_game=js_to_fixed(referee.get("yellowCards", 0) / referee["games"], 1),
+        yellow_cards_per_game=js_round_to(referee.get("yellowCards", 0) / referee["games"], 1),
         penalties_awarded=None,  # computed centrally once search.py's orchestrator is ported
         home_away_bias=None,
         fouls_per_game=None,

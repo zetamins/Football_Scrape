@@ -29,7 +29,9 @@ from .merge import (
     SourceConflict,
     SourceValue,
     apply_deep_recent_meetings,
+    annotate_stat_window_notes,
     compute_bench_regulars,
+    compute_non_injury_absences,
     compute_recent_form_leaders,
     compute_role_form_breakdown,
     compute_top_defenders,
@@ -42,6 +44,7 @@ from .merge import (
     is_match_details_complete,
     is_midfield_role,
     is_profile_complete,
+    merge_absences_into_profile_injuries,
     merge_match_details,
     merge_team_profile,
     reconcile_missing_by_role,
@@ -484,7 +487,12 @@ async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, fo
         except Exception as err:  # noqa: BLE001
             record_step_failure("recent meetings", err)
             deep_recent_meetings = None
-        apply_deep_recent_meetings(merged, _meetings_in_fixture_frame(deep_recent_meetings, is_team_home(merged, team_name)), form_source)
+        apply_deep_recent_meetings(
+            merged,
+            _meetings_in_fixture_frame(deep_recent_meetings, is_team_home(merged, team_name)),
+            form_source,
+            opponent_name=opponent_name,
+        )
         await _refine_undetailed_meetings(team_name, merged, opponent_name, form_source)
 
     # Normalize venue frame from fixture-home to report/searched-team for
@@ -628,6 +636,26 @@ async def _enrich_referee_stats(merged) -> None:
         merged.referee_stats,
         **_referee_stat_replacements(worldfootball_stats, home_away_bias, refsradar_kpis),
     )
+    # Provenance: field_sources.referee_stats was set to the base source
+    # (Sofascore) by the generic merge, but after this enrichment many
+    # nested metrics come from worldfootball/football-data/refsradar
+    # (each already carries its own *_source field on RefereeStats).
+    # Claiming the whole object is still "sofascore" misattributes them
+    # -- confirmed live on the Germany report. "mixed" is the honest
+    # label whenever any of the three optional sources actually
+    # contributed something; leave the base label alone when they all
+    # came back empty.
+    replacements = _referee_stat_replacements(worldfootball_stats, home_away_bias, refsradar_kpis)
+    contributed = any(
+        replacements.get(k) is not None
+        for k in ("penalties_awarded", "second_yellow_cards", "fouls_per_game", "red_cards_per_game", "referee_matches", "penalties_per_game", "cards_per_foul", "avg_total_cards")
+    ) or home_away_bias is not None
+    if contributed:
+        # field_sources can be None on a partially-constructed MergedMatch
+        # (e.g. test fixtures) -- coerce rather than crash on item assignment.
+        if merged.field_sources is None:
+            merged.field_sources = {}
+        merged.field_sources["referee_stats"] = "mixed"
 
 
 async def _compute_and_apply_match_stat_estimates(team_name, opponent_name, own_is_home, insights_result, matches_by_source, on_progress):
@@ -665,6 +693,19 @@ async def _compute_and_apply_match_stat_estimates(team_name, opponent_name, own_
     insights_result.home_card_discipline_venue_split, insights_result.away_card_discipline_venue_split = _home_away(
         own_is_home, own_match_stats.card_split, opponent_match_stats.card_split
     )
+    # When season stats + standing were unavailable (null
+    # home/away_card_discipline -- confirmed live on national teams,
+    # which have neither) but the fotmob-derived venue-split card
+    # discipline just populated above, derive the combined figure from
+    # that split so the field isn't left null next to real data.
+    if not insights_result.home_card_discipline and insights_result.home_card_discipline_venue_split:
+        insights_result.home_card_discipline = ins.card_discipline_from_venue_split(
+            insights_result.home_card_discipline_venue_split
+        )
+    if not insights_result.away_card_discipline and insights_result.away_card_discipline_venue_split:
+        insights_result.away_card_discipline = ins.card_discipline_from_venue_split(
+            insights_result.away_card_discipline_venue_split
+        )
     insights_result.home_aerial_estimate, insights_result.away_aerial_estimate = _home_away(own_is_home, own_match_stats.aerial, opponent_match_stats.aerial)
     insights_result.home_big_chances_estimate, insights_result.away_big_chances_estimate = _home_away(
         own_is_home, own_match_stats.big_chances, opponent_match_stats.big_chances
@@ -755,6 +796,13 @@ async def _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_contex
         opponent_profile.squad = ins.apply_usage_pattern(opponent_profile.squad, enriched_opponent.usage_by_player)
 
     insights_result.home_advanced_stats, insights_result.away_advanced_stats = _home_away(own_is_home, own_advanced_stats, opponent_advanced_stats)
+    # Both corner series are now known -- flag any side where they disagree
+    # (form detail window vs Goal.com Corner total; see the helper's docstring).
+    insights_result.corners_cross_source_note = ins.compute_corners_cross_source_note(
+        insights_result.home_advanced_stats, insights_result.away_advanced_stats,
+        insights_result.home_corners_estimate, insights_result.away_corners_estimate,
+        merged.home_team, merged.away_team,
+    )
 
     own_rank_record = ins.compute_opponent_rank_record(form.last20_overall if form else [], merged.competition, merged.standings_table, own_position)
     opponent_rank_record = ins.compute_opponent_rank_record(opponent_form.last20_overall, merged.competition, merged.standings_table, opponent_position)
@@ -1273,13 +1321,22 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     merged.away_missing_players = reconcile_missing_players(merged.away_missing_players, away_injuries)
     _strip_absent_from_published_lists(merged)
 
+    # Reverse direction of the same reconciliation: fold match-level
+    # injury/suspension absences back into each profile's injuries list
+    # so the markdown "Injuries:" line and key_injuries see them too
+    # (confirmed live: Germany profile listed 2 injuries while
+    # match.missing_players listed 5). Non-injury absences stay off
+    # injuries and surface via non_injury_absences below.
+    home_profile, away_profile = (merged_profile, opponent_profile) if own_is_home else (opponent_profile, merged_profile)
+    merge_absences_into_profile_injuries(home_profile, merged.home_missing_players)
+    merge_absences_into_profile_injuries(away_profile, merged.away_missing_players)
+
     # Same reconciliation, one level down: teamProfile.missing_attackers/
     # defenders/midfielders/goalkeepers were computed from `injuries`
     # alone, before missing_players even existed in the pipeline -- so a
     # player ruled out for a non-injury reason (Richarlison, "coach_
     # decision") was absent from missing_attackers despite being a
     # forward and genuinely unavailable. Confirmed live.
-    home_profile, away_profile = (merged_profile, opponent_profile) if own_is_home else (opponent_profile, merged_profile)
     for profile, injuries, missing_players in (
         (home_profile, home_injuries, merged.home_missing_players),
         (away_profile, away_injuries, merged.away_missing_players),
@@ -1290,6 +1347,16 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
         profile.missing_attackers = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_attacker_role)
         profile.missing_defenders = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_defender_role)
         profile.missing_goalkeepers = reconcile_missing_by_role(profile.squad, injuries, missing_players, is_goalkeeper_role)
+        # Explicit set-difference field for JSON consumers (Richarlison /
+        # coach_decision lives on missing_attackers but not injuries).
+        profile.non_injury_absences = compute_non_injury_absences(profile)
+
+    # Annotate squad rows whose season and last-20 goal totals disagree
+    # (Gallagher 1g season vs 2g recent) directly on the row, so the
+    # discrepancy is visible without cross-referencing two leaderboards.
+    for profile in (merged_profile, opponent_profile):
+        if profile:
+            annotate_stat_window_notes(profile.squad)
 
     insights_result = ins.compute_insights(merged, merged_profile.average_age if merged_profile else None, own_rest_days, opponent_context)
     venue_details = await fetch_venue_details(merged, merged.venue_country)
@@ -1331,6 +1398,25 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     # multi-minute blank stretch in the UI.
     on_progress(_step_message(6, "Enriching opponent form and ranks..."))
     opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result, form_source)
+
+    # Fotmob is the preferred xG source (per-match "Expected goals" sums
+    # over the last 10 finished). When its accumulator came back empty
+    # for a side (confirmed live: Germany's own fotmob xg sample was n=0
+    # while the opponent's was n=6), fall back to the form-window xG
+    # rows the form source already published, so prediction.xg_model and
+    # the losing-streak xg_delta aren't silently computed from one side
+    # only. source="form" marks the different window/method. Runs here --
+    # after both form summaries exist -- rather than inside
+    # _compute_and_apply_match_stat_estimates, which fires before
+    # opponent_form has been computed at all.
+    if own_xg_estimate is None:
+        own_xg_estimate = ins.xg_estimate_from_form(form)
+    if opponent_xg_estimate is None:
+        opponent_xg_estimate = ins.xg_estimate_from_form(opponent_form)
+    if own_xg_estimate is not None or opponent_xg_estimate is not None:
+        insights_result.home_xg_estimate, insights_result.away_xg_estimate = _home_away(
+            own_is_home, own_xg_estimate, opponent_xg_estimate
+        )
 
     on_progress(_step_message(7, "Computing squad strength and availability..."))
     await _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form)

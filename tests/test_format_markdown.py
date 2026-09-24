@@ -428,6 +428,18 @@ def test_venue_bucket_str_zero_sample_size():
     assert venue_bucket_str(_venue_bucket(sample_size=0)) == "n=0"
 
 
+def test_venue_bucket_str_renders_na_for_null_stats_with_positive_sample():
+    # VenueSplitStats fields widened to float | None; a null must render
+    # "n/a", never a fabricated 0.0.
+    from football.format_markdown import venue_bucket_str
+
+    b = _venue_bucket(xg_for=None, xg_against=None, shots_for=None, corners_for=None)
+    result = venue_bucket_str(b)
+    assert "n=a" not in result
+    assert "n/a" in result
+    assert "n=5" in result
+
+
 def test_detailed_venue_split_str_includes_all_three_buckets():
     from football.format_markdown import detailed_venue_split_str
     from football.types import DetailedVenueSplitForm
@@ -876,6 +888,62 @@ def test_home_advantage_str_negative_gap_no_plus_sign():
     assert ", -20.0pp" in result
 
 
+def test_home_advantage_str_withheld_when_sample_floor_not_met():
+    # Confirmed live: "strong" off a single home match. Rates/gap stay
+    # visible; only the categorical label is missing, with sample sizes
+    # explaining why.
+    from football.format_markdown import home_advantage_str
+    from football.types import HomeAdvantageInfo
+
+    h = HomeAdvantageInfo(
+        home_win_rate_pct=100.0, away_win_rate_pct=30.0, gap_pct=70.0,
+        strength=None, home_sample_size=1, away_sample_size=10,
+    )
+    result = home_advantage_str(h, "Home")
+    assert "label withheld (small sample:" in result
+    assert "n=1/10 home/away" in result
+    assert "strong" not in result
+    assert "100.0%" in result  # rates still reported
+
+
+def test_source_conflicts_markdown_renders_every_conflict_independently_of_venue_details():
+    # Confirmed live: StadiumDB fails for national teams, so venue_details
+    # was null on the Germany report and the wrong-fixture venue_city
+    # conflicts never rendered at all.
+    from football.format_markdown import source_conflicts_markdown
+    from football.merge import SourceConflict, SourceValue
+
+    conflicts = [
+        SourceConflict(
+            field="venue_city", kept="Amsterdam", kept_source="sofascore",
+            alternatives=[SourceValue(from_source="fotmob", value="Karlsruhe")],
+            resolution="sofascore kept; at least one alternative appears to be a different fixture -- reported, not overridden",
+        ),
+        SourceConflict(
+            field="venue_capacity", kept=74244, kept_source="stadiumdb",
+            alternatives=[SourceValue(from_source="sofascore", value=74879)],
+            resolution="weighted vote",
+        ),
+    ]
+    lines: list[str] = []
+    source_conflicts_markdown(conflicts, lines)
+    text = "\n".join(lines)
+    assert "venue_city='Amsterdam' kept (sofascore)" in text
+    assert "fotmob=Karlsruhe" in text
+    assert "different fixture" in text
+    assert "venue_capacity=74244 kept (stadiumdb)" in text
+    assert "sofascore=74879" in text
+
+
+def test_source_conflicts_markdown_noop_when_empty():
+    from football.format_markdown import source_conflicts_markdown
+
+    lines: list[str] = []
+    source_conflicts_markdown([], lines)
+    source_conflicts_markdown(None, lines)
+    assert lines == []
+
+
 def test_xg_estimate_str_formats_estimate():
     from football.format_markdown import xg_estimate_str
     from football.types import SeasonXGEstimate
@@ -1157,6 +1225,47 @@ def test_defensive_errors_estimate_str_formats_estimate():
 
     x = SeasonDefensiveErrorsEstimate(sample_size=10, defensive_errors_for=3, defensive_errors_against=5, source="fotmob")
     assert defensive_errors_estimate_str(x, "Home") == "Home defensive errors (last 10 published): 3 for / 5 against"
+
+
+def test_corners_cross_source_note_renders_when_present():
+    from football.format_markdown import insights_markdown
+    from football.types import MatchInsights, SeasonCornersEstimate
+
+    note = (
+        "Tottenham Hotspur: insights.*_advanced_stats corners_for=44 "
+        "(form-source detail window, n=5, fotmob) vs insights.*_corners_estimate "
+        "corners_for=47 (Goal.com Corner total, n=7) -- different sources"
+    )
+    insights = _all_none(
+        MatchInsights,
+        home_corners_estimate=SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=24, source="goal"),
+        away_corners_estimate=SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=28, source="goal"),
+        corners_cross_source_note=note,
+    )
+    lines: list[str] = []
+    insights_markdown(insights, "Manchester United", "Tottenham Hotspur", lines)
+    text = "\n".join(lines)
+    assert "corners_for=44" in text
+    assert "corners_for=47" in text
+    assert "different sources" in text
+
+
+def test_absent_defensive_errors_with_corner_list_renders_honest_na_not_silence():
+    from football.format_markdown import insights_markdown
+    from football.types import MatchInsights, SeasonCornersEstimate
+
+    insights = _all_none(
+        MatchInsights,
+        away_corners_estimate=SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=28, source="goal"),
+        away_defensive_errors_estimate=None,
+        home_defensive_errors_estimate=None,
+        home_corners_estimate=None,
+    )
+    lines: list[str] = []
+    insights_markdown(insights, "Home", "Away", lines)
+    text = "\n".join(lines)
+    assert "Away defensive errors: n/a" in text
+    assert "not zero errors" in text
 
 
 # --- broad integration: every optional section of each top-level markdown fn ---------------
@@ -1465,6 +1574,23 @@ def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
     assert "Recent transfers: New Signing" in text
     assert "Top scorers (season to date): Top Scorer" in text
     assert "Top defenders: Top Defender" in text
+
+
+def test_merged_profile_markdown_prefers_explicit_non_injury_absences_field():
+    """When orchestrate has already set non_injury_absences, markdown
+    uses that field instead of re-deriving -- same names either way."""
+    from football.merge import MergedProfile
+
+    p = _all_none(
+        MergedProfile, source="sofascore", team_name="Spurs", squad=None, average_age=None,
+        injuries=None, key_injuries=None, missing_attackers=["Richarlison"],
+        non_injury_absences=["Richarlison"], field_sources={},
+    )
+    lines: list[str] = []
+    merged_profile_markdown(p, lines)
+    text = "\n".join(lines)
+    assert "Non-injury absences" in text
+    assert "Richarlison" in text
 
 
 def test_form_summary_markdown_renders_every_optional_section():

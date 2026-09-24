@@ -251,7 +251,12 @@ class RefereeStats:
     games: int
     yellow_cards: int
     red_cards: int
-    yellow_cards_per_game: str
+    # float, not str -- previously js_to_fixed returned a string ("2.5")
+    # while every other rate in the report was a float, an asymmetry the
+    # Android model mirrored as String. Changed to float for consistency
+    # with red_cards_per_game / fouls_per_game / RefereeCardRiskNote's
+    # own yellow_cards_per_game (all float).
+    yellow_cards_per_game: float
     # From worldfootball.net's competition referee-stats page. Null if the
     # competition isn't in our small tracked mapping, or the name doesn't match.
     penalties_awarded: int | None
@@ -364,6 +369,11 @@ class TeamSeasonStats:
     # reported it, only set when possession was replaced with the
     # form-window figure. None when no reconciliation happened.
     average_ball_possession_source_season: float | None = None
+    # Human-readable note on which window average_ball_possession
+    # currently represents and why (set by add_possession_venue_split_check).
+    # Field-level companion to dataWindows so a JSON consumer doesn't have
+    # to infer the swap rule from presence/absence of source_season alone.
+    possession_window_note: str | None = None
 
 
 @dataclass
@@ -707,6 +717,12 @@ class SquadMember:
     # no shirt field -- never guessed from match lineups alone, since a
     # transfer between seasons would leave a stale number.
     shirt_number: int | None = None
+    # Set when season_stats.goals and recent_usage.total_goals disagree
+    # for this player (different windows -- season vs last-20). Explains
+    # the Gallagher-style 1g vs 2g discrepancy directly on the row instead
+    # of leaving the consumer to notice it from two separate leaderboards.
+    # None when the numbers match or one side is missing.
+    stat_window_note: str | None = None
 
 
 @dataclass
@@ -732,6 +748,11 @@ class TeamProfile:
     missing_attackers: list[str] | None
     missing_defenders: list[str] | None
     missing_goalkeepers: list[str] | None
+    # Names on missing_*_role that are NOT in injuries (coach_decision /
+    # not-in-squad). Explicit field so JSON consumers needn't re-derive
+    # the set difference; None when there are none (or no role lists).
+    # Populated by orchestrate after reconcile_missing_by_role.
+    non_injury_absences: list[str] | None = None
 
 
 @dataclass
@@ -776,23 +797,29 @@ class VenueSplitForm:
 @dataclass
 class VenueSplitStats:
     sample_size: int
-    xg_for: float
-    xg_against: float
-    shots_for: int
-    shots_against: int
-    shots_on_target_for: int
-    shots_on_target_against: int
+    # Every stat field is None when sample_size=0 (no matches in that
+    # venue bucket) -- confirmed live: xg/shots/etc previously rendered
+    # as literal zeros next to possession_pct_avg=None, a mix of "we
+    # checked and it was 0" and "we have no data" in the same row.
+    # A zero requires at least one observed match; n=0 is honest nulls
+    # across the board. possession_pct_avg was already optional.
+    xg_for: float | None
+    xg_against: float | None
+    shots_for: int | None
+    shots_against: int | None
+    shots_on_target_for: int | None
+    shots_on_target_against: int | None
     possession_pct_avg: float | None
-    corners_for: int
-    corners_against: int
-    fouls_for: int
-    fouls_against: int
-    yellow_cards_for: int
-    yellow_cards_against: int
-    red_cards_for: int
-    red_cards_against: int
-    big_chances_created_for: int
-    big_chances_created_against: int
+    corners_for: int | None
+    corners_against: int | None
+    fouls_for: int | None
+    fouls_against: int | None
+    yellow_cards_for: int | None
+    yellow_cards_against: int | None
+    red_cards_for: int | None
+    red_cards_against: int | None
+    big_chances_created_for: int | None
+    big_chances_created_against: int | None
 
 
 @dataclass
@@ -1538,12 +1565,20 @@ class LosingStreakContextInfo:
 @dataclass
 class HomeAdvantageInfo:
     """>=20pp gap = "strong", 5-20pp = "slight", -5..5pp = "negligible",
-    <=-5pp = "reverse" (worse at home than away)."""
+    <=-5pp = "reverse" (worse at home than away).
+
+    strength is None when either side's win-rate sample is <3 matches
+    (a single home win must not read as "strong" home advantage) --
+    confirmed live off a Germany report with home n=1. The rates and gap
+    stay populated; the sample sizes are reported alongside so a consumer
+    can see exactly why the label was withheld."""
 
     home_win_rate_pct: float | None
     away_win_rate_pct: float | None
     gap_pct: float | None
     strength: Literal["strong", "slight", "negligible", "reverse"] | None
+    home_sample_size: int | None = None
+    away_sample_size: int | None = None
 
 
 @dataclass
@@ -1664,3 +1699,10 @@ class MatchInsights:
     # are not directly comparable or summable. None when both came from
     # the same source, or when either squad strength is unavailable.
     squad_value_basis_note: str | None = None
+
+    # Set when the same side's corners_for disagrees between
+    # home/away_advanced_stats (form-source detail window) and
+    # home/away_corners_estimate (Goal.com Corner total) -- different
+    # sources and sample windows, both correct for their own window.
+    # None when they agree or either figure is unavailable.
+    corners_cross_source_note: str | None = None

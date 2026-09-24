@@ -15,6 +15,7 @@ from .format_markdown import (
     insights_markdown,
     merged_match_markdown,
     merged_profile_markdown,
+    source_conflicts_markdown,
     venue_details_markdown,
 )
 from .insights import (
@@ -109,24 +110,33 @@ _DATA_WINDOWS = {
         "last-20 venue-split figure and the original is kept in average_ball_possession_source_season"
     ),
     "team_season_stats.possession_venue_split_check": "last 20 competitive matches, n-weighted venue-split possession",
+    "team_season_stats.possession_window_note": (
+        "explains which window average_ball_possession currently represents (season-to-date vs last-20 "
+        "venue-split) and why the swap did or did not happen"
+    ),
     "team_season_stats.clean_sheets_recent_check": (
         "last 20 competitive matches (friendlies excluded); clean_sheets_recent_check_sample_size is how many "
         "competitive results in that window fed the count"
     ),
-    "top_scorers_and_assists": "current season to date",
-    "recent_form_leaders": "last 20 matches",
+    "top_scorers_and_assists": "current season to date (top_scorers/top_assists rows also carry window=\"season_to_date\")",
+    "recent_form_leaders": "last 20 matches (rows also carry window=\"last_20\")",
     "squad_season_stats": "current season to date (squad[].season_stats -- goals/assists/cards/rating)",
     "squad_recent_usage": "last 20 matches with lineup/stats detail (squad[].recent_usage -- totals and per-90)",
+    "squad.stat_window_note": (
+        "set when season_stats.goals and recent_usage.total_goals disagree for a player "
+        "(e.g. Gallagher 1 season vs 2 recent) -- names both windows and both values"
+    ),
     "form_by_competition": "last 20 competitive matches (friendlies excluded)",
     "form_by_competition_half_split_venue_split_last20": "last 20 competitive matches (friendlies excluded)",
     "win_rate_points_goals_per_game_over_btts": "last 10 competitive matches",
     "recent_competitions": "last 10 competitive matches plus upcoming fixtures",
     "head_to_head_summary": (
         "all meetings the source records (aggregate sample_size); recent_meetings lists only the "
-        "up-to-3 meetings found in either team's recent match history -- the two counts differ by design"
+        "up-to-3 H2H meetings found in either team's recent match history -- the two counts differ by design"
     ),
     "recent_meetings": (
-        "capped at 3 most recent H2H fixtures found in either team's form window; "
+        "capped at 3 most recent H2H fixtures found in either team's form window; non-H2H leftovers "
+        "from earlier merges are filtered out when the opponent is known; "
         "not the full head_to_head_summary.sample_size"
     ),
     "insights.home_corners_estimate": (
@@ -137,13 +147,50 @@ _DATA_WINDOWS = {
         "Goal.com Corner total summed over that team's own last finished matches with the stat present "
         "(independent per side; equal home/away totals are coincidence, not a shared total)"
     ),
+    "insights.home_advanced_stats": (
+        "form-source detail window (typically last N matched fixtures); its corners_for is a DIFFERENT "
+        "series from insights.*_corners_estimate (Goal.com Corner total) -- they can legitimately disagree"
+    ),
+    "insights.away_advanced_stats": (
+        "form-source detail window (typically last N matched fixtures); its corners_for is a DIFFERENT "
+        "series from insights.*_corners_estimate (Goal.com Corner total) -- they can legitimately disagree"
+    ),
+    "insights.home_defensive_errors_estimate": (
+        "Goal.com Defensive error stat summed over that side's own last finished matches with the stat "
+        "present; null means no match in that window published the stat (not zero errors)"
+    ),
+    "insights.away_defensive_errors_estimate": (
+        "Goal.com Defensive error stat summed over that side's own last finished matches with the stat "
+        "present; null means no match in that window published the stat (not zero errors)"
+    ),
+    "insights.corners_cross_source_note": (
+        "set only when a side's corners_for disagrees between insights.*_advanced_stats and "
+        "insights.*_corners_estimate -- names both values and windows; null when they agree"
+    ),
     "teamProfile.missing_attackers": (
         "teamProfile.injuries by role PLUS match-level missing_players not in injuries "
         "(e.g. coach_decision) -- non-injury absences can appear here without appearing under injuries"
     ),
+    "teamProfile.non_injury_absences": (
+        "names on missing_*_role that are NOT in teamProfile.injuries -- explicit set-difference so "
+        "a coach_decision player doesn't have to be re-derived from two lists"
+    ),
     "match.away_missing_players.absence_type": (
         "injury / suspension / coach_decision / other -- coach_decision is a non-injury absence "
         "(not in teamProfile.injuries; expected_return forced null)"
+    ),
+    "match.home_missing_players": (
+        "Sofascore match-specific missingPlayers reconciled both ways with teamProfile.injuries: "
+        "profile injuries are folded into the match list, and match injury/suspension absences are "
+        "folded back into teamProfile.injuries so both lists see the same set"
+    ),
+    "match.source_conflicts": (
+        "cross-source disagreements reported (not overridden) -- always rendered in markdown even "
+        "when venueDetails is null (StadiumDB cannot resolve national-team venues)"
+    ),
+    "teamProfile.injuries": (
+        "union of teamProfile scrape injuries and match-level missingPlayers with absence_type "
+        "in injury/suspension (non-injury absences like coach_decision stay on non_injury_absences only)"
     ),
     "lineups": "home_lineup/away_lineup/benches are projected/derived unless lineup_confirmed is true",
 }
@@ -206,6 +253,12 @@ def _append_match_sections(result: RunSearchResult, lines: list[str]) -> None:
     merged_match_markdown(result.merged, lines)
     if result.venue_details:
         venue_details_markdown(result.venue_details, lines, result.merged.source_conflicts if result.merged else None)
+    # Always render source_conflicts when present, even if venueDetails
+    # failed to resolve (StadiumDB looks up by club name and cannot find
+    # national teams) -- otherwise a wrong-fixture venue_city/country
+    # conflict is silently invisible in the markdown.
+    if result.merged and result.merged.source_conflicts:
+        source_conflicts_markdown(result.merged.source_conflicts, lines)
     if result.form and result.form_source:
         lines.append("")
         lines.append("## Form")

@@ -261,6 +261,45 @@ def _settle_numeric_conflict(
     return winning_source, f"weighted vote: {len(winner)} sources agree"
 
 
+def _looks_like_wrong_fixture(field_name: str, kept_value, alternatives: list[SourceValue]) -> bool:
+    """True when a text conflict is not a spelling/punctuation difference
+    ("Old Trafford" vs "Old Trafford Stadium") but a source that resolved
+    to an entirely different place -- confirmed live on the Germany
+    report: Sofascore said venue_city=Amsterdam while Fotmob's
+    venueDetails said Karlsruhe (StadiumDB resolved the club-name query
+    to a different ground entirely). Shared tokens of length >2 are what
+    makes two strings "about the same place"; zero overlap means they
+    almost certainly are not."""
+    if field_name not in ("venue_name", "venue_city", "venue_country"):
+        return False
+
+    def _tokens(v) -> set[str]:
+        return {w for w in str(v or "").lower().split() if len(w) > 2}
+
+    kept_tokens = _tokens(kept_value)
+    if not kept_tokens:
+        return False
+    return any(not (kept_tokens & _tokens(a.value)) for a in alternatives)
+
+
+def _text_conflict_resolution(field_name: str, current_source: str, present: dict, kept_value) -> str:
+    """Resolution string for the text-conflict (report-only) branch of
+    detect_source_conflicts. Defaults to the honest "disagreements are
+    reported, not overridden" note, but upgrades to an explicit
+    wrong-fixture flag when the values are not near-spelling variants of
+    each other but entirely different places (see
+    _looks_like_wrong_fixture) -- otherwise a reader has no way to tell
+    "two spellings of one stadium" from "one source matched the wrong
+    match entirely"."""
+    alternatives = [SourceValue(from_source=src, value=v) for src, v in present.items() if v != kept_value]
+    if _looks_like_wrong_fixture(field_name, kept_value, alternatives):
+        return (
+            f"{current_source} kept; at least one alternative appears to be a different fixture "
+            f"(resolved to an unrelated place) -- reported, not overridden"
+        )
+    return f"{current_source} kept (text disagreements are reported, not overridden)"
+
+
 def detect_source_conflicts(
     by_source: dict[Source, MatchDetails], base_source: Source, merged: dict, field_sources: dict[str, Source]
 ) -> list[SourceConflict]:
@@ -282,7 +321,7 @@ def detect_source_conflicts(
         if numeric:
             current_source, resolution = _settle_numeric_conflict(groups, current_source, base_source, merged, field_sources, field_name, present)
         else:
-            resolution = f"{current_source} kept (text disagreements are reported, not overridden)"
+            resolution = _text_conflict_resolution(field_name, current_source, present, merged.get(field_name))
         kept_value = merged.get(field_name)
         conflicts.append(SourceConflict(
             field=field_name, kept=kept_value, kept_source=current_source,
@@ -456,6 +495,54 @@ def reconcile_missing_by_role(
     return result
 
 
+def compute_non_injury_absences(profile) -> list[str] | None:
+    """Names on the profile's missing_*_role lists that are NOT in
+    teamProfile.injuries -- e.g. Richarlison (coach_decision, a forward,
+    correctly in missing_attackers after reconcile_missing_by_role but
+    absent from injuries). Explicit field so a JSON consumer sees the set
+    difference without re-deriving it; None when there are none or when
+    the role lists themselves are unavailable (no injury tracking)."""
+    if profile is None:
+        return None
+    injury_names = {m.name for m in (profile.injuries or [])}
+    missing = [
+        *(profile.missing_midfielders or []),
+        *(profile.missing_attackers or []),
+        *(profile.missing_defenders or []),
+        *(profile.missing_goalkeepers or []),
+    ]
+    if not missing and not injury_names:
+        return None
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in missing:
+        if name not in injury_names and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out or None
+
+
+def annotate_stat_window_notes(squad: list[SquadMember] | None) -> None:
+    """Mutates each squad member in place: when season_stats.goals and
+    recent_usage.total_goals disagree, store an explicit note naming both
+    windows and both values (Gallagher 1 season vs 2 recent). Cleared when
+    the numbers match or either side is missing, so a stale note never
+    survives a re-enrichment that brought the figures into agreement."""
+    for m in (squad or []):
+        if m.season_stats and m.recent_usage:
+            season_g = m.season_stats.goals
+            recent_g = m.recent_usage.total_goals
+            if season_g != recent_g:
+                m.stat_window_note = (
+                    f"season_stats.goals={season_g} (season to date) vs "
+                    f"recent_usage.total_goals={recent_g} (last 20)"
+                )
+            else:
+                m.stat_window_note = None
+        else:
+            m.stat_window_note = None
+
+
 _MIN_CONTAINMENT_NAME_LEN = 3
 
 
@@ -610,6 +697,10 @@ class TopPerformer:
     appearances: int | None
     rating: float | None
     source: Source | None
+    # Which window these numbers cover ("season_to_date"). Row-level so a
+    # JSON consumer never has to rely on a section header alone to know
+    # these goals are season-wide, not last-20.
+    window: str | None = "season_to_date"
 
 
 def compute_top_performers(squad: list[SquadMember] | None, by: Literal["goals", "assists"], count: int = 3) -> list[TopPerformer]:
@@ -625,6 +716,7 @@ def compute_top_performers(squad: list[SquadMember] | None, by: Literal["goals",
             appearances=m.season_stats.appearances,
             rating=m.season_stats.rating,
             source=m.season_stats_source,
+            window="season_to_date",
         )
         for m in candidates[:count]
     ]
@@ -728,6 +820,10 @@ class RecentFormLeader:
     assists_per90: float | None
     key_passes: int
     sample_size: int
+    # Which window these numbers cover ("last_20"). Row-level counterpart
+    # to TopPerformer.window -- same player can legitimately appear in both
+    # leaderboards with different goal totals (Gallagher 1 vs 2).
+    window: str | None = "last_20"
 
 
 @dataclass
@@ -806,6 +902,7 @@ def compute_recent_form_leaders(squad: list[SquadMember] | None, count: int = 3)
             assists_per90=m.recent_usage.assists_per_90,
             key_passes=m.recent_usage.total_key_passes,
             sample_size=m.recent_usage.matches_in_squad,
+            window="last_20",
         )
         for m in candidates[:count]
     ]
@@ -952,6 +1049,45 @@ def reconcile_missing_players(
     return result if result else ([] if missing_players is not None else None)
 
 
+def merge_absences_into_profile_injuries(profile, missing_players: list[MissingPlayer] | None) -> None:
+    """One-way mirror of reconcile_missing_players: add match-level
+    injury/suspension absences that are missing from teamProfile.injuries
+    so the profile's Injuries line and key_injuries list reflect the
+    full set. Confirmed live (Germany): match.missing_players had five
+    entries (de Jong, Wieffer, Simons, Malen, Timber) while profile
+    .injuries only listed two (Malen, Timber) because the two lists are
+    independently sourced. Non-injury absences (coach_decision / other)
+    are deliberately NOT folded into `injuries` -- they belong on
+    non_injury_absences instead. Mutates `profile` in place; no-op when
+    either side is empty."""
+    if not profile or not missing_players:
+        return
+    known = {normalize_team_name(m.name) for m in (profile.injuries or [])}
+    additions: list[SquadMember] = []
+    for p in missing_players:
+        if p.absence_type not in ("injury", "suspension"):
+            continue
+        norm = normalize_team_name(p.name)
+        if norm in known:
+            continue
+        known.add(norm)
+        additions.append(
+            SquadMember(
+                name=p.name, role=None, injury=p.description, age=None, market_value=None,
+                season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None,
+            )
+        )
+    if not additions:
+        return
+    profile.injuries = [*(profile.injuries or []), *additions]
+    # Re-rank key_injuries (by market value) over the expanded list so
+    # the top-3 line stays honest; non-squad additions have no market
+    # value and sort last, which is correct -- we know less about them.
+    with_value = [m for m in profile.injuries if m.market_value is not None]
+    with_value.sort(key=lambda m: m.market_value or 0.0, reverse=True)
+    profile.key_injuries = with_value[:3] if with_value else profile.key_injuries
+
+
 def absent_name_set(
     missing_players: list[MissingPlayer] | None,
     suspended: list[str] | None,
@@ -999,7 +1135,7 @@ def filter_absent_players(players: list | None, absent: set[str]) -> list | None
     return kept
 
 
-def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source: Source) -> None:
+def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source: Source, opponent_name: str | None = None) -> None:
     """Overwrites merged.recent_meetings with a richer, deeper computation
     (formations/xG/lineups per meeting) that only one specific `source`
     can produce, and keeps merged.field_sources' provenance label honest
@@ -1023,14 +1159,46 @@ def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source:
     entry survives alongside deep rows, provenance is labelled "mixed" --
     claiming either single source would misattribute the other half of
     the list (confirmed live: newest meeting detailed by Sofascore while
-    two older rows still came from Fotmob, labelled wholly "fotmob")."""
+    two older rows still came from Fotmob, labelled wholly "fotmob").
+
+    `opponent_name`, when given, filters leftovers to true H2H rows
+    against that opponent and caps the final list at 3 -- the generic
+    field-merge can leave non-H2H leftovers (confirmed live: Germany's
+    recent_meetings contained Germany vs Australia rows that were never
+    against the Netherlands), and deep_meetings + leftovers could
+    previously exceed the documented cap of 3."""
+    from .team_aliases import same_team
+
     if not deep_meetings:
+        # Deep computation failed or came back empty: leave the earlier
+        # merge's fallback (or None) exactly as it was -- filtering here
+        # would clobber a fallback list we have no better replacement for
+        # (confirmed by test_apply_own_recent_meetings_and_form_tolerates_failures).
         return
     # HeadToHeadMeeting.date is str | None (soccerdesk/fotmob/form-only
     # can omit it); slicing None TypeError-kills the whole team run.
     deep_days = {m.date[:10] for m in deep_meetings if m.date}
     leftovers = [m for m in (merged.recent_meetings or []) if not m.date or m.date[:10] not in deep_days]
-    merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date or "", reverse=True)
+    if opponent_name:
+        # Keep only true H2H leftovers against this opponent. Rows with
+        # neither home_team nor away_team populated (form-only fallbacks
+        # that predate the frame fix) can't be judged either way -- keep
+        # them rather than silently dropping real history. Confirmed
+        # live (Germany): non-H2H leftovers like Germany vs Australia
+        # were sitting in recent_meetings for a Germany vs Netherlands
+        # fixture because the generic field-merge doesn't know the
+        # opponent. Also cap the final list at 3 to match the documented
+        # window -- deep_meetings (already [:3]) plus leftovers could
+        # previously grow past it.
+        filtered = []
+        for m in leftovers:
+            if not m.home_team and not m.away_team:
+                filtered.append(m)
+                continue
+            if same_team(m.home_team or "", opponent_name) or same_team(m.away_team or "", opponent_name):
+                filtered.append(m)
+        leftovers = filtered
+    merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date or "", reverse=True)[:3]
     if leftovers:
         merged.field_sources["recent_meetings"] = "mixed"
         return

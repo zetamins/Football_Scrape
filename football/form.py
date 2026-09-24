@@ -1126,8 +1126,27 @@ def _compute_venue_split_form(enriched: list[FormResult]) -> VenueSplitForm | No
 
 
 def _finalize_venue_bucket(b: dict[str, float]) -> VenueSplitStats:
+    n = int(b["sample_size"])
+    if n == 0:
+        # No matches in this venue bucket: every stat is honest null, not
+        # a fabricated zero (a zero would claim "we observed 0.0 xG" when
+        # in fact nothing was observed at all -- confirmed live: a neutral
+        # bucket with sample_size=0 still reported xg_for=0.0/shots=0/etc
+        # next to possession_pct_avg=None in the same object).
+        return VenueSplitStats(
+            sample_size=0,
+            xg_for=None, xg_against=None,
+            shots_for=None, shots_against=None,
+            shots_on_target_for=None, shots_on_target_against=None,
+            possession_pct_avg=None,
+            corners_for=None, corners_against=None,
+            fouls_for=None, fouls_against=None,
+            yellow_cards_for=None, yellow_cards_against=None,
+            red_cards_for=None, red_cards_against=None,
+            big_chances_created_for=None, big_chances_created_against=None,
+        )
     return VenueSplitStats(
-        sample_size=int(b["sample_size"]),
+        sample_size=n,
         xg_for=js_round_to(b["xg_for"], 2), xg_against=js_round_to(b["xg_against"], 2),
         shots_for=int(b["shots_for"]), shots_against=int(b["shots_against"]),
         shots_on_target_for=int(b["shots_on_target_for"]), shots_on_target_against=int(b["shots_on_target_against"]),

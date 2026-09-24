@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from ._jsmath import js_round, js_round_to
+from ._jsmath import js_number_to_string, js_round, js_round_to
 from .elo import is_friendly_competition
 from .fetch_log import record_step_failure
 from .form import NOT_STARTED_STATUSES as _NOT_STARTED_STATUSES
@@ -146,6 +146,42 @@ def classify_card_discipline(stats, standing: TeamStanding | None) -> CardDiscip
     yellow_per_game = js_round_to(stats.yellow_cards / played, 2)
     red_per_game = js_round_to(stats.red_cards / played, 2)
     return CardDisciplineInfo(yellow_per_game=yellow_per_game, red_per_game=red_per_game, elevated_risk=(yellow_per_game > 2.5 or red_per_game > 0.2))
+
+
+def card_discipline_from_venue_split(split) -> CardDisciplineInfo | None:
+    """Fallback when home/away_card_discipline is null (needs season stats
+    + standing, both null for national teams) but the fotmob-derived
+    venue-split card discipline already exists -- confirmed live on the
+    Germany report: card_discipline was null on both sides while
+    card_discipline_venue_split was populated for both, leaving an
+    unexplained null next to real data. Weighted by each side's sample
+    size so the combined figure is an honest average of the two venue
+    buckets, not an unweighted mean of two rates that may have very
+    different n. Elevated-risk thresholds match classify_card_discipline
+    exactly (yellow > 2.5 OR red > 0.2)."""
+    if not split:
+        return None
+    home_n = split.at_home_sample_size or 0
+    away_n = split.away_sample_size or 0
+    total = home_n + away_n
+    if total <= 0:
+        return None
+    yellow = 0.0
+    red = 0.0
+    if home_n and split.at_home_yellow_per_game is not None:
+        yellow += split.at_home_yellow_per_game * home_n
+        if split.at_home_red_per_game is not None:
+            red += split.at_home_red_per_game * home_n
+    if away_n and split.away_yellow_per_game is not None:
+        yellow += split.away_yellow_per_game * away_n
+        if split.away_red_per_game is not None:
+            red += split.away_red_per_game * away_n
+    yellow_per_game = js_round_to(yellow / total, 2)
+    red_per_game = js_round_to(red / total, 2)
+    return CardDisciplineInfo(
+        yellow_per_game=yellow_per_game, red_per_game=red_per_game,
+        elevated_risk=(yellow_per_game > 2.5 or red_per_game > 0.2),
+    )
 
 
 def _travel_km(traveling: bool | None, from_country: str | None, to_country: str) -> float | None:
@@ -554,6 +590,24 @@ def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue
     if season is not None and abs(season - check) > 5.0:
         season_stats.average_ball_possession_source_season = season
         season_stats.average_ball_possession = check
+        season_stats.possession_window_note = (
+            f"average_ball_possession is last-20 venue-split {js_number_to_string(check)}%"
+            f"{f' ({source})' if source else ''}; season-to-date source figure was "
+            f"{js_number_to_string(season)}% (kept in average_ball_possession_source_season); "
+            f"gap {abs(season - check):.1f}pp >5pp so form window preferred"
+        )
+    elif season is not None:
+        season_stats.possession_window_note = (
+            f"average_ball_possession is season-to-date {js_number_to_string(season)}%; "
+            f"last-20 venue-split check is {js_number_to_string(check)}%"
+            f"{f' ({source})' if source else ''}; gap {abs(season - check):.1f}pp <=5pp so season figure kept"
+        )
+    else:
+        season_stats.possession_window_note = (
+            f"average_ball_possession is unavailable from the source; "
+            f"last-20 venue-split check is {js_number_to_string(check)}%"
+            f"{f' ({source})' if source else ''} (check only, not applied as season figure)"
+        )
 
 
 def _same_competition(a: str | None, b: str | None) -> bool:
@@ -808,8 +862,10 @@ def compute_presence(
     }
 
     result = []
+    seen: set[str] = set()
     for m in squad:
         norm = _normalize(m.name)
+        seen.add(norm)
         reason = (
             injury_by_name.get(norm)
             or note_injury_by_name.get(norm)
@@ -820,6 +876,21 @@ def compute_presence(
             PresenceEntry(
                 name=m.name, status=("A" if reason else "P"), starting=bool(_in_name_set(m.name, lineup_names)),
                 on_bench=_in_name_set(m.name, bench_names), reason=reason,
+            )
+        )
+    # Match-level missing players who are NOT in the squad list still need
+    # an Absent row -- confirmed live (Germany): de Jong/Wieffer/Simons/
+    # Goretzka/Stiller appeared in match.*_missing_players but never in the
+    # squad, so availability undercounted five absences to zero.
+    for p in (missing_players or []):
+        norm = _normalize(p.name)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        reason = missing_reason_by_name.get(norm) or _presence_reason_for(p)
+        result.append(
+            PresenceEntry(
+                name=p.name, status="A", starting=False, on_bench=False, reason=reason,
             )
         )
     return result
@@ -1009,10 +1080,27 @@ def compute_fatigue_flag(recent_competitions: list[str], gaps_between_last_three
 
 def compute_home_advantage(form) -> HomeAdvantageInfo | None:
     """Gap between a team's own home and away win rates -- >=20pp
-    "strong", 5-20pp "slight", -5..5pp "negligible", <=-5pp "reverse"."""
+    "strong", 5-20pp "slight", -5..5pp "negligible", <=-5pp "reverse".
+
+    Sample floor: when either side's win-rate sample is <3 matches, the
+    strength label is withheld (strength=None) even though the rates and
+    gap are still reported -- confirmed live on the Germany report,
+    where a "strong" label was computed off home_win_rate_sample_size=1
+    (n=1, 100% win rate), which is not a meaningful signal. Sample sizes
+    ride along on HomeAdvantageInfo so the markdown/JSON consumer can
+    see why the label is absent. When a sample size is None (no form at
+    all for that side's rates), the floor is not applied -- the rates
+    themselves would already have been None and we'd have returned
+    above."""
     if not form or form.home_win_rate_pct is None or form.away_win_rate_pct is None:
         return None
     gap_pct = form.home_win_rate_pct - form.away_win_rate_pct
+    home_n = form.home_win_rate_sample_size
+    away_n = form.away_win_rate_sample_size
+    underpowered = (
+        (home_n is not None and home_n < 3)
+        or (away_n is not None and away_n < 3)
+    )
     if gap_pct >= 20:
         strength = "strong"
     elif gap_pct >= 5:
@@ -1021,7 +1109,13 @@ def compute_home_advantage(form) -> HomeAdvantageInfo | None:
         strength = "reverse"
     else:
         strength = "negligible"
-    return HomeAdvantageInfo(home_win_rate_pct=form.home_win_rate_pct, away_win_rate_pct=form.away_win_rate_pct, gap_pct=gap_pct, strength=strength)
+    if underpowered:
+        strength = None
+    return HomeAdvantageInfo(
+        home_win_rate_pct=form.home_win_rate_pct, away_win_rate_pct=form.away_win_rate_pct,
+        gap_pct=gap_pct, strength=strength,
+        home_sample_size=home_n, away_sample_size=away_n,
+    )
 
 
 def compute_streak_stability(streak: StreakInfo | None, rotation: RotationInfo | None) -> StreakStabilityInfo | None:
@@ -1332,6 +1426,7 @@ def compute_insights(merged: MatchDetails, own_average_age: float | None, own_re
         home_club_strength=None, away_club_strength=None,
         prediction=None,
         opponent_context_error=opponent.error,
+        corners_cross_source_note=None,
     )
 
 
@@ -1507,6 +1602,54 @@ def _build_xg_estimate(acc: _SeasonStatsAccumulator) -> SeasonXGEstimate | None:
     )
 
 
+def xg_estimate_from_form(form) -> SeasonXGEstimate | None:
+    """Fallback when the fotmob xG accumulator came back empty (own or
+    opponent side). Form already carries per-match xg_for/xg_against for
+    every result the form source published them for -- confirmed live:
+    Germany's own fotmob xg sample was empty (n=0) while its form had
+    five usable xG rows, so away_xg_estimate went null while the home
+    side had n=6, cascading into prediction.xg_model and the losing-
+    streak xg_delta. source="form" marks this as a different window and
+    method than the fotmob last-10 aggregation, not a silent substitute.
+    None only when the form itself has no xG-annotated results at all."""
+    if not form:
+        return None
+    rows = [
+        r for r in (*form.last10_overall, *form.last20_overall)
+        if r.xg_for is not None and r.xg_against is not None
+    ]
+    if not rows:
+        return None
+    # Deduplicate by date+scoreline -- last10 is a prefix of last20.
+    seen: set[tuple] = set()
+    unique = []
+    for r in rows:
+        key = (r.date, r.scoreline, r.opponent)
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    if not unique:
+        return None
+    xg_for = sum(r.xg_for or 0.0 for r in unique)
+    xg_against = sum(r.xg_against or 0.0 for r in unique)
+    # FormResult only stores margin/scoreline for the searched team; parse
+    # goals off scoreline "2-1" so actual_goals_* stay honest sums.
+    gf = ga = 0
+    for r in unique:
+        try:
+            a, b = (int(x) for x in r.scoreline.split("-"))
+        except (ValueError, AttributeError):
+            continue
+        if r.venue == "away":
+            a, b = b, a
+        gf += a
+        ga += b
+    return SeasonXGEstimate(
+        sample_size=len(unique), xg_for=js_round_to(xg_for, 2), xg_against=js_round_to(xg_against, 2),
+        actual_goals_for=gf, actual_goals_against=ga, source="form",
+    )
+
+
 def _build_shots_estimate(acc: _SeasonStatsAccumulator) -> SeasonShotsEstimate | None:
     if not acc.shots_sample_size:
         return None
@@ -1598,6 +1741,32 @@ class PossessionAndCornersEstimate:
         self.possession = possession
         self.corners = corners
         self.defensive_errors = defensive_errors
+
+
+def compute_corners_cross_source_note(
+    home_advanced, away_advanced, home_estimate, away_estimate, home_team: str, away_team: str
+) -> str | None:
+    """Explain any side whose corners_for disagrees between the two
+    independent corner series in the same report (form-source detail
+    window vs Goal.com Corner total) -- different sources and sample
+    windows, both correct for their own window. None when they agree
+    or either figure is unavailable."""
+    parts: list[str] = []
+    for label, adv, est in (
+        (home_team, home_advanced, home_estimate),
+        (away_team, away_advanced, away_estimate),
+    ):
+        if not adv or not est or adv.corners_for is None:
+            continue
+        if adv.corners_for != est.corners_for:
+            parts.append(
+                f"{label}: insights.*_advanced_stats corners_for={adv.corners_for} "
+                f"(form-source detail window, n={adv.sample_size}, {adv.source}) vs "
+                f"insights.*_corners_estimate corners_for={est.corners_for} "
+                f"(Goal.com Corner total, n={est.sample_size}) -- different sources and "
+                "sample windows, not a shared total; each is correct for its own window"
+            )
+    return "; ".join(parts) if parts else None
 
 
 class _PossessionAccumulator:
@@ -1733,6 +1902,9 @@ _COMPLETENESS_EXCLUDE = {
     # Same reasoning -- null whenever a real lineup already exists (no
     # projection was needed), not a gap.
     "projected_xi_basis",
+    # Same reasoning -- null whenever advanced_stats and corners_estimate
+    # agree (or one is unavailable), i.e. "checked, nothing to flag".
+    "corners_cross_source_note",
     # home/away_losing_streak_context used to live here: they returned
     # None both for "no streak data" and for "checked, team is fine", so
     # excluding them hid nulls the customer couldn't explain. Fixed at the

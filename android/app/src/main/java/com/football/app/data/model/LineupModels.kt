@@ -81,6 +81,7 @@ data class TeamSeasonStats(
     val yellowCards: Int,
     val redCards: Int,
     val averageBallPossession: Double? = null,
+    val possessionWindowNote: String? = null,
 )
 
 /**

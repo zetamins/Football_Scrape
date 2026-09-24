@@ -230,7 +230,18 @@ def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
     assert "independent" in report["dataWindows"]["insights.home_corners_estimate"]
     # Non-injury absences can sit on missing_* without injuries.
     assert "coach_decision" in report["dataWindows"]["match.away_missing_players.absence_type"]
+    assert "set-difference" in report["dataWindows"]["teamProfile.non_injury_absences"]
+    # Field-level possession note + squad cross-window note + row-level windows.
+    assert "which window average_ball_possession" in report["dataWindows"]["team_season_stats.possession_window_note"]
+    assert "season_stats.goals" in report["dataWindows"]["squad.stat_window_note"]
+    assert "season_to_date" in report["dataWindows"]["top_scorers_and_assists"]
+    assert "last_20" in report["dataWindows"]["recent_form_leaders"]
     assert "projected" in report["dataWindows"]["lineups"]
+    # Cross-source corners + honest defensive-error null must be spelled out.
+    assert "DIFFERENT" in report["dataWindows"]["insights.away_advanced_stats"]
+    assert "not zero errors" in report["dataWindows"]["insights.away_defensive_errors_estimate"]
+    assert "advanced_stats" in report["dataWindows"]["insights.corners_cross_source_note"]
+    assert "when they agree" in report["dataWindows"]["insights.corners_cross_source_note"]
 
 
 def test_build_report_json_data_completeness_lists_missing_fields():
@@ -364,3 +375,26 @@ def test_build_report_markdown_includes_every_optional_match_section():
     assert "Home FC" in md
     assert "Opponent FC" in md
     assert "competitive" in md
+
+
+def test_build_report_markdown_renders_source_conflicts_without_venue_details():
+    # Confirmed live: StadiumDB cannot resolve national-team venues, so
+    # venue_details was null and the wrong-fixture venue_city conflict
+    # was silently invisible in the markdown.
+    from football.merge import MergedMatch, SourceConflict, SourceValue
+
+    conflict = SourceConflict(
+        field="venue_city", kept="Amsterdam", kept_source="sofascore",
+        alternatives=[SourceValue(from_source="fotmob", value="Karlsruhe")],
+        resolution="sofascore kept; at least one alternative appears to be a different fixture -- reported, not overridden",
+    )
+    merged = _all_none(
+        MergedMatch, home_team="Germany", away_team="Netherlands", status="scheduled",
+        additional_notes=[], field_sources={}, source_conflicts=[conflict],
+    )
+    result = _run_search_result(merged=merged, venue_details=None)
+    md = build_report_markdown(result)
+    assert "Conflict:" in md
+    assert "venue_city='Amsterdam' kept" in md
+    assert "fotmob=Karlsruhe" in md
+    assert "different fixture" in md

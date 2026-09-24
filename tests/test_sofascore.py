@@ -282,7 +282,7 @@ def test_extract_suspended_players_confirmed_empty_vs_absent_key():
 
 def test_extract_referee_stats_computes_yellow_cards_per_game():
     stats = _extract_referee_stats({"games": 20, "yellowCards": 50, "redCards": 2})
-    assert stats.yellow_cards_per_game == "2.5"
+    assert stats.yellow_cards_per_game == 2.5
 
 
 def test_extract_referee_stats_none_without_games():

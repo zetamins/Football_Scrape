@@ -77,11 +77,11 @@ class OverviewModelsTest {
     }
 
     @Test
-    fun `referee_stats yellow_cards_per_game decodes as String, not a number`() {
+    fun `referee_stats yellow_cards_per_game decodes as a number`() {
         val overview = AppJson.decodeFromString(MatchOverview.serializer(), loadSample())
         val stats = assertNotNullAndReturn(overview.refereeStats)
 
-        assertEquals("4.6", stats.yellowCardsPerGame)
+        assertEquals(4.6, stats.yellowCardsPerGame, 0.001)
         assertEquals(527, stats.games)
         assertEquals(20.75, stats.foulsPerGame)
         // penalties_awarded and home_away_bias are null in this real sample

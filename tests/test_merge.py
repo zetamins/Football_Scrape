@@ -5,8 +5,10 @@ from football.merge import (
     _fix_missing_or_duplicate_gk,
     _validate_lineup_positions,
     apply_deep_recent_meetings,
+    annotate_stat_window_notes,
     compute_bench_regulars,
     compute_missing_by_role,
+    compute_non_injury_absences,
     compute_recent_form_leaders,
     compute_role_form_breakdown,
     compute_top_defenders,
@@ -245,6 +247,8 @@ def test_compute_top_performers_sorts_and_excludes_zero():
     squad = [_squad_member("Salah", goals=20), _squad_member("Nunez", goals=5), _squad_member("Alisson", goals=0)]
     top = compute_top_performers(squad, "goals", count=2)
     assert [p.name for p in top] == ["Salah", "Nunez"]
+    # Row-level window: season_stats is season-to-date, never last-20.
+    assert all(p.window == "season_to_date" for p in top)
 
 
 def test_compute_top_defenders_sorts_by_combined_score():
@@ -378,6 +382,149 @@ def test_apply_deep_recent_meetings_tolerates_none_dates():
     assert merged.recent_meetings[0].date == "2026-03-01T12:00:00.000Z"
 
 
+def test_apply_deep_recent_meetings_filters_non_h2h_leftovers_and_caps_at_three():
+    # Confirmed live (Germany): recent_meetings contained Germany vs
+    # Australia rows that were never against the Netherlands, and
+    # deep_meetings + leftovers could grow past the documented cap of 3.
+    non_h2h = _meeting(date="2025-06-01T00:00:00.000Z", home_team="Germany", away_team="Australia")
+    true_h2h = _meeting(date="2025-03-01T00:00:00.000Z", home_team="Germany", away_team="Netherlands")
+    # Neither home_team nor away_team populated (pre-frame-fix form-only
+    # fallback) -- can't be judged either way, so it must be kept.
+    frameless = _meeting(date="2025-01-15T00:00:00.000Z")
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore"),
+        "soccerdesk": _match_details("soccerdesk", recent_meetings=[non_h2h, true_h2h, frameless]),
+    })
+    deep = [
+        _meeting(date="2026-02-07T12:30:00.000Z", home_formation="4-3-3", home_team="Netherlands", away_team="Germany"),
+        _meeting(date="2025-11-08T12:30:00.000Z", home_team="Germany", away_team="Netherlands"),
+        _meeting(date="2025-09-01T12:30:00.000Z", home_team="Netherlands", away_team="Germany"),
+        _meeting(date="2025-08-01T12:30:00.000Z", home_team="Germany", away_team="Netherlands"),
+    ]
+    apply_deep_recent_meetings(merged, deep, "sofascore", opponent_name="Netherlands")
+
+    dates = [m.date[:10] for m in merged.recent_meetings]
+    # non-H2H leftover (Germany vs Australia) dropped by the opponent filter
+    assert "2025-06-01" not in dates
+    # 4 deep rows alone already fill the window -- leftover H2H rows that
+    # would exceed the cap of 3 are not appended (cap is newest-first).
+    assert len(merged.recent_meetings) == 3
+    assert dates == ["2026-02-07", "2025-11-08", "2025-09-01"]
+    assert dates == sorted(dates, reverse=True)
+    assert merged.field_sources.get("recent_meetings") == "mixed"
+
+
+def test_apply_deep_recent_meetings_keeps_h2h_and_frameless_leftovers_when_under_cap():
+    non_h2h = _meeting(date="2025-06-01T00:00:00.000Z", home_team="Germany", away_team="Australia")
+    true_h2h = _meeting(date="2025-03-01T00:00:00.000Z", home_team="Germany", away_team="Netherlands")
+    frameless = _meeting(date="2025-01-15T00:00:00.000Z")
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore"),
+        "soccerdesk": _match_details("soccerdesk", recent_meetings=[non_h2h, true_h2h, frameless]),
+    })
+    deep = [_meeting(date="2026-02-07T12:30:00.000Z", home_formation="4-3-3", home_team="Netherlands", away_team="Germany")]
+    apply_deep_recent_meetings(merged, deep, "sofascore", opponent_name="Netherlands")
+
+    dates = [m.date[:10] for m in merged.recent_meetings]
+    assert "2025-06-01" not in dates  # non-H2H dropped
+    assert "2025-03-01" in dates  # true H2H kept
+    assert "2025-01-15" in dates  # frameless kept (teams unknown)
+    assert len(merged.recent_meetings) == 3
+    assert merged.field_sources.get("recent_meetings") == "mixed"
+
+
+def test_apply_deep_recent_meetings_leaves_empty_deep_fallback_untouched_even_with_opponent():
+    # Deep computation failure must not clobber the earlier fallback --
+    # filtering runs only when deep_meetings is non-empty.
+    non_h2h = _meeting(date="2025-06-01T00:00:00.000Z", home_team="Germany", away_team="Australia")
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore"),
+        "soccerdesk": _match_details("soccerdesk", recent_meetings=[non_h2h]),
+    })
+    original = merged.recent_meetings
+    apply_deep_recent_meetings(merged, [], "sofascore", opponent_name="Netherlands")
+    assert merged.recent_meetings == original
+
+
+def test_text_conflict_resolution_flags_completely_different_places_as_wrong_fixture():
+    # Confirmed live: Sofascore said venue_city=Amsterdam while Fotmob's
+    # venueDetails said Karlsruhe -- zero shared tokens means one source
+    # matched the wrong fixture entirely, not a spelling variant.
+    from football.merge import _text_conflict_resolution
+
+    resolution = _text_conflict_resolution(
+        "venue_city", "sofascore", {"sofascore": "Amsterdam", "fotmob": "Karlsruhe"}, "Amsterdam",
+    )
+    assert "different fixture" in resolution
+    assert "reported, not overridden" in resolution
+
+
+def test_text_conflict_resolution_keeps_plain_note_for_spelling_variants():
+    from football.merge import _text_conflict_resolution
+
+    resolution = _text_conflict_resolution(
+        "venue_name", "sofascore", {"sofascore": "Old Trafford", "fotmob": "Old Trafford Stadium"}, "Old Trafford",
+    )
+    assert "different fixture" not in resolution
+    assert "text disagreements are reported, not overridden" in resolution
+
+
+def test_merge_match_details_wrong_fixture_city_conflict_resolution():
+    # End-to-end: base kept, conflict reported, resolution upgraded to
+    # wrong-fixture (not the generic "text disagreements" note).
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore", venue_city="Amsterdam"),
+        "fotmob": _match_details("fotmob", venue_city="Karlsruhe"),
+    })
+    assert merged.venue_city == "Amsterdam"
+    (conflict,) = merged.source_conflicts
+    assert conflict.field == "venue_city"
+    assert "different fixture" in conflict.resolution
+
+
+def test_merge_absences_into_profile_injuries_adds_injury_absences_and_skips_non_injury():
+    # Confirmed live (Germany): match.missing_players had five entries
+    # while profile.injuries only listed two -- the two lists are
+    # independently sourced.
+    from football.merge import merge_absences_into_profile_injuries
+
+    malen = SquadMember(
+        name="Malen", role="F", injury="Unknown", age=None, market_value=40_000_000.0,
+        season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None,
+    )
+    profile = _team_profile("sofascore", injuries=[malen], key_injuries=[malen])
+    missing = [
+        MissingPlayer(name="De Jong", description="Knee Injury", expected_return="3 months"),
+        MissingPlayer(name="Malen", description="Unknown", expected_return=None),  # already known
+        MissingPlayer(name="Richarlison", description="coach_decision", expected_return=None),  # non-injury
+    ]
+    merge_absences_into_profile_injuries(profile, missing)
+
+    names = [m.name for m in profile.injuries or []]
+    assert "De Jong" in names  # injury absence folded in
+    assert names.count("Malen") == 1  # no duplicate
+    assert "Richarlison" not in names  # coach_decision stays off injuries
+    # key_injuries re-ranked over the expanded list; non-squad addition
+    # has no market value so it sorts off the key list (we know less).
+    assert [m.name for m in profile.key_injuries or []] == ["Malen"]
+
+
+def test_merge_absences_into_profile_injuries_noop_when_either_side_empty():
+    from football.merge import merge_absences_into_profile_injuries
+
+    # missing_players empty -> no change (even if injuries was None)
+    profile = _team_profile("sofascore", injuries=None)
+    merge_absences_into_profile_injuries(profile, None)
+    merge_absences_into_profile_injuries(profile, [])
+    assert profile.injuries is None
+    # profile itself None -> no crash
+    merge_absences_into_profile_injuries(None, [MissingPlayer(name="X", description="Knee", expected_return=None)])  # type: ignore[arg-type]
+    # injuries None but missing has an injury -> populates from None
+    profile2 = _team_profile("sofascore", injuries=None)
+    merge_absences_into_profile_injuries(profile2, [MissingPlayer(name="X", description="Knee", expected_return=None)])
+    assert [m.name for m in profile2.injuries or []] == ["X"]
+
+
 # --- empty/None-squad guards across the compute_* leaderboard functions --------------------
 
 
@@ -444,6 +591,7 @@ def test_compute_recent_form_leaders_ranks_by_goals_plus_assists():
     quiet = _squad_member_with_usage("Backup", "F", total_goals=0, total_assists=0)
     result = compute_recent_form_leaders([top, quiet])
     assert [r.name for r in result] == ["Salah"]
+    assert all(r.window == "last_20" for r in result)
 
 
 def test_compute_recent_form_leaders_excludes_a_currently_injured_player():
@@ -753,6 +901,75 @@ def test_confirmed_empty_suspended_list_survives_the_merge_instead_of_staying_no
     assert merged.home_suspended_players == []  # "checked, nobody" is kept
     assert merged.away_suspended_players == ["Banned Player"]
     assert merged.field_sources["home_suspended_players"] == "soccerdesk"
+
+
+# --- non_injury_absences / stat_window_note ------------------------------------
+
+
+def test_compute_non_injury_absences_names_missing_player_not_in_injuries():
+    """Confirmed live: Richarlison (coach_decision) sits on
+    missing_attackers after reconcile but not in injuries."""
+    from football.types import TeamProfile
+
+    squad = [
+        SquadMember(name="Richarlison", role="F", injury=None, age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None),
+        SquadMember(name="Injured Mid", role="M", injury="Hamstring", age=None, market_value=None, season_stats=None, season_stats_source=None, defensive_stats=None, recent_usage=None),
+    ]
+    profile = TeamProfile(
+        source="sofascore", team_name="Spurs", squad=squad, average_age=None,
+        injuries=[squad[1]], key_injuries=None, recent_transfers=None,
+        missing_midfielders=["Injured Mid"], missing_attackers=["Richarlison"],
+        missing_defenders=None, missing_goalkeepers=None,
+    )
+    assert compute_non_injury_absences(profile) == ["Richarlison"]
+
+
+def test_compute_non_injury_absences_none_when_everyone_is_an_injury_or_lists_missing():
+    from football.types import TeamProfile
+
+    only_injury = TeamProfile(
+        source="sofascore", team_name="T", squad=None, average_age=None,
+        injuries=None, key_injuries=None, recent_transfers=None,
+        missing_midfielders=None, missing_attackers=None,
+        missing_defenders=None, missing_goalkeepers=None,
+    )
+    assert compute_non_injury_absences(only_injury) is None
+    assert compute_non_injury_absences(None) is None
+
+
+def test_annotate_stat_window_notes_flags_season_vs_recent_goal_mismatch():
+    """Gallagher-style row: season_stats.goals=1, recent_usage.total_goals=2."""
+    season = SeasonPlayerStats(appearances=3, goals=1, assists=0, yellow_cards=0, red_cards=0, rating=7.1, expected_goals=None)
+    member = SquadMember(
+        name="Conor Gallagher", role="M", injury=None, age=None, market_value=None,
+        season_stats=season, season_stats_source="sofascore", defensive_stats=None,
+        recent_usage=_usage(total_goals=2),
+    )
+    annotate_stat_window_notes([member])
+    assert member.stat_window_note is not None
+    assert "season_stats.goals=1" in member.stat_window_note
+    assert "recent_usage.total_goals=2" in member.stat_window_note
+    assert "season to date" in member.stat_window_note
+    assert "last 20" in member.stat_window_note
+
+
+def test_annotate_stat_window_notes_none_when_windows_agree_or_one_side_missing():
+    season = SeasonPlayerStats(appearances=5, goals=2, assists=1, yellow_cards=0, red_cards=0, rating=None, expected_goals=None)
+    agree = SquadMember(
+        name="Agree", role="F", injury=None, age=None, market_value=None,
+        season_stats=season, season_stats_source="sofascore", defensive_stats=None,
+        recent_usage=_usage(total_goals=2),
+    )
+    only_season = SquadMember(
+        name="Only Season", role="F", injury=None, age=None, market_value=None,
+        season_stats=season, season_stats_source="sofascore", defensive_stats=None,
+        recent_usage=None,
+    )
+    # Stale note from a previous run must be cleared when figures agree.
+    agree.stat_window_note = "stale"
+    annotate_stat_window_notes([agree, only_season])
+    assert agree.stat_window_note is None
+    assert only_season.stat_window_note is None
 
 
 def test_unknown_suspended_stays_none_when_no_source_knows():

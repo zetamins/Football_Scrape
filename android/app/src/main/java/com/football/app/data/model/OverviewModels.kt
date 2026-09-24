@@ -10,13 +10,10 @@ data class RefereeHomeAwayBias(
     val awayCardsPerGame: Double,
 )
 
-/** yellowCardsPerGame is a String, not a number -- matches
- * RefereeStats.yellow_cards_per_game: str in types.py exactly (confirmed
- * against the Python source, not a transcription slip). */
 @Serializable
 data class RefereeStats(
     val games: Int,
-    val yellowCardsPerGame: String,
+    val yellowCardsPerGame: Double,
     val penaltiesAwarded: Int? = null,
     val foulsPerGame: Double? = null,
     val redCardsPerGame: Double? = null,
