@@ -548,10 +548,13 @@ def _extract_missing_players(side: dict[str, Any] | None) -> list[MissingPlayer]
     """Confirmed live: `description` is inconsistently either a category
     slug ("coach_decision") or a real description ("Knee Injury") -- see
     MissingPlayer's doc comment. The numeric `reason` code has no
-    published lookup table and is dropped."""
-    missing = (side or {}).get("missingPlayers")
-    if not missing:
+    published lookup table and is dropped.
+    Key present -> list (possibly empty when nobody is missing); key
+    absent -> None -- same CONFIRMED_EMPTY semantics as suspended, so a
+    clean empty list scores as "checked, none" instead of forever-null."""
+    if not side or "missingPlayers" not in side:
         return None
+    missing = side.get("missingPlayers") or []
     return [
         MissingPlayer(
             name=m["player"]["name"],

@@ -200,7 +200,7 @@ class FormTabTest {
         // team (2 total) regardless of data -- unlike every other section.
         composeTestRule.onAllNodesWithText("Congestion & competitions").assertCountEquals(2)
         composeTestRule.onNodeWithText("Competitions").assertExists()
-        composeTestRule.onNodeWithText("Form by competition").assertExists()
+        composeTestRule.onNodeWithText("Form by competition (last 20)").assertExists()
     }
 
     @Test

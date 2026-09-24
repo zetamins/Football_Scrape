@@ -103,6 +103,7 @@ _DATA_WINDOWS = {
     "team_season_stats": "current season to date (goals, cards, average possession)",
     "top_scorers_and_assists": "current season to date",
     "recent_form_leaders": "last 20 matches",
+    "form_by_competition": "last 20 competitive matches (friendlies excluded)",
     "form_by_competition_half_split_venue_split_last20": "last 20 competitive matches (friendlies excluded)",
     "win_rate_points_goals_per_game_over_btts": "last 10 competitive matches",
     "recent_competitions": "last 10 competitive matches plus upcoming fixtures",
@@ -166,7 +167,7 @@ def _append_match_sections(result: RunSearchResult, lines: list[str]) -> None:
     lines.append("")
     merged_match_markdown(result.merged, lines)
     if result.venue_details:
-        venue_details_markdown(result.venue_details, lines)
+        venue_details_markdown(result.venue_details, lines, result.merged.source_conflicts if result.merged else None)
     if result.form and result.form_source:
         lines.append("")
         lines.append("## Form")

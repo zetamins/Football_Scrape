@@ -363,6 +363,21 @@ def test_apply_deep_recent_meetings_leaves_fallback_when_deep_computation_empty(
     assert merged.field_sources.get("recent_meetings") == "soccerdesk"
 
 
+def test_apply_deep_recent_meetings_tolerates_none_dates():
+    # HeadToHeadMeeting.date is str | None; None used to TypeError on
+    # m.date[:10] and kill the entire team run mid-merge.
+    merged = merge_match_details({"sofascore": _match_details("sofascore")})
+    merged.recent_meetings = [_meeting(date=None)]
+    deep = [
+        _meeting(date="2026-03-01T12:00:00.000Z", home_formation="4-3-3"),
+        _meeting(date=None, home_formation="3-5-2"),
+    ]
+    apply_deep_recent_meetings(merged, deep, "sofascore")
+    assert merged.recent_meetings
+    # dated row sorts first; undated rows never crash the merge
+    assert merged.recent_meetings[0].date == "2026-03-01T12:00:00.000Z"
+
+
 # --- empty/None-squad guards across the compute_* leaderboard functions --------------------
 
 
@@ -639,7 +654,9 @@ def test_reconcile_missing_players_adds_profile_injury_not_in_match_list():
 
 def test_reconcile_missing_players_none_when_both_empty():
     assert reconcile_missing_players(None, None) is None
-    assert reconcile_missing_players([], []) is None
+    # Confirmed-empty [] stays [] (checked, none missing) -- not collapsed
+    # back to None, which would mean "no source told us".
+    assert reconcile_missing_players([], []) == []
 
 
 def test_reconcile_missing_players_keeps_match_list_when_no_profile_injuries():
@@ -788,7 +805,7 @@ def test_one_dissenting_source_does_not_override_the_base_number():
     (conflict,) = merged.source_conflicts
     assert (conflict.field, conflict.kept, conflict.kept_source) == ("attendance", 60000, "sofascore")
     assert [(a.from_source, a.value) for a in conflict.alternatives] == [("fotmob", 61234)]
-    assert conflict.resolution == "base source kept"
+    assert conflict.resolution == "sofascore kept"
 
 
 def test_two_mid_tier_sources_that_agree_outvote_the_base_on_a_number():

@@ -196,6 +196,12 @@ def test_step_message_includes_step_and_total():
     assert "Fetching opponent" in msg
 
 
+def test_step_message_total_matches_insights_phase_length():
+    from football.orchestrate import _INSIGHTS_TOTAL_STEPS
+
+    assert _INSIGHTS_TOTAL_STEPS == 8
+
+
 def test_home_away_keeps_order_when_own_is_home():
     assert _home_away(True, "own", "opp") == ("own", "opp")
 
@@ -912,6 +918,52 @@ def test_meetings_in_fixture_frame_flips_home_and_away_only_when_the_searched_te
     assert _meetings_in_fixture_frame(meetings, own_is_home=True) is meetings
     assert _meetings_in_fixture_frame(meetings, own_is_home=None) is meetings
     assert _meetings_in_fixture_frame(None, own_is_home=False) is None
+
+
+def test_meetings_in_report_team_frame_flips_when_searched_is_away():
+    from football.orchestrate import _meetings_in_report_team_frame
+
+    # Fixture-home frame: "home" means the fixture's home team hosted.
+    # Report/searched frame when searched is the away side: flip.
+    meetings = [_meeting(venue="home"), _meeting(venue="away"), _meeting(venue="neutral")]
+    report = _meetings_in_report_team_frame(meetings, own_is_home=False)
+    assert [m.venue for m in report] == ["away", "home", "neutral"]
+    assert _meetings_in_report_team_frame(meetings, own_is_home=True) is meetings
+    assert _meetings_in_report_team_frame(meetings, own_is_home=None) is meetings
+    assert _meetings_in_report_team_frame(None, own_is_home=False) is None
+
+
+def test_apply_own_recent_meetings_converts_venues_to_report_team_frame(monkeypatch):
+    from football.orchestrate import _apply_own_recent_meetings_and_form
+
+    # Searched team is the fixture's AWAY side; deep meetings come in
+    # searched-team frame, get flipped to fixture frame for refine, then
+    # the final normalization flips back so consumers see the report
+    # team's perspective.
+    async def fake_compute(_raw, _last20, _opp, _src, team_name=None):
+        return [_meeting(venue="home")]  # searched team hosted
+
+    async def fake_enrich(_raw, _form, _src):
+        return SimpleNamespace(form=_form_summary(), advanced_stats=None, usage_by_player={})
+
+    async def noop_refine(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(orchestrate.ins, "compute_recent_meetings", fake_compute)
+    monkeypatch.setattr(orchestrate, "enrich_form_with_venue_classification", fake_enrich)
+    monkeypatch.setattr(orchestrate, "_refine_undetailed_meetings", noop_refine)
+
+    merged = _all_none(
+        orchestrate.MergedMatch, home_team="Fixture Home", away_team="Searched FC",
+        field_sources={}, additional_notes=[], recent_meetings=None,
+    )
+    asyncio.run(
+        _apply_own_recent_meetings_and_form("Searched FC", merged, "sofascore", _form_summary(), {"sofascore": []}, "Opponent", None)
+    )
+    # Searched team hosted -> "home" in report frame (own_is_home=False
+    # flips fixture-frame "away" back to report "home").
+    assert merged.recent_meetings is not None
+    assert [m.venue for m in merged.recent_meetings] == ["home"]
 
 
 def test_apply_own_recent_meetings_and_form_noop_without_form_source():
@@ -1912,7 +1964,7 @@ def test_stadiumdb_capacity_override_is_recorded_with_the_replaced_value():
 
     merged = _all_none(
         orchestrate.MergedMatch, base_source="sofascore", venue_capacity=74000, field_sources={}, additional_notes=[],
-        source_conflicts=[SourceConflict("venue_capacity", 74000, "sofascore", [SourceValue("fotmob", 74100)], "base source kept")],
+        source_conflicts=[SourceConflict("venue_capacity", 74000, "sofascore", [SourceValue("fotmob", 74100)], "sofascore kept")],
     )
     _reconcile_venue_capacity(merged, SimpleNamespace(capacity=74310))
     assert merged.venue_capacity == 74310

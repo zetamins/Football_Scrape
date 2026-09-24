@@ -212,7 +212,7 @@ def _append_form_rates_streaks_and_splits(f: FormSummary, lines: list[str]) -> N
     if f.clean_sheet_share_pct is not None:
         lines.append(f"- Clean sheet / failed-to-score rate (last 10): {f.clean_sheet_share_pct}% / {f.failed_to_score_share_pct}%")
     if len(f.form_by_competition) > 1:
-        lines.append(f"- Form by competition: {' | '.join(competition_form_str(c) for c in f.form_by_competition)}")
+        lines.append(f"- Form by competition (last 20): {' | '.join(competition_form_str(c) for c in f.form_by_competition)}")
 
 
 def _append_form_venue_splits(f: FormSummary, lines: list[str]) -> None:
@@ -449,43 +449,52 @@ def _append_match_season_stats(d, lines: list[str]) -> None:
 
 
 def _append_possession_cross_check(team: str, s, lines: list[str]) -> None:
-    """Renders the single reconciled possession figure when the source's
-    season-to-date average and the form-window venue-split average diverged
-    by >5pp (add_possession_venue_split_check already replaced
-    average_ball_possession with the form-window figure and preserved the
-    original in average_ball_possession_source_season). Names both windows
-    so a reader knows which number won and why, instead of seeing two bare
-    percentages that look like a contradiction. Silent when there was no
-    reconciliation (gap within normal rounding, or one side missing)."""
-    original = s.average_ball_possession_source_season
-    season = s.average_ball_possession
-    if original is None or season is None:
+    """Renders both possession windows with explicit labels whenever both
+    figures exist: season-to-date average and last-20 venue-split average.
+    When they diverged by >5pp, add_possession_venue_split_check already
+    replaced average_ball_possession with the form-window figure and
+    preserved the original in average_ball_possession_source_season --
+    that note names both windows so a reader knows which number won.
+    When the gap is within 5pp (no reconciliation), still surface the
+    form-window figure beside the season figure so neither number looks
+    like a contradiction. Silent when either side is missing."""
+    check = s.possession_venue_split_check
+    if check is None or s.average_ball_possession is None:
         return
     src = f" ({s.possession_venue_split_check_source})" if s.possession_venue_split_check_source else ""
-    lines.append(
-        f"- {team} possession cross-check: using last-20 venue-split {js_number_to_string(season)}%{src} "
-        f"(season-to-date source figure was {js_number_to_string(original)}%; windows differ, form window preferred for this fixture)"
-    )
+    original = s.average_ball_possession_source_season
+    if original is not None:
+        lines.append(
+            f"- {team} possession cross-check: using last-20 venue-split {js_number_to_string(check)}%{src} "
+            f"(season-to-date source figure was {js_number_to_string(original)}%; windows differ, form window preferred for this fixture)"
+        )
+    else:
+        lines.append(
+            f"- {team} possession cross-check: season-to-date {js_number_to_string(s.average_ball_possession)}% "
+            f"vs last-20 venue-split {js_number_to_string(check)}%{src} (windows differ; season figure kept)"
+        )
 
 
 def _append_clean_sheet_discrepancy(team: str, s, lines: list[str]) -> None:
-    """Renders the reconciliation note when clean_sheets was raised to match
-    clean_sheets_recent_check (the source aggregate lagged a real 0-0).
-    add_clean_sheets_recent_check already closed the contradiction on the
-    numbers themselves; this only explains the bump so a consumer comparing
-    against an external source's still-stale aggregate isn't confused.
-    Silent when clean_sheets_source_aggregate is None (no reconciliation)."""
-    original = s.clean_sheets_source_aggregate
-    if original is None or original >= s.clean_sheets:
+    """Renders an informational note when the form-window clean-sheet count
+    (last-20 competitive) differs from the season aggregate. The two are
+    different windows -- last20 can span the previous season -- so they are
+    never reconciled into one number (raising the season figure produced
+    impossible stats). Silent when the form window is missing or matches
+    the season figure."""
+    check = s.clean_sheets_recent_check
+    if check is None or check == s.clean_sheets:
         return
     src = f" ({s.clean_sheets_recent_check_source})" if s.clean_sheets_recent_check_source else ""
     lines.append(
-        f"- {team} clean-sheet cross-check: source originally reported {original}, "
-        f"recent competitive results show {s.clean_sheets}{src} -- raised to match (source aggregate was lagging)"
+        f"- {team} clean-sheet cross-check: season aggregate {s.clean_sheets}, "
+        f"last-20 competitive results show {check}{src} -- different windows, not reconciled"
     )
 
 
-def _lineup_label(lineup_confirmed: bool | None) -> str:
+def _lineup_label(lineup_confirmed: bool | None, field_sources: dict | None = None, side: str | None = None) -> str:
+    if field_sources and side and field_sources.get(side) == "derived":
+        return "projected lineup (derived, not published)"
     if lineup_confirmed is True:
         return "lineup (confirmed)"
     if lineup_confirmed is False:
@@ -505,15 +514,16 @@ def _append_match_lineups_and_notes(d, lines: list[str]) -> None:
     if d.player_of_the_match:
         rating = f" ({d.player_of_the_match.rating})" if d.player_of_the_match.rating else ""
         lines.append(f"- Player of the match: {d.player_of_the_match.name}{rating}")
-    lineup_label = _lineup_label(d.lineup_confirmed)
+    home_label = _lineup_label(d.lineup_confirmed, d.field_sources, "home_lineup")
+    away_label = _lineup_label(d.lineup_confirmed, d.field_sources, "away_lineup")
     if d.home_formation:
         lines.append(f"- {d.home_team} formation: {d.home_formation}")
     if d.home_lineup:
-        lines.append(f"- {d.home_team} {lineup_label}: {', '.join(p.name for p in d.home_lineup)}")
+        lines.append(f"- {d.home_team} {home_label}: {', '.join(p.name for p in d.home_lineup)}")
     if d.away_formation:
         lines.append(f"- {d.away_team} formation: {d.away_formation}")
     if d.away_lineup:
-        lines.append(f"- {d.away_team} {lineup_label}: {', '.join(p.name for p in d.away_lineup)}")
+        lines.append(f"- {d.away_team} {away_label}: {', '.join(p.name for p in d.away_lineup)}")
     _append_match_managers_and_notes(d, lines)
 
 
@@ -540,12 +550,18 @@ def merged_match_markdown(d, lines: list[str]) -> None:
     _append_match_lineups_and_notes(d, lines)
 
 
-def venue_details_markdown(v: VenueDetails, lines: list[str]) -> None:
+def venue_details_markdown(v: VenueDetails, lines: list[str], source_conflicts=None) -> None:
     capacity = f", capacity {v.capacity:,}" if v.capacity else ""
     opened = f", opened {v.opened}" if v.opened else ""
     renovated = f", renovated {v.renovated}" if v.renovated else ""
     city = f", {v.city}" if v.city else ""
-    lines.append(f"- Stadium: {v.stadium_name}{city}{capacity}{opened}{renovated}")
+    src = ""
+    for c in (source_conflicts or []):
+        if getattr(c, "field", None) == "venue_capacity":
+            alts = ", ".join(f"{a.from_source} {a.value:,}" for a in c.alternatives)
+            src = f" ({c.kept_source} preferred over {alts})" if alts else f" ({c.kept_source})"
+            break
+    lines.append(f"- Stadium: {v.stadium_name}{city}{capacity}{src}{opened}{renovated}")
     if v.address:
         lines.append(f"  - Address: {v.address}")
     if v.architect:
@@ -796,46 +812,64 @@ def big_chances_estimate_str(x: SeasonBigChancesEstimate, label: str) -> str:
 def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
     poss = js_number_to_string(x.possession_pct_avg) if x.possession_pct_avg is not None else "n/a"
     tilt = js_number_to_string(x.field_tilt_pct) if x.field_tilt_pct is not None else "n/a"
+    unavailable = set(x.unavailable_stats or ())
+
+    def pair(key: str, for_v, against_v) -> str:
+        # Structural 0 from a source that never reported this stat must not
+        # read as "zero events happened" -- unavailable_stats names those
+        # keys; render them n/a instead of 0-0.
+        if key in unavailable:
+            return "n/a"
+        return f"{for_v}-{against_v}"
+
+    def cards_pair(for_y, for_r, against_y, against_r) -> str:
+        left_y = "n/a" if "yellow_cards" in unavailable else f"{for_y}Y"
+        right_y = "n/a" if "yellow_cards" in unavailable else f"{against_y}Y"
+        left_r = "n/a" if "red_cards" in unavailable else f"{for_r}R"
+        right_r = "n/a" if "red_cards" in unavailable else f"{against_r}R"
+        return f"{left_y}/{left_r}-{right_y}/{right_r}"
+
     parts = [
-        f"touches in box {x.touches_in_box_for}-{x.touches_in_box_against}",
-        f"shots in/out box {x.shots_inside_box_for}/{x.shots_outside_box_for}-{x.shots_inside_box_against}/{x.shots_outside_box_against}",
-        f"shots off target {x.shots_off_target_for}-{x.shots_off_target_against}",
-        f"blocked {x.blocked_shots_for}-{x.blocked_shots_against}",
-        f"big chances scored {x.big_chances_scored_for}-{x.big_chances_scored_against}",
-        f"crosses {x.crosses_for}-{x.crosses_against}",
-        f"dribbles {x.dribbles_for}-{x.dribbles_against}",
-        f"through balls {x.through_balls_for}-{x.through_balls_against}",
-        f"final third entries {x.final_third_entries_for}-{x.final_third_entries_against}",
-        f"offsides {x.offsides_for}-{x.offsides_against}",
-        f"dispossessed {x.dispossessed_for}-{x.dispossessed_against}",
-        f"tackles {x.team_tackles_for}-{x.team_tackles_against}",
-        f"interceptions {x.team_interceptions_for}-{x.team_interceptions_against}",
-        f"clearances {x.team_clearances_for}-{x.team_clearances_against}",
-        f"free kicks {x.free_kicks_for}-{x.free_kicks_against}",
+        f"touches in box {pair('touches_in_box', x.touches_in_box_for, x.touches_in_box_against)}",
+        f"shots in/out box {pair('shots_inside_box', x.shots_inside_box_for, x.shots_inside_box_against)}/{pair('shots_outside_box', x.shots_outside_box_for, x.shots_outside_box_against)}",
+        f"shots off target {pair('shots_off_target', x.shots_off_target_for, x.shots_off_target_against)}",
+        f"blocked {pair('blocked_shots', x.blocked_shots_for, x.blocked_shots_against)}",
+        f"big chances scored {pair('big_chances_scored', x.big_chances_scored_for, x.big_chances_scored_against)}",
+        f"crosses {pair('crosses', x.crosses_for, x.crosses_against)}",
+        f"dribbles {pair('dribbles', x.dribbles_for, x.dribbles_against)}",
+        f"through balls {pair('through_balls', x.through_balls_for, x.through_balls_against)}",
+        f"final third entries {pair('final_third_entries', x.final_third_entries_for, x.final_third_entries_against)}",
+        f"offsides {pair('offsides', x.offsides_for, x.offsides_against)}",
+        f"dispossessed {pair('dispossessed', x.dispossessed_for, x.dispossessed_against)}",
+        f"tackles {pair('team_tackles', x.team_tackles_for, x.team_tackles_against)}",
+        f"interceptions {pair('team_interceptions', x.team_interceptions_for, x.team_interceptions_against)}",
+        f"clearances {pair('team_clearances', x.team_clearances_for, x.team_clearances_against)}",
+        f"free kicks {pair('free_kicks', x.free_kicks_for, x.free_kicks_against)}",
         f"xA {js_number_to_string(x.xa_for)}-{js_number_to_string(x.xa_against)}",
         f"corner goals {x.corner_goals_for}-{x.corner_goals_against}",
         f"penalty goals {x.penalty_goals_for}-{x.penalty_goals_against}",
         f"free-kick goals {x.free_kick_goals_for}-{x.free_kick_goals_against}",
-        f"recoveries {x.recoveries_for}-{x.recoveries_against}",
-        f"errors->shot {x.errors_lead_to_shot_for}-{x.errors_lead_to_shot_against}",
-        f"errors->goal {x.errors_lead_to_goal_for}-{x.errors_lead_to_goal_against}",
+        f"recoveries {pair('recoveries', x.recoveries_for, x.recoveries_against)}",
+        f"errors->shot {pair('errors_lead_to_shot', x.errors_lead_to_shot_for, x.errors_lead_to_shot_against)}",
+        f"errors->goal {pair('errors_lead_to_goal', x.errors_lead_to_goal_for, x.errors_lead_to_goal_against)}",
         f"goals prevented {js_number_to_string(x.goals_prevented_for)}-{js_number_to_string(x.goals_prevented_against)}",
-        f"big saves {x.big_saves_for}-{x.big_saves_against}",
-        f"high claims {x.high_claims_for}-{x.high_claims_against}",
+        f"big saves {pair('big_saves', x.big_saves_for, x.big_saves_against)}",
+        f"high claims {pair('high_claims', x.high_claims_for, x.high_claims_against)}",
         f"distance {js_number_to_string(x.distance_covered_km_for)}km-{js_number_to_string(x.distance_covered_km_against)}km",
-        f"sprints {x.sprints_for}-{x.sprints_against}",
-        f"total shots {x.total_shots_for}-{x.total_shots_against} ({x.shots_on_target_for}-{x.shots_on_target_against} on target)",
-        f"corners {x.corners_for}-{x.corners_against}",
-        f"fouls {x.fouls_for}-{x.fouls_against}",
-        f"cards {x.yellow_cards_for}Y/{x.red_cards_for}R-{x.yellow_cards_against}Y/{x.red_cards_against}R",
+        f"sprints {pair('sprints', x.sprints_for, x.sprints_against)}",
+        f"total shots {pair('total_shots', x.total_shots_for, x.total_shots_against)} ({pair('shots_on_target', x.shots_on_target_for, x.shots_on_target_against)} on target)",
+        f"corners {pair('corner_kicks', x.corners_for, x.corners_against)}",
+        f"fouls {pair('fouls', x.fouls_for, x.fouls_against)}",
+        f"cards {cards_pair(x.yellow_cards_for, x.red_cards_for, x.yellow_cards_against, x.red_cards_against)}",
         f"possession {poss}%",
-        f"big chances created {x.big_chances_created_for}-{x.big_chances_created_against}",
+        f"big chances created {pair('big_chances', x.big_chances_created_for, x.big_chances_created_against)}",
         f"non-penalty xG {js_number_to_string(x.non_penalty_xg_for)}-{js_number_to_string(x.non_penalty_xg_against)}",
         f"set-piece xG {js_number_to_string(x.set_piece_xg_for)}-{js_number_to_string(x.set_piece_xg_against)}",
         f"penalties awarded {x.penalties_awarded_for}-{x.penalties_awarded_against}",
         f"field tilt {tilt}%",
     ]
-    return f"{label} advanced stats (last {x.sample_size} matched): {', '.join(parts)}"
+    note = f"; unavailable from source: {', '.join(sorted(unavailable))}" if unavailable else ""
+    return f"{label} advanced stats (last {x.sample_size} matched): {', '.join(parts)}{note}"
 
 
 def passing_style_str(x: SeasonPassingStyleEstimate, label: str) -> str:
@@ -951,8 +985,8 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
         b_favors_home = b.home_win_pct > b.away_win_pct
         if m_favors_home != b_favors_home or max(home_gap, away_gap) > 15:
             out.append(
-                "  - These disagree: the heuristic only sees each team's own recent match results in isolation, "
-                "not squad quality, injuries, or how tough their opponents were -- treat the market-implied figure "
+                "  - These disagree: the Elo heuristic only sees recent results and ratings, "
+                "not squad quality, injuries, or opponent strength -- treat the market-implied figure "
                 "as the more reliable one when they diverge."
             )
     if p.blended is not None:
@@ -961,6 +995,11 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
         out.append(f"- Confidence: {conf} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})")
     elif p.confidence is not None:
         out.append(f"- Confidence: {js_number_to_string(p.confidence)} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})")
+    elif p.model:
+        # Single method: _blend_predictions returns (None, None) under two
+        # methods, so there was previously no confidence line at all --
+        # readers couldn't tell "confident" from "only one estimate ran".
+        out.append("- Confidence: n/a (single method only; agreement between methods needs at least two)")
     return out
 
 
@@ -1109,6 +1148,8 @@ def _append_insights_context(insights: MatchInsights, home_team: str, away_team:
         lines.append(f"- {presence_str(insights.home_presence, home_team)}")
     if insights.away_presence:
         lines.append(f"- {presence_str(insights.away_presence, away_team)}")
+    if insights.projected_xi_basis:
+        lines.append(f"- Projected XI: {insights.projected_xi_basis}")
     _append_insights_context_squad(insights, home_team, away_team, lines)
 
 

@@ -254,8 +254,11 @@ def test_extract_unavailable():
 
 
 def test_extract_unavailable_none_when_empty():
-    assert _extract_unavailable({"unavailable": []}) is None
+    # Key present + empty list = CONFIRMED_EMPTY ("checked, nobody out"),
+    # matching sofascore's missingPlayers semantics.
+    assert _extract_unavailable({"unavailable": []}) == []
     assert _extract_unavailable(None) is None
+    assert _extract_unavailable({}) is None
 
 
 def test_extract_suspended_players_filters_by_suspension_type():

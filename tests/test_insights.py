@@ -1391,6 +1391,22 @@ def test_opponent_rank_record_counts_draws_and_losses():
     assert record.losses == 1
 
 
+def test_opponent_rank_record_matches_stage_suffixed_competition_labels():
+    # Sofascore tags recent results "UEFA Champions League, Knockout
+    # stage" while the fixture competition is the plain base name --
+    # strict == left this record empty (same bug fill_standings_form had).
+    table = [StandingsTableRow(team_name="Rival FC", position=2, points=50)]
+    results = [
+        _form_result(opponent="Rival FC", competition="UEFA Champions League, Knockout stage", result="W"),
+        _form_result(opponent="Rival FC", competition="UEFA Champions League", result="D"),
+    ]
+    record = compute_opponent_rank_record(results, "UEFA Champions League", table, own_position=8)
+    assert record is not None
+    assert record.sample_size == 2
+    assert record.wins == 1
+    assert record.draws == 1
+
+
 # --- apply_usage_pattern / compute_squad_strength / compute_bench_info / compute_presence --
 
 
@@ -2108,12 +2124,14 @@ def test_missing_player_absence_type_is_derived_from_the_published_description()
     assert kind("  ") is None
 
 
-def test_missing_player_keeps_the_expected_return_the_source_published_even_for_a_coach_decision():
+def test_missing_player_nulls_expected_return_for_a_coach_decision():
+    # A fixed far-future date on a coach_decision is not a medical return
+    # and reads as a data error -- force it to None.
     from football.types import MissingPlayer
 
     m = MissingPlayer(name="Richarlison", description="coach_decision", expected_return="2027-01-02T00:00:00+00:00")
     assert m.absence_type == "coach_decision"
-    assert m.expected_return == "2027-01-02T00:00:00+00:00"
+    assert m.expected_return is None
 
 
 def test_completeness_counts_a_confirmed_empty_suspended_list_as_populated():
@@ -2388,8 +2406,8 @@ def test_add_clean_sheets_recent_check_counts_competitive_clean_sheets():
     ]
     add_clean_sheets_recent_check(stats, results)
     assert stats.clean_sheets_recent_check == 2  # the friendly clean sheet doesn't count
-    assert stats.clean_sheets == 2  # raised to match recent results (source was lagging)
-    assert stats.clean_sheets_source_aggregate == 0  # pre-reconcile source figure preserved
+    assert stats.clean_sheets == 0  # season aggregate untouched -- form window is a different slice
+    assert stats.clean_sheets_source_aggregate is None  # no reconciliation (never mutates clean_sheets)
 
 
 def test_add_clean_sheets_recent_check_leaves_source_aggregate_when_already_current():
@@ -2399,7 +2417,7 @@ def test_add_clean_sheets_recent_check_leaves_source_aggregate_when_already_curr
     stats = TeamSeasonStats(goals_scored=8, goals_conceded=8, clean_sheets=5, yellow_cards=0, red_cards=0, average_ball_possession=None)
     results = [_all_none(FormResult, scoreline="1-0", venue="home", competition="Premier League")]
     add_clean_sheets_recent_check(stats, results)
-    assert stats.clean_sheets == 5  # recent check (1) does not lower the source figure
+    assert stats.clean_sheets == 5  # season aggregate unchanged
     assert stats.clean_sheets_source_aggregate is None  # no reconciliation happened
     assert stats.clean_sheets_recent_check == 1
 

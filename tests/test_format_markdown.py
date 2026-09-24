@@ -90,6 +90,15 @@ def test_heuristic_notes_it_is_the_only_estimate_when_no_market_odds():
     assert "no market odds available" in lines[0]
 
 
+def test_single_method_prediction_shows_explicit_confidence_na():
+    # _blend_predictions returns (None, None) under two methods -- without
+    # this branch readers couldn't tell "confident" from "only one estimate".
+    p = MatchPrediction(market_implied=_probs(60, 25, 15), heuristic_blend=None, model="market")
+    lines = prediction_str(p, "Home FC", "Away FC")
+    assert any("Confidence: n/a" in line for line in lines)
+    assert any("single method" in line for line in lines)
+
+
 def test_flags_disagreement_when_methods_favor_different_sides():
     # Market favors home, heuristic favors away.
     p = MatchPrediction(market_implied=_probs(50, 20, 30), heuristic_blend=_probs(35, 25, 40))
@@ -126,6 +135,13 @@ def test_lineup_label_confirmed_vs_predicted_vs_unknown():
     assert _lineup_label(True) == "lineup (confirmed)"
     assert _lineup_label(False) == "expected lineup (predicted, not confirmed)"
     assert _lineup_label(None) == "lineup"
+
+
+def test_lineup_label_derived_side_says_projected_not_published():
+    sources = {"home_lineup": "derived", "away_lineup": "sofascore"}
+    assert _lineup_label(None, sources, "home_lineup") == "projected lineup (derived, not published)"
+    assert _lineup_label(None, sources, "away_lineup") == "lineup"
+    assert _lineup_label(True, sources, "home_lineup") == "projected lineup (derived, not published)"
 
 
 def test_rest_label_short_rest_threshold():
@@ -550,6 +566,22 @@ def test_venue_details_markdown_includes_optional_fields():
     assert "Record attendance: 70,000 (1995)" in text
 
 
+def test_venue_details_markdown_names_the_capacity_source_when_sources_conflicted():
+    from football.format_markdown import venue_details_markdown
+    from football.merge import SourceConflict, SourceValue
+    from football.types import VenueDetails
+
+    v = VenueDetails(
+        stadium_name="Old Trafford", capacity=74244, opened=1910, renovated=None, clubs=["Manchester United"],
+        source_url="https://x", city="Manchester", address=None, architect=None, record_attendance=None,
+    )
+    conflicts = [SourceConflict("venue_capacity", 74244, "stadiumdb", [SourceValue("sofascore", 74879)], "StadiumDB preferred")]
+    lines: list[str] = []
+    venue_details_markdown(v, lines, conflicts)
+    text = "\n".join(lines)
+    assert "capacity 74,244 (stadiumdb preferred over sofascore 74,879)" in text
+
+
 def test_elo_str_never_mentions_a_world_rank():
     """EloRating has no rank field -- this project's own Elo computation
     has no cross-team network to rank against (see elo.py), unlike
@@ -871,6 +903,7 @@ def _advanced_stats(**overrides):
     fields = {f.name: 1 for f in _dc_fields(SeasonAdvancedStatsEstimate)}
     fields["sample_size"] = 10
     fields["source"] = "sofascore"
+    fields["unavailable_stats"] = None
     fields["possession_pct_avg"] = 55.0
     fields["field_tilt_pct"] = 52.0
     fields.update(overrides)
@@ -1106,14 +1139,13 @@ def test_merged_match_markdown_renders_every_optional_section():
     assert "feels like 14" in text
 
 
-def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_recent_exceeds_season():
+def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_windows_differ():
     from football.merge import MergedMatch
     from football.types import TeamSeasonStats
 
     lagging = TeamSeasonStats(
-        goals_scored=20, goals_conceded=25, clean_sheets=5, yellow_cards=30, red_cards=2,
+        goals_scored=20, goals_conceded=25, clean_sheets=2, yellow_cards=30, red_cards=2,
         average_ball_possession=None, clean_sheets_recent_check=5, clean_sheets_recent_check_source="sofascore",
-        clean_sheets_source_aggregate=0,
     )
     d = _all_none(
         MergedMatch, home_team="Man Utd", away_team="Away FC", status="finished",
@@ -1123,18 +1155,18 @@ def test_merged_match_markdown_surfaces_clean_sheet_discrepancy_when_recent_exce
     lines: list[str] = []
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
-    assert "Man Utd season: 20 scored, 25 conceded, 5 clean sheets" in text
-    assert "Man Utd clean-sheet cross-check: source originally reported 0, recent competitive results show 5 (sofascore)" in text
-    assert "raised to match" in text
+    assert "Man Utd season: 20 scored, 25 conceded, 2 clean sheets" in text
+    assert "Man Utd clean-sheet cross-check: season aggregate 2, last-20 competitive results show 5 (sofascore)" in text
+    assert "different windows, not reconciled" in text
 
 
-def test_merged_match_markdown_omits_clean_sheet_cross_check_when_recent_is_plausible():
+def test_merged_match_markdown_omits_clean_sheet_cross_check_when_windows_match():
     from football.merge import MergedMatch
     from football.types import TeamSeasonStats
 
     normal = TeamSeasonStats(
         goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
-        average_ball_possession=None, clean_sheets_recent_check=3, clean_sheets_recent_check_source="fotmob",
+        average_ball_possession=None, clean_sheets_recent_check=8, clean_sheets_recent_check_source="fotmob",
     )
     d = _all_none(
         MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
@@ -1246,9 +1278,8 @@ def test_merged_match_markdown_surfaces_possession_cross_check_when_windows_dive
     from football.merge import MergedMatch
     from football.types import TeamSeasonStats
 
-    # Tottenham N5 case: season 59% vs last-20 venue-split 56.2 is within
-    # 5pp so silent; force a larger gap (and the reconciliation fields the
-    # check now writes) to prove the note renders with a single winner.
+    # Reconciliation path: gap >5pp so average_ball_possession was replaced
+    # and average_ball_possession_source_season preserves the original.
     stats = TeamSeasonStats(
         goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
         average_ball_possession=52.5, average_ball_possession_source_season=59.0,
@@ -1267,13 +1298,17 @@ def test_merged_match_markdown_surfaces_possession_cross_check_when_windows_dive
     assert "form window preferred for this fixture" in text
 
 
-def test_merged_match_markdown_omits_possession_cross_check_when_gap_is_small():
+def test_merged_match_markdown_surfaces_possession_cross_check_when_gap_is_small():
     from football.merge import MergedMatch
     from football.types import TeamSeasonStats
 
+    # Gap within 5pp: no reconciliation, but both windows still exist and
+    # must both be labelled so neither bare percentage looks like a
+    # contradiction (previously this note was silent).
     stats = TeamSeasonStats(
         goals_scored=45, goals_conceded=20, clean_sheets=8, yellow_cards=30, red_cards=1,
         average_ball_possession=56.6, possession_venue_split_check=56.2,
+        possession_venue_split_check_source="sofascore",
     )
     d = _all_none(
         MergedMatch, home_team="Tottenham Hotspur", away_team="Away FC", status="finished",
@@ -1283,7 +1318,8 @@ def test_merged_match_markdown_omits_possession_cross_check_when_gap_is_small():
     lines: list[str] = []
     merged_match_markdown(d, lines)
     text = "\n".join(lines)
-    assert "possession cross-check" not in text
+    assert "possession cross-check: season-to-date 56.6% vs last-20 venue-split 56.2% (sofascore)" in text
+    assert "season figure kept" in text
 
 
 def test_merged_profile_markdown_renders_full_squad_and_leaderboards():
@@ -1372,7 +1408,7 @@ def test_form_summary_markdown_renders_every_optional_section():
     assert "Clean sheets: 3-game clean sheet streak" in text
     assert "Over/Under (last 10): O1.5 80.0%" in text
     assert "Clean sheet / failed-to-score rate" in text
-    assert "Form by competition:" in text
+    assert "Form by competition (last 20):" in text
     assert "Fixture congestion: 1 match in last 7 days, 2 in last 14 days" in text
     assert "Rates (last 10): W55.0%" in text
     assert "Venue split (true venue not fixture label):" in text

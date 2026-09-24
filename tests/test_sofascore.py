@@ -248,8 +248,11 @@ def test_extract_missing_players():
 
 
 def test_extract_missing_players_none_when_empty():
-    assert _extract_missing_players({"missingPlayers": []}) is None
+    # Key present + empty list = CONFIRMED_EMPTY ("checked, nobody out"),
+    # distinct from key absent (no source told us).
+    assert _extract_missing_players({"missingPlayers": []}) == []
     assert _extract_missing_players(None) is None
+    assert _extract_missing_players({}) is None
 
 
 def test_extract_suspended_players_filters_by_suspension_absence_type():

@@ -288,15 +288,19 @@ _UTC_OFFSET_SUFFIX = "+00:00"
 # phase that previously had NO numeric indicator at all: a search could
 # sit on one static message for minutes with nothing visibly advancing,
 # indistinguishable from a hang. See _step_message()'s call sites for
-# what each of the 6 steps covers.
-_INSIGHTS_TOTAL_STEPS = 6
+# what each of the 8 steps covers: form → opponent fetch → venue →
+# season stats (+ possession mid-update) → opponent form → squad →
+# prediction.
+_INSIGHTS_TOTAL_STEPS = 8
 
 
 def _step_message(step: int, message: str) -> str:
-    """`(step/6) message` -- a fixed, always-advancing counter prefix so
+    """`(step/total) message` -- a fixed, always-advancing counter prefix so
     a caller watching on_progress text (e.g. Android's SearchScreen) has
     a numeric "how far along is this" signal even during a stretch where
-    the message text itself wouldn't otherwise change for a while."""
+    the message text itself wouldn't otherwise change for a while. Step
+    numbers must be strictly non-decreasing across a run's call sites
+    (duplicate numbers for unrelated phases made the bar jump backwards)."""
     return f"({step}/{_INSIGHTS_TOTAL_STEPS}) {message}"
 
 
@@ -437,12 +441,26 @@ async def _refine_undetailed_meetings(team_name, merged, opponent_name, form_sou
 def _meetings_in_fixture_frame(meetings, own_is_home: bool | None):
     """The deep computation labels each meeting's venue from the SEARCHED
     team's side; every other source (and HeadToHeadMeeting.venue's
-    documented frame) uses the upcoming fixture's HOME team. They only
-    coincide when the searched team is the fixture's home side, so flip
-    when it's the away side ("neutral" is side-independent)."""
+    documented fixture-home frame) uses the upcoming fixture's HOME team.
+    They only coincide when the searched team is the fixture's home side,
+    so flip when it's the away side ("neutral" is side-independent).
+    An involution: applying it again with the same own_is_home converts
+    back (used by _meetings_in_report_team_frame)."""
     if not meetings or own_is_home is not False:
         return meetings
     return [replace(m, venue=_FLIPPED_VENUE.get(m.venue, m.venue)) for m in meetings]
+
+
+def _meetings_in_report_team_frame(meetings, own_is_home: bool | None):
+    """Pipeline stages leave recent_meetings in the UPCOMING FIXTURE'S
+    home-team frame (fotmob/soccerdesk extract, refine lookup, and the
+    deep computation after _meetings_in_fixture_frame). Consumers (report
+    team, markdown, UI) expect venue from the REPORT/SEARCHED team's side:
+    "home" means the searched team hosted that past meeting. The frames
+    only differ when the searched team is the fixture's away side, so
+    flip home/away in that case (neutral is side-independent). No-op when
+    the searched team is the fixture home (frames coincide) or unknown."""
+    return _meetings_in_fixture_frame(meetings, own_is_home)
 
 
 async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, form, matches_by_source, opponent_name, merged_profile):
@@ -468,6 +486,16 @@ async def _apply_own_recent_meetings_and_form(team_name, merged, form_source, fo
             deep_recent_meetings = None
         apply_deep_recent_meetings(merged, _meetings_in_fixture_frame(deep_recent_meetings, is_team_home(merged, team_name)), form_source)
         await _refine_undetailed_meetings(team_name, merged, opponent_name, form_source)
+
+    # Normalize venue frame from fixture-home to report/searched-team for
+    # every consumer (markdown, UI, JSON readers of recent_meetings).
+    # Runs after refine so both deep and fallback-origin rows end in the
+    # same frame; also covers the field-merge-only path when form_source
+    # is falsy or deep computation failed (leftovers stay fixture-frame).
+    if merged.recent_meetings:
+        merged.recent_meetings = _meetings_in_report_team_frame(
+            merged.recent_meetings, is_team_home(merged, team_name)
+        )
 
     own_advanced_stats = None
     if form_source and form:
@@ -647,7 +675,7 @@ async def _compute_and_apply_match_stat_estimates(team_name, opponent_name, own_
         own_is_home, own_match_stats.goalkeeping, opponent_match_stats.goalkeeping
     )
 
-    on_progress(_step_message(4, "Computing possession and corners..."))
+    on_progress(_step_message(5, "Computing possession and corners..."))
     own_poss_corners = await ins.compute_possession_matchup(team_name, matches_by_source.get("goal", []))
     opponent_poss_corners = await ins.compute_possession_matchup(opponent_name, opponent_goal_matches)
     insights_result.home_possession_matchup, insights_result.away_possession_matchup = _home_away(
@@ -1210,7 +1238,13 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     are the direct, behavior-preserving decomposition of what used to be
     run_search's single `if merged:` block."""
     own_is_home = is_team_home(merged, team_name)
-    opponent_name = merged.home_team if own_is_home is False else merged.away_team
+    if own_is_home is None:
+        # Name-match failed entirely. opponent_name below already treats
+        # "not False" as own-at-home; coerce once here so every later
+        # truthiness check (_home_away, presence side picks, …) agrees
+        # instead of some paths reading None as home and others as away.
+        own_is_home = True
+    opponent_name = merged.away_team if own_is_home else merged.home_team
     own_rest_days = form.next5_with_gaps[0].days_since_previous if form and form.next5_with_gaps else None
 
     # Progress BEFORE the own-team enrichment, not after: that step is
@@ -1221,7 +1255,7 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     on_progress(_step_message(1, f"Next match found: {merged.home_team} vs {merged.away_team}. Enriching form and head-to-head..."))
     form, own_advanced_stats = await _apply_own_recent_meetings_and_form(team_name, merged, form_source, form, matches_by_source, opponent_name, merged_profile)
 
-    on_progress(_step_message(1, f"Next match found: {merged.home_team} vs {merged.away_team}. Fetching opponent ({opponent_name})..."))
+    on_progress(_step_message(2, f"Next match found: {merged.home_team} vs {merged.away_team}. Fetching opponent ({opponent_name})..."))
     match_kickoff = datetime.fromisoformat(merged.kickoff_utc.replace("Z", _UTC_OFFSET_SUFFIX)) if merged.kickoff_utc else None
     opponent_context = await fetch_opponent_context(merged.base_source, opponent_name, as_of=match_kickoff)
     opponent_profile = opponent_context.merged_profile
@@ -1266,9 +1300,16 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     # referee/manager/squad/prediction data is a lot of sequential
     # network calls with no other progress signal of their own. Each is
     # numbered out of a fixed total (_step_message/_INSIGHTS_TOTAL_STEPS)
-    # so the UI can show real, always-advancing "X/6" progress rather
+    # so the UI can show real, always-advancing "X/8" progress rather
     # than just changing text a caller has to notice on its own.
-    on_progress(_step_message(2, f"Opponent found ({opponent_name}). Fetching venue, referee, and manager info..."))
+    on_progress(_step_message(3, f"Opponent found ({opponent_name}). Fetching venue, referee, and manager info..."))
+
+    # Fixtures.csv BEFORE referee enrichment: that single fetch also
+    # carries the appointed referee, which is often the only pre-kickoff
+    # name (Sofascore only populates the event page once confirmed) --
+    # enriching first meant worldfootball/refsradar lookups ran with a
+    # missing name and every CSV-only referee scored null stats.
+    merged.betting_odds = await _get_upcoming_match_odds_safe(merged)
 
     strength_ratings = await _get_club_strength_ratings_safe(merged)
     insights_result.home_club_strength = strength_ratings["home"]
@@ -1279,27 +1320,25 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
 
     await _enrich_referee_stats(merged)
 
-    on_progress(_step_message(3, "Computing season stats and shot data..."))
+    on_progress(_step_message(4, "Computing season stats and shot data..."))
     own_xg_estimate, opponent_xg_estimate = await _compute_and_apply_match_stat_estimates(
         team_name, opponent_name, own_is_home, insights_result, matches_by_source, on_progress
     )
 
     # Same silent-gap class as the own-team enrichment above: opponent form
     # venue-classification can open several more details() sessions before
-    # squad leaderboards run -- announce it so step 4 -> step 5 isn't a
+    # squad leaderboards run -- announce it so step 5 -> step 6 isn't a
     # multi-minute blank stretch in the UI.
-    on_progress(_step_message(4, "Enriching opponent form and ranks..."))
+    on_progress(_step_message(6, "Enriching opponent form and ranks..."))
     opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result, form_source)
 
-    merged.betting_odds = await _get_upcoming_match_odds_safe(merged)
-
-    on_progress(_step_message(5, "Computing squad strength and availability..."))
+    on_progress(_step_message(7, "Computing squad strength and availability..."))
     await _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form)
 
     _compute_squad_leaderboards((merged_profile, opponent_profile))
     _apply_squad_derived_insights(insights_result, own_is_home, merged, merged_profile, opponent_profile)
 
-    on_progress(_step_message(6, "Computing prediction and form trends..."))
+    on_progress(_step_message(8, "Computing prediction and form trends..."))
     await _compute_prediction_and_trend_insights(
         team_name, merged, merged_profile, opponent_profile, opponent_name, insights_result, own_is_home,
         own_rest_days, opponent_context, (form, opponent_form), form_source, matches_by_source,

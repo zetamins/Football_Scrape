@@ -75,7 +75,7 @@ def is_empty(v: Any) -> bool:
 # suspended), a real answer distinct from None ("no source told us"). The
 # generic is_empty() would treat that [] as missing and keep hunting for a
 # non-empty value, discarding the confirmation.
-CONFIRMED_EMPTY_FIELDS = frozenset({"home_suspended_players", "away_suspended_players"})
+CONFIRMED_EMPTY_FIELDS = frozenset({"home_suspended_players", "away_suspended_players", "home_missing_players", "away_missing_players"})
 
 
 def _is_unfilled(field_name: str, value: Any) -> bool:
@@ -251,7 +251,7 @@ def _settle_numeric_conflict(
     source. Returns (new current_source, resolution)."""
     winner = max(groups, key=lambda g: (sum(SOURCE_WEIGHTS.get(s, 1) for s in g), -SOURCE_ORDER.index(g[0])))
     if current_source in winner:
-        return current_source, "base source kept"
+        return current_source, f"{current_source} kept"
     winning_source = winner[0]
     merged[field_name] = present[winning_source]
     if winning_source == base_source:
@@ -282,7 +282,7 @@ def detect_source_conflicts(
         if numeric:
             current_source, resolution = _settle_numeric_conflict(groups, current_source, base_source, merged, field_sources, field_name, present)
         else:
-            resolution = "base source kept (text disagreements are reported, not overridden)"
+            resolution = f"{current_source} kept (text disagreements are reported, not overridden)"
         kept_value = merged.get(field_name)
         conflicts.append(SourceConflict(
             field=field_name, kept=kept_value, kept_source=current_source,
@@ -947,7 +947,9 @@ def reconcile_missing_players(
         if norm not in known:
             result.append(MissingPlayer(name=m.name, description=m.injury, expected_return=None))
             known.add(norm)
-    return result if result else None
+    # Preserve confirmed-empty [] (checked, none missing) -- only collapse
+    # to None when there was never any list to begin with.
+    return result if result else ([] if missing_players is not None else None)
 
 
 def absent_name_set(
@@ -1024,9 +1026,11 @@ def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source:
     two older rows still came from Fotmob, labelled wholly "fotmob")."""
     if not deep_meetings:
         return
-    deep_days = {m.date[:10] for m in deep_meetings}
-    leftovers = [m for m in (merged.recent_meetings or []) if m.date[:10] not in deep_days]
-    merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date, reverse=True)
+    # HeadToHeadMeeting.date is str | None (soccerdesk/fotmob/form-only
+    # can omit it); slicing None TypeError-kills the whole team run.
+    deep_days = {m.date[:10] for m in deep_meetings if m.date}
+    leftovers = [m for m in (merged.recent_meetings or []) if not m.date or m.date[:10] not in deep_days]
+    merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date or "", reverse=True)
     if leftovers:
         merged.field_sources["recent_meetings"] = "mixed"
         return

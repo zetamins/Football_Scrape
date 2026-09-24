@@ -318,13 +318,11 @@ class WeatherDetail:
 class TeamSeasonStats:
     goals_scored: int
     goals_conceded: int
-    # Season aggregate. The source's own backend can lag a recent result
-    # (e.g. showing 0 the same week a 0-0 was actually played).
-    # add_clean_sheets_recent_check closes that lag: when the recent
-    # competitive count exceeds this number, clean_sheets is raised to
-    # match and the pre-reconcile value is kept in
-    # clean_sheets_source_aggregate below, so the contradiction never
-    # reaches the report as two disagreeing numbers.
+    # Season aggregate as published by the source. Never mutated by form-
+    # window reconciliation -- last20 can span the previous season, so a
+    # raise from that window can produce impossible stats (e.g. 5 clean
+    # sheets beside 8 goals conceded). clean_sheets_recent_check below
+    # records the form-window count for comparison only.
     clean_sheets: int
     yellow_cards: int
     red_cards: int
@@ -336,8 +334,9 @@ class TeamSeasonStats:
     # two that look like a contradiction.
     average_ball_possession: float | None
     # Clean sheets among the competitive matches in form.last20_overall
-    # (real results this run actually fetched) -- the figure clean_sheets
-    # is reconciled against. None when there's no recent form to check.
+    # (real results this run actually fetched) -- a DIFFERENT window from
+    # season_stats.clean_sheets, kept for comparison only (never used to
+    # overwrite the season figure). None when there's no recent form.
     clean_sheets_recent_check: int | None = None
     # Which source's recent match results fed clean_sheets_recent_check --
     # that count can legitimately swing between two runs of the same team
@@ -345,9 +344,8 @@ class TeamSeasonStats:
     # each with its own recent-match sample), same reasoning as EloRating.
     # sample_source; this says why, instead of leaving a swing unexplained.
     clean_sheets_recent_check_source: str | None = None
-    # Pre-reconcile clean_sheets as the source originally reported it,
-    # only set when clean_sheets was raised to match the recent check.
-    # None when no reconciliation happened (the source was already current).
+    # Deprecated / unused: clean_sheets is no longer raised from the form
+    # window, so this stays None. Kept for JSON schema stability.
     clean_sheets_source_aggregate: int | None = None
     # Weighted average of detailed_venue_split.possession_pct_avg over the
     # same team's form window (home/away/neutral buckets, n-weighted) --
@@ -408,11 +406,12 @@ class HeadToHeadMeeting:
     # Fallback sources (Fotmob/SoccerDesk) can't detect this and still
     # only ever produce "home"/"away".
     #
-    # Frame, for every source: "home" means the UPCOMING FIXTURE'S home
-    # team also hosted that past meeting, "away" means the fixture's away
-    # team did. (Deep entries used to be framed from the searched team
-    # instead, so the two kinds disagreed whenever the searched team was
-    # the away side.) home_team/away_team below name who actually hosted.
+    # Frame, for every source (final consumer frame after orchestrate's
+    # _meetings_in_report_team_frame): "home" means the REPORT/SEARCHED
+    # team hosted that past meeting, "away" means the opponent did.
+    # Intermediate pipeline stages may briefly use the upcoming fixture's
+    # home-team frame; they are normalized before the report is built.
+    # home_team/away_team below name who actually hosted.
     venue: Literal["home", "away", "neutral"]
     home_formation: str | None
     away_formation: str | None
@@ -444,12 +443,16 @@ class MissingPlayer:
     # consumer needn't parse the mixed slug/free-text itself, and a
     # non-injury absence (e.g. Richarlison, "coach_decision") isn't read as
     # an injury just because it sits in the missing list. expected_return is
-    # left exactly as the source published it either way.
+    # left exactly as the source published it for injury/suspension; for
+    # coach_decision it is forced to None (a fixed far-future date is not a
+    # medical return and reads as a data error).
     absence_type: str | None = None
 
     def __post_init__(self) -> None:
         if self.absence_type is None:
             self.absence_type = classify_absence(self.description)
+        if self.absence_type == "coach_decision":
+            self.expected_return = None
 
 
 _INJURY_WORDS = (

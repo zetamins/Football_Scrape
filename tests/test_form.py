@@ -250,7 +250,7 @@ def test_win_rate_none_without_results():
 def test_next5_with_gaps_computes_days_since_previous():
     now = datetime.now(tz=UTC)
     past = _match(home_team="Home FC", away_team="Prev Opp", kickoff_utc=(now - timedelta(days=2)).isoformat())
-    future1 = _match(home_team="Home FC", away_team="Next Opp1", kickoff_utc=(now + timedelta(days=3)).isoformat())
+    future1 = _match(home_team="Home FC", away_team="Next Opp1", kickoff_utc=(now + timedelta(days=3)).isoformat(), status="scheduled")
     gaps = _compute_next5_with_gaps([past, future1], now, "Home FC")
     assert len(gaps) == 1
     assert gaps[0].opponent == "Next Opp1"
@@ -259,9 +259,39 @@ def test_next5_with_gaps_computes_days_since_previous():
 
 def test_next5_with_gaps_caps_at_five():
     now = datetime.now(tz=UTC)
-    matches = [_match(home_team="Home FC", away_team=f"Opp{i}", kickoff_utc=(now + timedelta(days=i)).isoformat()) for i in range(1, 8)]
+    matches = [
+        _match(home_team="Home FC", away_team=f"Opp{i}", kickoff_utc=(now + timedelta(days=i)).isoformat(), status="scheduled")
+        for i in range(1, 8)
+    ]
     gaps = _compute_next5_with_gaps(matches, now, "Home FC")
     assert len(gaps) == 5
+
+
+def test_next5_with_gaps_ignores_postponed_fixture_with_stale_future_kickoff():
+    # Same bug class as next_match: a postponed fixture keeps its original
+    # future kickoff_utc and must not occupy a next5 slot / rest-day gap.
+    now = datetime.now(tz=UTC)
+    postponed = _match(
+        home_team="Home FC", away_team="Postponed Opp",
+        kickoff_utc=(now + timedelta(days=1)).isoformat(), status="postponed",
+    )
+    scheduled = _match(
+        home_team="Home FC", away_team="Scheduled Opp",
+        kickoff_utc=(now + timedelta(days=3)).isoformat(), status="scheduled",
+    )
+    gaps = _compute_next5_with_gaps([postponed, scheduled], now, "Home FC")
+    assert [g.opponent for g in gaps] == ["Scheduled Opp"]
+
+
+def test_details_cache_key_includes_team_names_not_just_kickoff():
+    from football.form import _details_cache_key
+
+    now = datetime.now(tz=UTC).isoformat()
+    a = _match(home_team="Team A", away_team="Team B", kickoff_utc=now)
+    b = _match(home_team="Team C", away_team="Team D", kickoff_utc=now)
+    assert _details_cache_key(a) is not None
+    assert _details_cache_key(a) != _details_cache_key(b)
+    assert _details_cache_key(_match(home_team="Team A", away_team="Team B", kickoff_utc=None)) is None
 
 
 # --- _compute_half_split -------------------------------------------------------

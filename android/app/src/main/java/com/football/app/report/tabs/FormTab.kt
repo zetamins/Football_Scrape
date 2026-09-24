@@ -213,7 +213,7 @@ private fun CongestionSection(form: FormSummary) {
             Spacer(Modifier.height(8.dp))
         }
         if (form.formByCompetition.size > 1) {
-            Text("Form by competition", style = MaterialTheme.typography.labelMedium)
+            Text("Form by competition (last 20)", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
             form.formByCompetition.forEach { c ->
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {

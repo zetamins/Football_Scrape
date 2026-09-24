@@ -112,6 +112,16 @@ def test_main_exits_with_usage_message_when_no_team_given(monkeypatch, capsys):
     assert "Usage:" in capsys.readouterr().err
 
 
+def test_main_exits_1_when_parse_yields_no_team_names(monkeypatch, capsys):
+    # Comma-only garbage (", ,") parses to [] -- previously a silent
+    # zero-iteration batch that exited 0 with no output.
+    monkeypatch.setattr("sys.argv", ["football-search", ", ,"])
+    with pytest.raises(SystemExit) as exc_info:
+        asyncio.run(_main())
+    assert exc_info.value.code == 1
+    assert "Usage:" in capsys.readouterr().err
+
+
 def test_main_continues_batch_after_one_team_fails(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr("sys.argv", ["football-search", "Good Team, Bad Team"])
     monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)

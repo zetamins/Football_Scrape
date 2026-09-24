@@ -65,6 +65,12 @@ async def _main() -> None:
         sys.exit(1)
 
     team_names = _parse_team_names(raw)
+    if not team_names:
+        # raw was only commas/whitespace -- parse yields [], which used to
+        # fall through as a zero-iteration batch and exit 0 with no
+        # output (looked like a successful empty search).
+        print('Usage: football-search "Team Name"[, "Team Name 2", ...]', file=sys.stderr, flush=True)
+        sys.exit(1)
     multiple = len(team_names) > 1
 
     # Sequential, not concurrent: these sites are already rate-limit/block

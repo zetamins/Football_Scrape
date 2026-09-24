@@ -39,24 +39,37 @@ from .types import (
 # enough volume to get the client blocked mid-run.
 FORM_ENRICH_DETAIL_LIMIT = 5
 
-# Per-run cache of MatchDetails keyed by kickoff_utc, filled as form
-# enrichment / H2H detail fetches already pay for a full details() call.
-# compute_rotation_info reuses these instead of re-opening two browser
-# sessions after the rest of the pipeline may have tripped the Sofascore
-# circuit breaker (confirmed live: both rotations null while the same
-# matches' lineups had already been read for form enrichment).
-_details_by_kickoff: dict[str, MatchDetails] = {}
+# Per-run cache of MatchDetails, filled as form enrichment / H2H detail
+# fetches already pay for a full details() call. compute_rotation_info
+# reuses these instead of re-opening two browser sessions after the rest
+# of the pipeline may have tripped the Sofascore circuit breaker
+# (confirmed live: both rotations null while the same matches' lineups
+# had already been read for form enrichment).
+# Keyed by kickoff + both team names, not kickoff alone: synchronized
+# league rounds give both sides the same kickoff_utc, and own-team then
+# opponent enrichment share this dict -- kickoff-only let the later write
+# overwrite the earlier team's MatchDetails (rotation then diffed the
+# wrong XI). Team names make the key collision-free within one run.
+_details_by_kickoff: dict[tuple[str, str, str], MatchDetails] = {}
+
+
+def _details_cache_key(match: MatchInfo) -> tuple[str, str, str] | None:
+    if not match.kickoff_utc:
+        return None
+    return (match.kickoff_utc, normalize_team_name(match.home_team or ""), normalize_team_name(match.away_team or ""))
 
 
 def cache_match_details(match: MatchInfo, details: MatchDetails) -> None:
-    if match.kickoff_utc:
-        _details_by_kickoff[match.kickoff_utc] = details
+    key = _details_cache_key(match)
+    if key:
+        _details_by_kickoff[key] = details
 
 
 def get_cached_match_details(match: MatchInfo) -> MatchDetails | None:
-    if not match.kickoff_utc:
+    key = _details_cache_key(match)
+    if not key:
         return None
-    return _details_by_kickoff.get(match.kickoff_utc)
+    return _details_by_kickoff.get(key)
 
 
 def clear_details_cache() -> None:
@@ -193,7 +206,14 @@ def _compute_next5_with_gaps(matches: list[MatchInfo], now: datetime, team_name:
     """Extracted from compute_form_summary to keep its own cognitive
     complexity down (python:S3776); behavior unchanged."""
     chronological = sorted((m for m in matches if m.kickoff_utc), key=lambda m: _parse_dt(m.kickoff_utc))
-    upcoming = [m for m in chronological if _parse_dt(m.kickoff_utc) > now][:5]
+    # Same status filter as next_match: a postponed fixture keeps a future
+    # kickoff_utc (the original time, never updated) and would otherwise
+    # sit at [0] as phantom "next" -- corrupting own rest days against a
+    # match that isn't scheduled (confirmed live for next_match itself).
+    upcoming = [
+        m for m in chronological
+        if m.status in NOT_STARTED_STATUSES and _parse_dt(m.kickoff_utc) > now
+    ][:5]
     next5_with_gaps: list[FixtureGap] = []
     for m in upcoming:
         idx = chronological.index(m)
@@ -1295,14 +1315,21 @@ async def enrich_form_with_venue_classification(
     # to ensure consistency -- previously these were computed from the
     # unenriched home_results/away_results which didn't account for
     # neutral-venue reclassification, causing contradictions with
-    # venue_split_form's own win counts.
+    # venue_split_form's own win counts. Sample sizes must move with the
+    # rates: leaving the full-history n beside an enriched-window rate
+    # (Sofascore only classifies FORM_ENRICH_DETAIL_LIMIT matches) made
+    # JSON pair e.g. 60% with n=34.
     home_win_rate_pct = form.home_win_rate_pct
     away_win_rate_pct = form.away_win_rate_pct
+    home_win_rate_sample_size = form.home_win_rate_sample_size
+    away_win_rate_sample_size = form.away_win_rate_sample_size
     if venue_split_form:
         if venue_split_form.home_sample_size:
             home_win_rate_pct = js_round(venue_split_form.home_wins / venue_split_form.home_sample_size * 100)
+            home_win_rate_sample_size = venue_split_form.home_sample_size
         if venue_split_form.away_sample_size:
             away_win_rate_pct = js_round(venue_split_form.away_wins / venue_split_form.away_sample_size * 100)
+            away_win_rate_sample_size = venue_split_form.away_sample_size
 
     new_form = FormSummary(
         **{
@@ -1316,6 +1343,8 @@ async def enrich_form_with_venue_classification(
             "detailed_venue_split": detailed_venue_split,
             "home_win_rate_pct": home_win_rate_pct,
             "away_win_rate_pct": away_win_rate_pct,
+            "home_win_rate_sample_size": home_win_rate_sample_size,
+            "away_win_rate_sample_size": away_win_rate_sample_size,
         }
     )
     return VenueEnrichmentResult(form=new_form, advanced_stats=advanced_stats, usage_by_player=finalized_usage)

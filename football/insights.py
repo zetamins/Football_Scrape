@@ -234,7 +234,7 @@ def compute_opponent_rank_record(results, competition: str | None, standings_tab
         return None
     wins = draws = losses = sample_size = 0
     for r in results:
-        if r.competition != competition:
+        if not _same_competition(r.competition, competition):
             continue
         row = next((s for s in standings_table if same_team(s.team_name, r.opponent)), None)
         if not row or row.position >= own_position:
@@ -507,21 +507,21 @@ def _note_injury_reasons(
 
 def add_clean_sheets_recent_check(season_stats: TeamSeasonStats | None, results: list[FormResult] | None, source: str | None = None) -> None:
     """Counts clean sheets among the real competitive results in `results`
-    (form.last20_overall) and RECONCILES season_stats.clean_sheets against
-    that count: when the recent count exceeds the source's season aggregate
-    (the lag case -- source still showing 0 after a 0-0 was played), raise
-    clean_sheets to the recent count and preserve the original in
-    clean_sheets_source_aggregate, so the report never shows two disagreeing
-    numbers. `source` (the results' own form_source) is recorded alongside
-    so a run-to-run swing can be attributed to a source change."""
+    (form.last20_overall) and records that count in
+    clean_sheets_recent_check -- INFORMATIONAL ONLY, a different window
+    from season_stats.clean_sheets (which is the source's season-to-date
+    aggregate). The two can legitimately diverge: last20 can span the
+    previous season early in a campaign, and a form window with more clean
+    sheets than season games played would produce impossible season stats
+    if we raised clean_sheets to match (e.g. 5 clean sheets beside 8
+    goals conceded on a 5-game sample). Never mutates clean_sheets.
+    `source` (the results' own form_source) is recorded alongside so a
+    run-to-run swing can be attributed to a source change."""
     if not season_stats or not results:
         return
     check = sum(1 for r in results if not is_friendly_competition(r.competition) and result_goals(r)["against"] == 0)
     season_stats.clean_sheets_recent_check = check
     season_stats.clean_sheets_recent_check_source = source
-    if check > season_stats.clean_sheets:
-        season_stats.clean_sheets_source_aggregate = season_stats.clean_sheets
-        season_stats.clean_sheets = check
 
 
 def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue_split, source: str | None = None) -> None:

@@ -278,12 +278,13 @@ def _extract_unavailable(team: dict[str, Any] | None) -> list[MissingPlayer] | N
     """Same match-page lineup object already fetched -- Fotmob's own
     match-specific unavailability list, analogous to Sofascore's
     missingPlayers. `unavailability.type` ("injury"/"suspension"/etc) is
-    the closest Fotmob equivalent to Sofascore's description text."""
-    unavailable = (team or {}).get("unavailable")
-    if not unavailable:
+    the closest Fotmob equivalent to Sofascore's description text.
+    Key present -> list (possibly empty when nobody is unavailable);
+    key absent -> None -- CONFIRMED_EMPTY semantics matching sofascore."""
+    if not team or "unavailable" not in team:
         return None
     result = []
-    for p in unavailable:
+    for p in (team.get("unavailable") or []):
         u = p.get("unavailability") or {}
         result.append(MissingPlayer(name=p["name"], description=u.get("type"), expected_return=u.get("expectedReturn")))
     return result
