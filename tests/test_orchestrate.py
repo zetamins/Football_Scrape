@@ -291,7 +291,8 @@ def test_apply_presence_projected_basis_states_the_full_rule_including_the_tie_b
     result = _insights_result()
     _apply_presence_and_bench_insights(result, own_is_home=True, merged=merged, merged_profile=own_profile, opponent_profile=None)
 
-    assert merged.home_lineup is not None and len(merged.home_lineup) == 11
+    assert merged.home_lineup is not None
+    assert len(merged.home_lineup) == 11
     assert "Projected, not a published lineup" in result.projected_xi_basis
     assert "most starts" in result.projected_xi_basis
     assert "ties broken by total minutes" in result.projected_xi_basis
@@ -2431,4 +2432,5 @@ def test_run_search_arms_and_always_closes_the_sofascore_run_session(monkeypatch
         asyncio.run(run_search("Spurs"))
 
     assert events == ["begin", "close"], "session must be armed before scraping and closed exactly once on the raise path"
-    assert sc._run_session_enabled is False and sc._run_page is None
+    assert sc._run_session_enabled is False
+    assert sc._run_page is None

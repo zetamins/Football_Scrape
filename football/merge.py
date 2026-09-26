@@ -1076,7 +1076,9 @@ def reconcile_missing_players(
             known.add(norm)
     # Preserve confirmed-empty [] (checked, none missing) -- only collapse
     # to None when there was never any list to begin with.
-    return result if result else ([] if missing_players is not None else None)
+    if result:
+        return result
+    return [] if missing_players is not None else None
 
 
 def merge_absences_into_profile_injuries(profile, missing_players: list[MissingPlayer] | None) -> None:
@@ -1165,6 +1167,43 @@ def filter_absent_players(players: list | None, absent: set[str]) -> list | None
     return kept
 
 
+def _keep_true_h2h(rows, opponent_name: str | None):
+    """Rows judged against the opponent: keep same-opponent rows and
+    unjudgeable ones (neither home nor away populated -- can't be
+    judged either way, so kept rather than silently dropping real
+    history); drop rows that are provably against someone else."""
+    from .team_aliases import same_team
+
+    out = []
+    for m in rows:
+        if not m.home_team and not m.away_team:
+            out.append(m)
+            continue
+        if same_team(m.home_team or "", opponent_name or "") or same_team(m.away_team or "", opponent_name or ""):
+            out.append(m)
+    return out
+
+
+def _filter_fallback_h2h(merged: MergedMatch, opponent_name: str | None) -> None:
+    """Empty-deep path of apply_deep_recent_meetings: the earlier merge's
+    fallback (or None) is left in place -- but the opponent filter STILL
+    applies when the opponent is known. Confirmed live (Germany vs
+    Greece): the fallback carried Germany vs Australia rows because the
+    deep H2H window legitimately had no GER-GRE meetings, and the old
+    "preserve the fallback untouched" path skipped the very filter
+    dataWindows documents -- wrong-opponent meetings must never ship
+    just because the deep pass was empty."""
+    if not (opponent_name and merged.recent_meetings):
+        return
+    kept = _keep_true_h2h(merged.recent_meetings, opponent_name)[:3]
+    if len(kept) != len(merged.recent_meetings):
+        merged.recent_meetings = kept
+        if not kept:
+            # Nothing true-H2H survived: an empty list must not
+            # keep claiming a source it no longer contains rows from.
+            merged.field_sources.pop("recent_meetings", None)
+
+
 def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source: Source, opponent_name: str | None = None) -> None:
     """Overwrites merged.recent_meetings with a richer, deeper computation
     (formations/xG/lineups per meeting) that only one specific `source`
@@ -1196,55 +1235,23 @@ def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source:
     field-merge can leave non-H2H leftovers (confirmed live: Germany's
     recent_meetings contained Germany vs Australia rows that were never
     against the Netherlands), and deep_meetings + leftovers could
-    previously exceed the documented cap of 3."""
-    from .team_aliases import same_team
-
-    def _keep_true_h2h(rows):
-        """Rows judged against the opponent: keep same-opponent rows and
-        unjudgeable ones (neither home nor away populated -- can't be
-        judged either way, so kept rather than silently dropping real
-        history); drop rows that are provably against someone else."""
-        out = []
-        for m in rows:
-            if not m.home_team and not m.away_team:
-                out.append(m)
-                continue
-            if same_team(m.home_team or "", opponent_name or "") or same_team(m.away_team or "", opponent_name or ""):
-                out.append(m)
-        return out
-
+    previously exceed the documented cap of 3. The same filter runs
+    against the preserved fallback via _filter_fallback_h2h."""
     if not deep_meetings:
-        # Deep computation failed or came back empty: leave the earlier
-        # merge's fallback (or None) as it was -- but the opponent filter
-        # STILL applies when the opponent is known. Confirmed live
-        # (Germany vs Greece): the fallback carried Germany vs Australia
-        # rows because the deep H2H window legitimately had no GER-GRE
-        # meetings, and the old "preserve the fallback untouched" path
-        # skipped the very filter dataWindows documents -- wrong-opponent
-        # meetings must never ship just because the deep pass was empty.
-        if opponent_name and merged.recent_meetings:
-            kept = _keep_true_h2h(merged.recent_meetings)[:3]
-            if len(kept) != len(merged.recent_meetings):
-                merged.recent_meetings = kept
-                if not kept:
-                    # Nothing true-H2H survived: an empty list must not
-                    # keep claiming a source it no longer contains rows from.
-                    merged.field_sources.pop("recent_meetings", None)
+        # Deep computation failed or came back empty -- see
+        # _filter_fallback_h2h for why the opponent filter still runs.
+        _filter_fallback_h2h(merged, opponent_name)
         return
     # HeadToHeadMeeting.date is str | None (soccerdesk/fotmob/form-only
     # can omit it); slicing None TypeError-kills the whole team run.
     deep_days = {m.date[:10] for m in deep_meetings if m.date}
     leftovers = [m for m in (merged.recent_meetings or []) if not m.date or m.date[:10] not in deep_days]
     if opponent_name:
-        # Keep only true H2H leftovers against this opponent (same helper
-        # as the empty-deep path above; see _keep_true_h2h for why
-        # teamless rows are kept). Confirmed live (Germany): non-H2H
-        # leftovers like Germany vs Australia were sitting in
-        # recent_meetings for a Germany vs Netherlands fixture because
-        # the generic field-merge doesn't know the opponent. Also caps
-        # the final list at 3 to match the documented window -- deep_meetings
+        # Keep only true H2H leftovers against this opponent (see
+        # _keep_true_h2h for why teamless rows are kept). Also caps the
+        # final list at 3 to match the documented window -- deep_meetings
         # (already [:3]) plus leftovers could previously grow past it.
-        leftovers = _keep_true_h2h(leftovers)
+        leftovers = _keep_true_h2h(leftovers, opponent_name)
     merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date or "", reverse=True)[:3]
     if leftovers:
         merged.field_sources["recent_meetings"] = "mixed"

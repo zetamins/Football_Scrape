@@ -267,6 +267,26 @@ def _find_matching_row(lines: list[str], idx: dict[str, int], home_team: str, aw
     return None
 
 
+def _header_col(header: list[str], name: str) -> int:
+    """Column index of `name` in the CSV header, -1 when absent."""
+    return header.index(name) if name in header else -1
+
+
+def _cell_float(row: list[str], idx: dict, key: str) -> float | None:
+    """Parse idx[key] from the row as a float; -1 index, out-of-range,
+    empty, or unparseable cells all mean None (never a fabricated 0)."""
+    i = idx[key]
+    if i == -1 or i >= len(row):
+        return None
+    raw = row[i].strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingOdds | None, str | None]:
     """One shared fetch (a single live all-leagues upcoming-fixtures file,
     distinct from the per-season results CSV get_referee_home_away_bias
@@ -296,14 +316,11 @@ async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingO
     lines = csv.strip().split("\n")
     header = lines[0].strip().split(",")
 
-    def col(name: str) -> int:
-        return header.index(name) if name in header else -1
-
     idx = {
-        "home": col("HomeTeam"), "away": col("AwayTeam"),
-        "avg_h": col("AvgH"), "avg_d": col("AvgD"), "avg_a": col("AvgA"),
-        "avg_over": col("Avg>2.5"), "avg_under": col("Avg<2.5"),
-        "referee": col("Referee"),
+        "home": _header_col(header, "HomeTeam"), "away": _header_col(header, "AwayTeam"),
+        "avg_h": _header_col(header, "AvgH"), "avg_d": _header_col(header, "AvgD"), "avg_a": _header_col(header, "AvgA"),
+        "avg_over": _header_col(header, "Avg>2.5"), "avg_under": _header_col(header, "Avg<2.5"),
+        "referee": _header_col(header, "Referee"),
     }
     if idx["home"] == -1 or idx["away"] == -1:
         return None, None
@@ -312,23 +329,11 @@ async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingO
     if row is None:
         return None, None
 
-    def cell_float(key: str) -> float | None:
-        i = idx[key]
-        if i == -1 or i >= len(row):
-            return None
-        raw = row[i].strip()
-        if not raw:
-            return None
-        try:
-            return float(raw)
-        except ValueError:
-            return None
-
-    home_odds = cell_float("avg_h")
-    draw_odds = cell_float("avg_d")
-    away_odds = cell_float("avg_a")
-    over_odds = cell_float("avg_over")
-    under_odds = cell_float("avg_under")
+    home_odds = _cell_float(row, idx, "avg_h")
+    draw_odds = _cell_float(row, idx, "avg_d")
+    away_odds = _cell_float(row, idx, "avg_a")
+    over_odds = _cell_float(row, idx, "avg_over")
+    under_odds = _cell_float(row, idx, "avg_under")
 
     referee = None
     if idx["referee"] != -1 and idx["referee"] < len(row):

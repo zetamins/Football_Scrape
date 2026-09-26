@@ -219,7 +219,8 @@ def test_confidence_scaled_by_method_count_so_two_models_cannot_read_near_certai
     three = compute_match_prediction(
         _odds(50.0, 25.0, 25.0), _elo(1500), _elo(1500), home_xg=_xg(15.0, 12.0), away_xg=_xg(14.0, 13.0),
     )
-    assert two.confidence is not None and three.confidence is not None
+    assert two.confidence is not None
+    assert three.confidence is not None
     assert two.confidence < 80.0
     assert two.confidence < three.confidence
     # 3-method path: scale factor is 1.0, so pure agreement still shows.

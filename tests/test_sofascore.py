@@ -1119,7 +1119,7 @@ def test_older_meeting_lookup_makes_no_request_when_nothing_is_wanted_and_handle
 def test_get_sofascore_match_details_opens_no_browser_when_run_already_blocked(monkeypatch):
     from football.types import MatchInfo
 
-    sofascore._block_reason = "HTTP 403 Forbidden"
+    monkeypatch.setattr(sofascore, "_block_reason", "HTTP 403 Forbidden")
     launched = []
     monkeypatch.setattr(sofascore, "launch_browser", lambda: launched.append("launch") or _FakeBrowserCM())
     match = MatchInfo(
@@ -1134,7 +1134,7 @@ def test_get_sofascore_match_details_opens_no_browser_when_run_already_blocked(m
 
 
 def test_get_sofascore_matches_opens_no_browser_when_run_already_blocked(monkeypatch):
-    sofascore._block_reason = "HTTP 429 Too Many Requests"
+    monkeypatch.setattr(sofascore, "_block_reason", "HTTP 429 Too Many Requests")
     launched = []
     monkeypatch.setattr(sofascore, "launch_browser", lambda: launched.append("launch") or _FakeBrowserCM())
     with pytest.raises(sofascore.SofascoreBlockedError):
@@ -1143,7 +1143,7 @@ def test_get_sofascore_matches_opens_no_browser_when_run_already_blocked(monkeyp
 
 
 def test_warm_up_refuses_to_hit_the_homepage_when_run_already_blocked(monkeypatch):
-    sofascore._block_reason = "HTTP 403 Forbidden"
+    monkeypatch.setattr(sofascore, "_block_reason", "HTTP 403 Forbidden")
     gotos = []
 
     async def fake_goto(*_a, **_k):
@@ -1188,12 +1188,13 @@ def test_fetch_json_paces_requests_at_the_configured_floor(monkeypatch):
     asyncio.run(real_fetch(page, "https://www.sofascore.com/api/v1/a"))
     asyncio.run(real_fetch(page, "https://www.sofascore.com/api/v1/b"))
     assert page.evaluates == 2
-    assert delays and delays[0] >= 0.04  # second call waited for the floor
+    assert delays
+    assert delays[0] >= 0.04  # second call waited for the floor
 
 
-def test_reset_block_state_clears_the_pacing_floor_timestamp():
-    sofascore._block_reason = "HTTP 403 Forbidden"
-    sofascore._last_request_at = 999.0
+def test_reset_block_state_clears_the_pacing_floor_timestamp(monkeypatch):
+    monkeypatch.setattr(sofascore, "_block_reason", "HTTP 403 Forbidden")
+    monkeypatch.setattr(sofascore, "_last_request_at", 999.0)
     sofascore.reset_block_state()
     assert sofascore._block_reason is None
     assert sofascore._last_request_at == 0.0

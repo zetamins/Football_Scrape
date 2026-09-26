@@ -187,7 +187,8 @@ def test_compute_recent_meetings_keeps_form_only_row_when_no_raw_fixture_matches
     # scoreline. Now published form-only (no formations/lineups).
     form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", scoreline="1-0", venue="home")]
     result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore", team_name="Home FC"))
-    assert result is not None and len(result) == 1
+    assert result is not None
+    assert len(result) == 1
     assert result[0].scoreline == "1-0"
     assert result[0].home_formation is None
     assert result[0].away_lineup is None
@@ -197,14 +198,16 @@ def test_compute_recent_meetings_keeps_form_only_row_when_no_raw_fixture_matches
 def test_compute_recent_meetings_form_only_maps_away_venue_home_first():
     form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", venue="away")]
     result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore", team_name="Home FC"))
-    assert result is not None and len(result) == 1
+    assert result is not None
+    assert len(result) == 1
     assert (result[0].home_team, result[0].away_team) == ("Rival FC", "Home FC")
 
 
 def test_compute_recent_meetings_form_only_leaves_team_names_none_without_team_name():
     form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z")]
     result = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore"))
-    assert result is not None and len(result) == 1
+    assert result is not None
+    assert len(result) == 1
     assert result[0].home_team is None
     assert result[0].away_team is None
 
@@ -224,7 +227,8 @@ def test_compute_recent_meetings_tolerates_details_fetch_failure(monkeypatch):
     result = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
     # Details failed, but the scoreline/teams still come from form+raw --
     # do not drop the head-to-head row just because box score is gone.
-    assert result is not None and len(result) == 1
+    assert result is not None
+    assert len(result) == 1
     assert result[0].scoreline == "2-1"
     assert (result[0].home_team, result[0].away_team) == ("Home FC", "Rival FC")
     assert result[0].home_formation is None
@@ -2743,7 +2747,8 @@ def test_possession_window_note_names_both_windows_when_gap_exceeds_5pp():
     note = stats.possession_window_note
     assert note is not None
     assert "last-20 venue-split" in note
-    assert "60" in note and "average_ball_possession_source_season" in note
+    assert "60" in note
+    assert "average_ball_possession_source_season" in note
     assert ">5pp" in note
 
 

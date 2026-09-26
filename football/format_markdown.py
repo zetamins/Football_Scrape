@@ -891,6 +891,22 @@ def big_chances_estimate_str(x: SeasonBigChancesEstimate, label: str) -> str:
     return f"{label} big chances (last {x.sample_size} finished): {x.big_chances_created_for} created ({x.big_chances_missed_for} missed) / {x.big_chances_created_against} conceded ({x.big_chances_missed_against} missed by opponent)"
 
 
+def _stat_pair(unavailable: set, key: str, for_v, against_v) -> str:
+    # Null (or an unavailable_stats name) means this source never
+    # reported the stat -- render n/a, not a fabricated 0-0.
+    if key in unavailable or for_v is None or against_v is None:
+        return "n/a"
+    return f"{for_v}-{against_v}"
+
+
+def _cards_pair(unavailable: set, for_y, for_r, against_y, against_r) -> str:
+    left_y = "n/a" if "yellow_cards" in unavailable or for_y is None else f"{for_y}Y"
+    right_y = "n/a" if "yellow_cards" in unavailable or against_y is None else f"{against_y}Y"
+    left_r = "n/a" if "red_cards" in unavailable or for_r is None else f"{for_r}R"
+    right_r = "n/a" if "red_cards" in unavailable or against_r is None else f"{against_r}R"
+    return f"{left_y}/{left_r}-{right_y}/{right_r}"
+
+
 def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
     def num_or_na(n) -> str:
         return "n/a" if n is None else js_number_to_string(n)
@@ -900,18 +916,7 @@ def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
     unavailable = set(x.unavailable_stats or ())
 
     def pair(key: str, for_v, against_v) -> str:
-        # Null (or an unavailable_stats name) means this source never
-        # reported the stat -- render n/a, not a fabricated 0-0.
-        if key in unavailable or for_v is None or against_v is None:
-            return "n/a"
-        return f"{for_v}-{against_v}"
-
-    def cards_pair(for_y, for_r, against_y, against_r) -> str:
-        left_y = "n/a" if "yellow_cards" in unavailable or for_y is None else f"{for_y}Y"
-        right_y = "n/a" if "yellow_cards" in unavailable or against_y is None else f"{against_y}Y"
-        left_r = "n/a" if "red_cards" in unavailable or for_r is None else f"{for_r}R"
-        right_r = "n/a" if "red_cards" in unavailable or against_r is None else f"{against_r}R"
-        return f"{left_y}/{left_r}-{right_y}/{right_r}"
+        return _stat_pair(unavailable, key, for_v, against_v)
 
     parts = [
         f"touches in box {pair('touches_in_box', x.touches_in_box_for, x.touches_in_box_against)}",
@@ -944,7 +949,7 @@ def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
         f"total shots {pair('total_shots', x.total_shots_for, x.total_shots_against)} ({pair('shots_on_target', x.shots_on_target_for, x.shots_on_target_against)} on target)",
         f"corners {pair('corner_kicks', x.corners_for, x.corners_against)}",
         f"fouls {pair('fouls', x.fouls_for, x.fouls_against)}",
-        f"cards {cards_pair(x.yellow_cards_for, x.red_cards_for, x.yellow_cards_against, x.red_cards_against)}",
+        f"cards {_cards_pair(unavailable, x.yellow_cards_for, x.red_cards_for, x.yellow_cards_against, x.red_cards_against)}",
         f"possession {poss}%",
         f"big chances created {pair('big_chances', x.big_chances_created_for, x.big_chances_created_against)}",
         f"non-penalty xG {js_number_to_string(x.non_penalty_xg_for)}-{js_number_to_string(x.non_penalty_xg_against)}",
@@ -1053,6 +1058,26 @@ def rest_label(days: int | None) -> str:
     return " (short rest)" if days is not None and days <= 3 else ""
 
 
+def _confidence_lines(p, home_team: str, away_team: str) -> list[str]:
+    """Confidence section of prediction_str (blended / agreement /
+    single-method fallback) -- extracted to keep prediction_str under
+    python:S3776's cognitive-complexity threshold."""
+    if p.blended is not None:
+        conf = f"{js_number_to_string(p.confidence)}" if p.confidence is not None else "n/a"
+        return [
+            f"- Prediction (blended): {home_team} {p.blended.home_win_pct}% / Draw {p.blended.draw_pct}% / {away_team} {p.blended.away_win_pct}%",
+            f"- Confidence: {conf} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})",
+        ]
+    if p.confidence is not None:
+        return [f"- Confidence: {js_number_to_string(p.confidence)} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})"]
+    if p.model:
+        # Single method: _blend_predictions returns (None, None) under two
+        # methods, so there was previously no confidence line at all --
+        # readers couldn't tell "confident" from "only one estimate ran".
+        return ["- Confidence: n/a (single method only; agreement between methods needs at least two)"]
+    return []
+
+
 def prediction_str(p, home_team: str, away_team: str) -> list[str]:
     """Market-implied is the primary signal when available (real money,
     reflects squad quality/injuries/form the heuristic has no way to
@@ -1081,17 +1106,7 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
                 "not squad quality, injuries, or opponent strength -- treat the market-implied figure "
                 "as the more reliable one when they diverge."
             )
-    if p.blended is not None:
-        conf = f"{js_number_to_string(p.confidence)}" if p.confidence is not None else "n/a"
-        out.append(f"- Prediction (blended): {home_team} {p.blended.home_win_pct}% / Draw {p.blended.draw_pct}% / {away_team} {p.blended.away_win_pct}%")
-        out.append(f"- Confidence: {conf} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})")
-    elif p.confidence is not None:
-        out.append(f"- Confidence: {js_number_to_string(p.confidence)} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})")
-    elif p.model:
-        # Single method: _blend_predictions returns (None, None) under two
-        # methods, so there was previously no confidence line at all --
-        # readers couldn't tell "confident" from "only one estimate ran".
-        out.append("- Confidence: n/a (single method only; agreement between methods needs at least two)")
+    out.extend(_confidence_lines(p, home_team, away_team))
     return out
 
 
@@ -1313,8 +1328,9 @@ def _append_insights_impact(insights: MatchInsights, home_team: str, away_team: 
     _append_insights_impact_estimates(insights, home_team, away_team, lines)
 
 
-def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
-    """Second half of _append_insights_impact -- see its own docstring."""
+def _append_corners_estimate_lines(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Corners section of _append_insights_impact_estimates -- split out
+    for python:S3776 (cognitive complexity)."""
     if insights.home_corners_estimate:
         lines.append(f"- {corners_estimate_str(insights.home_corners_estimate, home_team)}")
     if insights.away_corners_estimate:
@@ -1330,6 +1346,10 @@ def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, a
         )
     if insights.corners_cross_source_note:
         lines.append(f"- Note: {insights.corners_cross_source_note}")
+
+
+def _append_defensive_error_lines(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Defensive-error section of _append_insights_impact_estimates."""
     if insights.home_defensive_errors_estimate:
         lines.append(f"- {defensive_errors_estimate_str(insights.home_defensive_errors_estimate, home_team)}")
     if insights.away_defensive_errors_estimate:
@@ -1345,6 +1365,11 @@ def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, a
                 f"- {label} defensive errors: n/a -- no Goal.com match in this side's "
                 f"window published a Defensive error stat (not zero errors)"
             )
+
+
+def _append_exposure_impact_lines(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Fullback-exposure + standings-impact section of
+    _append_insights_impact_estimates."""
     if insights.home_fullback_exposure:
         lines.append(f"- {fullback_exposure_str(insights.home_fullback_exposure, home_team)}")
     if insights.away_fullback_exposure:
@@ -1353,6 +1378,13 @@ def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, a
         lines.append(f"- {standings_impact_str(insights.home_standings_impact, home_team)}")
     if insights.away_standings_impact:
         lines.append(f"- {standings_impact_str(insights.away_standings_impact, away_team)}")
+
+
+def _append_insights_impact_estimates(insights: MatchInsights, home_team: str, away_team: str, lines: list[str]) -> None:
+    """Second half of _append_insights_impact -- see its own docstring."""
+    _append_corners_estimate_lines(insights, home_team, away_team, lines)
+    _append_defensive_error_lines(insights, home_team, away_team, lines)
+    _append_exposure_impact_lines(insights, home_team, away_team, lines)
     if insights.opponent_context_error:
         lines.append(f"- (opponent lookup issue: {insights.opponent_context_error})")
 

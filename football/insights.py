@@ -599,12 +599,13 @@ def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue
     season_stats.possession_venue_split_check = check
     season_stats.possession_venue_split_check_source = source
     season = season_stats.average_ball_possession
+    src_suffix = f" ({source})" if source else ""
     if season is not None and abs(season - check) > 5.0:
         season_stats.average_ball_possession_source_season = season
         season_stats.average_ball_possession = check
         season_stats.possession_window_note = (
             f"average_ball_possession is last-20 venue-split {js_number_to_string(check)}%"
-            f"{f' ({source})' if source else ''}; season-to-date source figure was "
+            f"{src_suffix}; season-to-date source figure was "
             f"{js_number_to_string(season)}% (kept in average_ball_possession_source_season); "
             f"gap {abs(season - check):.1f}pp >5pp so form window preferred"
         )
@@ -612,13 +613,13 @@ def add_possession_venue_split_check(season_stats: TeamSeasonStats | None, venue
         season_stats.possession_window_note = (
             f"average_ball_possession is season-to-date {js_number_to_string(season)}%; "
             f"last-20 venue-split check is {js_number_to_string(check)}%"
-            f"{f' ({source})' if source else ''}; gap {abs(season - check):.1f}pp <=5pp so season figure kept"
+            f"{src_suffix}; gap {abs(season - check):.1f}pp <=5pp so season figure kept"
         )
     else:
         season_stats.possession_window_note = (
             f"average_ball_possession is unavailable from the source; "
             f"last-20 venue-split check is {js_number_to_string(check)}%"
-            f"{f' ({source})' if source else ''} (check only, not applied as season figure)"
+            f"{src_suffix} (check only, not applied as season figure)"
         )
 
 
@@ -755,6 +756,52 @@ def derive_lineup(selected: list[PresenceEntry] | None, squad: list[SquadMember]
     ]
 
 
+def _bench_member_eligible(m: SquadMember, starters: set[str], unavailable: set[str]) -> bool:
+    norm = normalize_team_name(m.name)
+    if norm in starters or norm in unavailable:
+        return False
+    # One-directional containment only (absent entry ⊆ player name),
+    # same safety rule as merge.filter_absent_players -- the reverse
+    # would drop a player whose name is merely a substring of someone
+    # else's longer absent entry.
+    if unavailable and any(len(a) >= 3 and a in norm for a in unavailable):
+        return False
+    return True
+
+
+def _select_bench_candidates(squad: list, starters: set[str], unavailable: set[str]) -> list | None:
+    """Unused squad members with recent football first, falling back to
+    any unused member; ranked by total minutes. None when empty."""
+    eligible = [m for m in squad if _bench_member_eligible(m, starters, unavailable)]
+    candidates = [
+        m for m in eligible
+        if m.recent_usage and (m.recent_usage.matches_in_squad or 0) > 0
+    ]
+    if not candidates:
+        candidates = eligible
+    if not candidates:
+        return None
+    candidates.sort(key=lambda m: (m.recent_usage.total_minutes if m.recent_usage else 0), reverse=True)
+    return candidates
+
+
+def _blank_colliding_bench_numbers(lineup: list[LineupPlayer], bench: list[LineupPlayer]) -> None:
+    from collections import Counter
+
+    # Blank bench numbers that collide with any other member of the SAME
+    # XI+bench selection: the lineup's numbers are source-published
+    # (authoritative for this match), the bench's come from the squad
+    # (stale/duplicated numbering -- see derive_projected_bench). Both
+    # members of a bench-internal collision are blanked (no basis to
+    # pick a winner).
+    starter_numbers = {p.shirt_number for p in lineup if p.shirt_number is not None}
+    bench_numbers = [p.shirt_number for p in bench if p.shirt_number is not None]
+    colliding = {n for n, c in Counter(bench_numbers).items() if c > 1} | (starter_numbers & set(bench_numbers))
+    for p in bench:
+        if p.shirt_number is not None and p.shirt_number in colliding:
+            p.shirt_number = None
+
+
 def derive_projected_bench(
     lineup: list[LineupPlayer] | None,
     squad: list[SquadMember] | None,
@@ -787,29 +834,9 @@ def derive_projected_bench(
     starters = {normalize_team_name(p.name) for p in lineup}
     unavailable = absent or set()
 
-    def _eligible(m: SquadMember) -> bool:
-        norm = normalize_team_name(m.name)
-        if norm in starters or norm in unavailable:
-            return False
-        # One-directional containment only (absent entry ⊆ player name),
-        # same safety rule as merge.filter_absent_players -- the reverse
-        # would drop a player whose name is merely a substring of someone
-        # else's longer absent entry.
-        if unavailable and any(len(a) >= 3 and a in norm for a in unavailable):
-            return False
-        return True
-
-    candidates = [
-        m for m in squad
-        if _eligible(m)
-        and m.recent_usage
-        and (m.recent_usage.matches_in_squad or 0) > 0
-    ]
-    if not candidates:
-        candidates = [m for m in squad if _eligible(m)]
+    candidates = _select_bench_candidates(squad, starters, unavailable)
     if not candidates:
         return None
-    candidates.sort(key=lambda m: (m.recent_usage.total_minutes if m.recent_usage else 0), reverse=True)
     bench = [
         LineupPlayer(
             name=m.name, position=m.role, substitute=True,
@@ -820,19 +847,7 @@ def derive_projected_bench(
         )
         for m in candidates[:9]
     ]
-    from collections import Counter
-
-    # Blank bench numbers that collide with any other member of the SAME
-    # XI+bench selection: the lineup's numbers are source-published
-    # (authoritative for this match), the bench's come from the squad
-    # (stale/duplicated numbering -- see docstring). Both members of a
-    # bench-internal collision are blanked (no basis to pick a winner).
-    starter_numbers = {p.shirt_number for p in lineup if p.shirt_number is not None}
-    bench_numbers = [p.shirt_number for p in bench if p.shirt_number is not None]
-    colliding = {n for n, c in Counter(bench_numbers).items() if c > 1} | (starter_numbers & set(bench_numbers))
-    for p in bench:
-        if p.shirt_number is not None and p.shirt_number in colliding:
-            p.shirt_number = None
+    _blank_colliding_bench_numbers(lineup, bench)
     return bench
 
 
@@ -915,8 +930,21 @@ def compute_presence(
     # an Absent row -- confirmed live (Germany): de Jong/Wieffer/Simons/
     # Goretzka/Stiller appeared in match.*_missing_players but never in the
     # squad, so availability undercounted five absences to zero.
-    for p in (missing_players or []):
-        norm = _normalize(p.name)
+    _append_missing_only_presence_rows(result, seen, missing_players or [], missing_reason_by_name, _normalize)
+    return result
+
+
+def _append_missing_only_presence_rows(
+    result: list,
+    seen: set[str],
+    missing_players: list,
+    missing_reason_by_name: dict,
+    normalize_name,
+) -> None:
+    """Second loop of compute_presence (match-level missing players with
+    no squad row) -- extracted for python:S3776."""
+    for p in missing_players:
+        norm = normalize_name(p.name)
         if norm in seen:
             continue
         seen.add(norm)
@@ -926,7 +954,6 @@ def compute_presence(
                 name=p.name, status="A", starting=False, on_bench=False, reason=reason,
             )
         )
-    return result
 
 
 def _presence_reason_for(p) -> str:

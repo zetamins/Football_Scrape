@@ -285,7 +285,8 @@ def test_get_upcoming_fixture_returns_odds_and_referee_from_one_fetch(monkeypatc
 
     monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
     odds, referee = asyncio.run(get_upcoming_fixture("Arsenal", "Chelsea"))
-    assert odds is not None and odds.home_win_odds == 2.0
+    assert odds is not None
+    assert odds.home_win_odds == 2.0
     assert referee == "M Taylor"
 
 
@@ -347,7 +348,8 @@ def test_get_league_form_fetches_season_csv(monkeypatch):
     assert forms["arsenal"] == "WWWDW"  # W,W,W,D,W
     assert forms["chelsea"] == "LL"
     assert len(calls) == 1
-    assert "/mmz4281/" in calls[0] and "E0.csv" in calls[0]
+    assert "/mmz4281/" in calls[0]
+    assert "E0.csv" in calls[0]
 
 
 def test_get_league_form_falls_back_to_last_season_when_current_missing(monkeypatch):
@@ -362,7 +364,8 @@ def test_get_league_form_falls_back_to_last_season_when_current_missing(monkeypa
 
     monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
     forms = asyncio.run(get_league_form("Premier League"))
-    assert forms is not None and "arsenal" in forms
+    assert forms is not None
+    assert "arsenal" in forms
     assert len(calls) == 2
 
 

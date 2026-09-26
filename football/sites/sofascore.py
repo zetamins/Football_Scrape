@@ -89,6 +89,12 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"
 )
 
+# Non-seeded OS-backed RNG for pacing jitter (S2245: the module-level
+# random.* functions are a predictable PRNG; jitter isn't security, but
+# SystemRandom costs nothing and keeps the rule satisfied). Never
+# monkeypatched by tests -- they stub _sleep/_pace instead.
+_RNG = random.SystemRandom()
+
 # Cloudflare's Turnstile interstitial (captcha.html) reads two signals
 # our default headless launch leaked, observed live 2026-09-25:
 # navigator.webdriver was true, and -- because new_context(user_agent=...)
@@ -111,7 +117,10 @@ _UA_METADATA = {
     "fullVersionList": [
         {"brand": "Google Chrome", "version": "151.0.7922.34"},
         {"brand": "Chromium", "version": "151.0.7922.34"},
-        {"brand": "Not=A?Brand", "version": "99.0.0.0"},
+        # Chrome's own dummy high-entropy full version for the Boring
+        # brand -- literally what Chrome exposes to JS. Reads like an IP
+        # to static analysis; it is a UA version string, not a host.
+        {"brand": "Not=A?Brand", "version": "99.0.0.0"},  # NOSONAR
     ],
     "platform": "Windows",
     "platformVersion": "10.0",
@@ -143,7 +152,7 @@ async def _sleep(ms: int) -> None:
         return
     if _MIN_INTERVAL_S <= 0:
         return
-    await asyncio.sleep((ms * random.uniform(1.2, 1.8)) / 1000)
+    await asyncio.sleep((ms * _RNG.uniform(1.2, 1.8)) / 1000)
 
 
 # Global inter-request floor across every browser session in a run.
@@ -160,7 +169,7 @@ _last_request_at = 0.0
 async def _pace() -> None:
     global _last_request_at
     now = time.monotonic()
-    gap = _MIN_INTERVAL_S * random.uniform(1.0, 1.75) if _MIN_INTERVAL_S else 0.0
+    gap = _MIN_INTERVAL_S * _RNG.uniform(1.0, 1.75) if _MIN_INTERVAL_S else 0.0
     wait = _last_request_at + gap - now
     if wait > 0:
         await asyncio.sleep(wait)
@@ -179,7 +188,7 @@ async def _warm_up(page: Page) -> None:
     # Human settle on the homepage before the first API XHR (same-origin
     # fetch needs this origin anyway). _sleep no-ops when the suite zeros
     # the pacing floor.
-    await _sleep(random.randint(400, 1200))
+    await _sleep(_RNG.randint(400, 1200))
 
 
 # A CDN-level block answers 200 with {"error":{"code":403,...}} (see
