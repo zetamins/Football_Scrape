@@ -1188,6 +1188,14 @@ def _compute_advanced_stats(
     # read a missing 0 as real either.
     unavailable_stats = sorted(key for key, totals in st.items() if totals["n"] == 0) or None
     unavail = set(unavailable_stats or ())
+    # A stat present in only SOME of the sample's matches still sums what
+    # it has -- but that partial coverage must be named, or a 4-match
+    # total reads as a full-window total (confirmed live: distance/sprints
+    # totals jumped 434->538 / 439->596 between two runs with an identical
+    # sample_size=5 because one run's per-match stat set lacked them once;
+    # every other stat was byte-identical). unavailable_stats only covers
+    # the n=0 end -- this is the silent partial end.
+    partial_stats = {key: int(totals["n"]) for key, totals in sorted(st.items()) if 0 < totals["n"] < max_n} or None
 
     def pair(key: str, for_v, against_v):
         """Null both sides when this source never reported the stat."""
@@ -1324,6 +1332,7 @@ def _compute_advanced_stats(
         penalties_awarded_for=acc.penalties_awarded_for, penalties_awarded_against=acc.penalties_awarded_against,
         field_tilt_pct=field_tilt_pct,
         source=source,
+        partial_stats=partial_stats,
     )
 
 

@@ -179,7 +179,16 @@ async def _launch_playwright_browser() -> AsyncIterator[Browser]:
             "available on this platform -- Playwright isn't installed."
         ) from err
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # AutomationControlled would expose navigator.webdriver=true,
+        # which Cloudflare's Turnstile reads before it will ever clear a
+        # challenge (observed live 2026-09-25: every Sofascore homepage
+        # load parked on captcha.html and no cf_clearance cookie was ever
+        # issued). Disabling the blink feature keeps webdriver undefined,
+        # like a normal human browser.
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         try:
             yield browser
         finally:

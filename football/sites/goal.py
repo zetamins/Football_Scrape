@@ -117,12 +117,7 @@ def _to_match_info(m: dict[str, Any]) -> MatchInfo:
     )
 
 
-async def get_goal_matches(team_name: str) -> list[MatchInfo]:
-    index = await _load_teams_index()
-    team = _find_best_team_match(index, team_name)
-    if team is None:
-        raise ValueError(f'No Goal.com team found matching "{team_name}"')
-
+async def _fetch_goal_fixtures(team: _TeamIndexEntry) -> list[MatchInfo]:
     url = f"https://www.goal.com/en/team/{team.slug}/fixtures-results/{team.id}"
     html = await fetch_text(url)
     data = _extract_next_data(html)
@@ -132,6 +127,66 @@ async def get_goal_matches(team_name: str) -> list[MatchInfo]:
     # schedules. Skip those rather than crashing on the rest of the list.
     matches = [m for m in matches if m.get("teamA") and m.get("teamB")]
     return [_to_match_info(m) for m in matches]
+
+
+async def _resolve_team_entry(
+    index: list[_TeamIndexEntry], team_name: str
+) -> tuple[_TeamIndexEntry | None, list[MatchInfo] | None]:
+    """Resolve `team_name` to its index entry, breaking exact-slug ties.
+
+    Goal.com's sitemap lists a national team's men's and women's sides
+    under the SAME slug (confirmed live: TWO slug="germany" entries --
+    x0vuldayagbmwazqjgbozu0v, whose window includes "Women's EURO" and the
+    2023 Women's World Cup, FIRST in the index; 3l2t2db0c5ow2f7s7bhr6mij4
+    = men's, 2025 WCQ vs Slovakia/Luxembourg/N.Ireland), and
+    find_best_slug_match's exact-match pass returns the first index hit --
+    which was the women's team (same failure mode fotmob.py sees; unlike
+    clubs, there is no "-women" slug suffix to prefer). On a same-slug
+    tie, fetch each candidate's fixtures and keep the first that does NOT
+    look women's. Returns the entry, plus its fixtures when the tie-break
+    already fetched them, so get_goal_matches does not refetch. Profile
+    callers discard the fixtures (rare ties only).
+    """
+    team = _find_best_team_match(index, team_name)
+    if team is None:
+        return None, None
+    siblings = [e for e in index if e.slug == team.slug and e.id != team.id]
+    if not siblings:
+        return team, None
+
+    first_matches: list[MatchInfo] | None = None
+    for entry in (team, *siblings):
+        matches = await _fetch_goal_fixtures(entry)
+        if first_matches is None:
+            first_matches = matches
+        if not _looks_womens(matches):
+            return entry, matches
+    # every same-slug candidate looked women's -- keep the original
+    # first-in-index pick so behaviour only changes when the tie can
+    # actually be broken
+    return team, first_matches
+
+
+def _looks_womens(matches: list[MatchInfo]) -> bool:
+    # Goal.com does not tag fixtures "(W)" the way Fotmob does; its
+    # women's team pages instead carry competitions named for women
+    # (confirmed live: the women's "germany" entry's competitions include
+    # "Women's EURO"; the men's entry's are Friendlies / UEFA Nations
+    # League A / World Cup / World Cup Qualification UEFA only). The team
+    # names are checked too in case Goal starts tagging them, and the
+    # comparison is lower-cased because competition casing is not stable.
+    return any(
+        "women" in ((m.competition or "") + " " + m.home_team + " " + m.away_team).lower()
+        for m in matches
+    )
+
+
+async def get_goal_matches(team_name: str) -> list[MatchInfo]:
+    index = await _load_teams_index()
+    team, prefetched = await _resolve_team_entry(index, team_name)
+    if team is None:
+        raise ValueError(f'No Goal.com team found matching "{team_name}"')
+    return prefetched if prefetched is not None else await _fetch_goal_fixtures(team)
 
 
 def _build_player_event_stats(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -428,7 +483,9 @@ async def get_goal_team_profile(team_name: str) -> TeamProfile:
     was found. Names are abbreviated ("A. Becker") not full names, which
     matters for cross-source enrichment (surname match, not exact match)."""
     index = await _load_teams_index()
-    team = _find_best_team_match(index, team_name)
+    # same identical-slug tie-break as get_goal_matches -- a tied
+    # national team must not resolve to the women's squad page
+    team, _ = await _resolve_team_entry(index, team_name)
     if team is None:
         raise ValueError(f'No Goal.com team found matching "{team_name}"')
 

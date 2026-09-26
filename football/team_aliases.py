@@ -360,6 +360,16 @@ _RAW_ALIASES: dict[str, list[str]] = {
     # but the single distinctive word does) -- safe as a bare-word alias
     # since no other club plausibly contains it.
     "royale union saint gilloise": ["st gilloise", "union sg", "gilloise"],
+
+    # ---- National teams ----
+    # Both confirmed live against goal's teams sitemap (and the same is
+    # true of Fotmob's index): these are stored under FIFA/UEFA official
+    # names -- slugs "turkiye"/"czechia" only, NO "turkey"/
+    # "czech-republic" anywhere -- so both queries resolved to None.
+    # ("Bosnia" needs no entry: its canonical alias substring-matches
+    # inside "bosnia-and-herzegovina" via the normal fallback pass.)
+    "turkey": ["turkiye"],
+    "czech republic": ["czechia"],
 }
 
 TEAM_ALIASES: dict[str, list[str]] = {normalize(k): [normalize(a) for a in v] for k, v in _RAW_ALIASES.items()}

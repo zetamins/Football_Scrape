@@ -524,6 +524,58 @@ def test_fetch_team_fixtures_raises_without_team_fallback_key(monkeypatch, tmp_p
         asyncio.run(get_fotmob_matches("Liverpool"))
 
 
+def _tie_seed(tmp_path, monkeypatch):
+    # Confirmed live: fotmob stores a national team's men's AND women's
+    # sides under the SAME slug -- "germany" = id 5812 (women, first in
+    # the index) + id 8570 (men). find_best_slug_match's exact-match pass
+    # returned the first hit, so the women's team shipped as the men's.
+    seed_path = tmp_path / "fotmob-teams.json"
+    seed_path.write_text(json.dumps([
+        {"id": 5812, "slug": "germany", "url": "https://www.fotmob.com/teams/5812/overview/germany"},
+        {"id": 8570, "slug": "germany", "url": "https://www.fotmob.com/teams/8570/overview/germany"},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(fotmob, "data_dir", lambda: tmp_path)
+
+
+def _tie_fixtures_page(team_id, home, away, with_squad=False):
+    entry: dict = {"fixtures": {"allFixtures": {"fixtures": [_fixture(home=home, away=away)]}}}
+    if with_squad:
+        entry["details"] = {"name": "Germany"}
+        entry["squad"] = {"squad": [{"title": "Attackers", "members": [
+            {"name": "S. Player", "age": 30, "goals": 1, "assists": 2, "ycards": 3, "rcards": 0, "rating": 7.0, "injury": None},
+        ]}]}
+    return {"props": {"pageProps": {"fallback": {f"team-{team_id}": entry}}}}
+
+
+def test_get_fotmob_matches_same_slug_tie_prefers_the_mens_entry(monkeypatch, tmp_path):
+    _tie_seed(tmp_path, monkeypatch)
+
+    async def fake_fetch_text(url):
+        if "/5812/" in url:
+            return _next_data_html(_tie_fixtures_page(5812, "Germany (W)", "Spain (W)"))
+        return _next_data_html(_tie_fixtures_page(8570, "Germany", "Spain"))
+
+    monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_fotmob_matches("Germany"))
+    assert [m.home_team for m in matches] == ["Germany"]
+
+
+def test_get_fotmob_matches_same_slug_tie_keeps_first_pick_when_all_look_womens(monkeypatch, tmp_path):
+    # If every same-slug candidate looks women's the tie cannot be
+    # broken -- keep the original first-in-index pick so behaviour only
+    # changes when the tie is actually decidable.
+    _tie_seed(tmp_path, monkeypatch)
+
+    async def fake_fetch_text(url):
+        if "/5812/" in url:
+            return _next_data_html(_tie_fixtures_page(5812, "Germany (W)", "Spain (W)"))
+        return _next_data_html(_tie_fixtures_page(8570, "Germany (W)", "Spain (W)"))
+
+    monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_fotmob_matches("Germany"))
+    assert [m.home_team for m in matches] == ["Germany (W)"]
+
+
 # --- get_fotmob_team_profile (async) -----------------------------------------------------
 
 
@@ -576,6 +628,23 @@ def test_get_fotmob_team_profile_raises_without_team_fallback_key(monkeypatch, t
     monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
     with pytest.raises(ValueError, match="team fallback key not found"):
         asyncio.run(get_fotmob_team_profile("Liverpool"))
+
+
+def test_get_fotmob_team_profile_same_slug_tie_prefers_the_mens_entry(monkeypatch, tmp_path):
+    # The profile path must hit the same tie-break as get_fotmob_matches
+    # -- otherwise a tied national team resolves to the men's fixtures
+    # but the women's squad/transfers page.
+    _tie_seed(tmp_path, monkeypatch)
+
+    async def fake_fetch_text(url):
+        if "/5812/" in url:
+            return _next_data_html(_tie_fixtures_page(5812, "Germany (W)", "Spain (W)"))
+        return _next_data_html(_tie_fixtures_page(8570, "Germany", "Spain", with_squad=True))
+
+    monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
+    profile = asyncio.run(get_fotmob_team_profile("Germany"))
+    assert profile.team_name == "Germany"
+    assert [s.name for s in profile.squad] == ["S. Player"]
 
 
 # --- get_fotmob_match_details (async) ------------------------------------------------------

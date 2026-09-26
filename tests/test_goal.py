@@ -106,6 +106,20 @@ def test_find_best_team_match_none_without_any_candidate():
     assert _find_best_team_match(entries, "Some Unrelated Team") is None
 
 
+def test_turkey_and_czech_republic_resolve_via_their_official_slugs():
+    # Confirmed live: goal's teams sitemap stores these under FIFA/UEFA
+    # official names -- "turkiye"/"czechia", with NO "turkey"/
+    # "czech-republic" slug present (same in the previous seed) -- so
+    # without an alias both queries resolved to None.
+    entries = [_entry("1", "turkiye"), _entry("2", "czechia")]
+    match = _find_best_team_match(entries, "Turkey")
+    assert match is not None
+    assert match.slug == "turkiye"
+    match = _find_best_team_match(entries, "Czech Republic")
+    assert match is not None
+    assert match.slug == "czechia"
+
+
 # --- _extract_next_data ------------------------------------------------------------
 
 
@@ -301,7 +315,10 @@ def test_extract_standing_finds_row_by_team_id():
     rankings = [{"team": {"id": "t1"}, "position": 3, "played": 20, "win": 12, "draw": 5, "lose": 3, "points": 41, "goalsDifference": 15}]
     standing = _extract_standing(rankings, "t1")
     assert standing.position == 3
-    assert standing.goal_diff == "15"
+    # Goal.com publishes an unsigned positive ("15"); TeamStanding
+    # canonicalizes to signed-iff-nonzero so the rendered value matches
+    # what Sofascore already emits ("+15").
+    assert standing.goal_diff == "+15"
 
 
 def test_extract_standing_none_when_team_missing():
@@ -389,6 +406,51 @@ def test_get_goal_matches_skips_unconfirmed_opponent_fixtures(monkeypatch, tmp_p
     matches = asyncio.run(get_goal_matches("Liverpool"))
     assert len(matches) == 1
     assert matches[0].home_team == "Home FC"
+
+
+# Confirmed live: goal's teams sitemap has TWO slug="germany" entries --
+# x0vuldayagbmwazqjgbozu0v (women: window includes "Women's EURO" and the
+# 2023 Women's World Cup) FIRST, then 3l2t2db0c5ow2f7s7bhr6mij4 (men:
+# 2025 WCQ vs Slovakia/Luxembourg/N.Ireland). find_best_slug_match's
+# exact-match pass returned the first hit, so the women's team shipped as
+# the men's report's possession/corners source.
+_TIE_SEED = [
+    {"id": "x0vuldayagbmwazqjgbozu0v", "slug": "germany", "url": "https://www.goal.com/en/team/germany/x0vuldayagbmwazqjgbozu0v"},
+    {"id": "3l2t2db0c5ow2f7s7bhr6mij4", "slug": "germany", "url": "https://www.goal.com/en/team/germany/3l2t2db0c5ow2f7s7bhr6mij4"},
+]
+
+
+def _tie_page(competition: str) -> dict:
+    return {"props": {"pageProps": {"content": {"matches": [
+        _raw_match(competition={"name": competition}),
+    ]}}}}
+
+
+def test_get_goal_matches_same_slug_tie_prefers_the_mens_entry(monkeypatch, tmp_path):
+    _seed_index(tmp_path, monkeypatch, _TIE_SEED)
+
+    async def fake_fetch_text(url):
+        if "x0vulday" in url:
+            return _next_data_html(_tie_page("Women's EURO"))
+        return _next_data_html(_tie_page("UEFA Nations League A"))
+
+    monkeypatch.setattr(goal, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_goal_matches("Germany"))
+    assert [m.competition for m in matches] == ["UEFA Nations League A"]
+
+
+def test_get_goal_matches_same_slug_tie_keeps_first_pick_when_all_look_womens(monkeypatch, tmp_path):
+    # If every same-slug candidate looks women's the tie cannot be
+    # broken -- keep the original first-in-index pick so behaviour only
+    # changes when the tie is actually decidable.
+    _seed_index(tmp_path, monkeypatch, _TIE_SEED)
+
+    async def fake_fetch_text(_url):
+        return _next_data_html(_tie_page("Women's EURO"))
+
+    monkeypatch.setattr(goal, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_goal_matches("Germany"))
+    assert [m.competition for m in matches] == ["Women's EURO"]
 
 
 # --- get_goal_match_details (async) --------------------------------------------------------
@@ -494,3 +556,27 @@ def test_get_goal_team_profile_builds_squad_with_season_stats(monkeypatch, tmp_p
     assert len(profile.squad) == 2
     assert profile.squad[0].season_stats.appearances == 20
     assert profile.squad[1].season_stats is None
+
+
+def test_get_goal_team_profile_same_slug_tie_prefers_the_mens_entry(monkeypatch, tmp_path):
+    # The profile path must hit the same tie-break as get_goal_matches --
+    # otherwise a tied national team resolves to the men's fixtures but
+    # the women's squad page.
+    _seed_index(tmp_path, monkeypatch, _TIE_SEED)
+
+    womens = _tie_page("Women's EURO")
+    mens = {"props": {"pageProps": {"content": {
+        "matches": [_raw_match(competition={"name": "UEFA Nations League A"})],
+        "team": {"name": "Germany"},
+        "squad": {"players": [
+            {"player": {"name": "J. Player", "position": "Forward"}, "stats": {"appearances": 5, "goals": 2, "assists": 1, "yellowCards": 0, "redCards": 0}},
+        ]},
+    }}}}
+
+    async def fake_fetch_text(url):
+        return _next_data_html(womens if "x0vulday" in url else mens)
+
+    monkeypatch.setattr(goal, "fetch_text", fake_fetch_text)
+    profile = asyncio.run(get_goal_team_profile("Germany"))
+    assert profile.team_name == "Germany"
+    assert [s.name for s in profile.squad] == ["J. Player"]

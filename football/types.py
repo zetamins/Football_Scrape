@@ -115,11 +115,22 @@ class TeamStanding:
     goal_difference: int | None = None
 
     def __post_init__(self) -> None:
+        try:
+            parsed = int(self.goal_diff)
+        except (TypeError, ValueError):
+            parsed = None
         if self.goal_difference is None:
-            try:
-                self.goal_difference = int(self.goal_diff)
-            except (TypeError, ValueError):
-                self.goal_difference = None
+            self.goal_difference = parsed
+        if parsed is not None:
+            # Canonical display form across sources: signed iff nonzero
+            # ("+8"/"-9"/"0"). Sofascore already emits exactly this;
+            # goal.com omits the sign on positives ("15"), soccerdesk
+            # usually signs, three65scores uses JS String(n). One rule at
+            # this single choke point keeps goal_diff a str (Android
+            # contract above) while making the rendered value identical
+            # whichever source filled the field. Unparseable values are
+            # left verbatim and keep goal_difference=None.
+            self.goal_diff = f"{parsed:+d}" if parsed else "0"
 
 
 @dataclass
@@ -1148,10 +1159,18 @@ class SeasonAdvancedStatsEstimate:
     set_piece_xg_against: float
     penalties_awarded_for: int
     penalties_awarded_against: int
-    # Share of combined final-third entries that were this team's own --
+    # Share of combined final-third entries that was this team's own --
     # null until at least one match in the sample has both figures.
     field_tilt_pct: float | None
     source: str
+    # Names (ADVANCED_STAT_NAMES keys) summed over FEWER than
+    # sample_size matches this run (1 <= n < sample_size) -- their
+    # *_for/*_against totals understate the full window. None when every
+    # stat covered the whole sample. unavailable_stats only covers the
+    # n=0 end; this covers the silent partial end (confirmed live:
+    # distance/sprints totals jumped between two runs with an identical
+    # sample_size=5 because one run's stat set lacked them in one match).
+    partial_stats: dict[str, int] | None = None
 
 
 @dataclass

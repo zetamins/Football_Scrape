@@ -223,6 +223,12 @@ def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
     assert "season to date" in report["dataWindows"]["team_season_stats.average_ball_possession"]
     assert "current season" in report["dataWindows"]["squad_season_stats"]
     assert "last 20" in report["dataWindows"]["squad_recent_usage"]
+    # lineups: a source-published XI is shown as published (NOT re-ranked
+    # by starts -- that ranking lives only in projected_xi_basis), and the
+    # squad's duplicate shirt numbers are called out as expected-for-NTs.
+    assert "AS PUBLISHED" in report["dataWindows"]["lineups"]
+    assert "projected_xi_basis" in report["dataWindows"]["lineups"]
+    assert "stale squad numbering" in report["dataWindows"]["lineups"]
     # H2H aggregate vs capped listed meetings must be explicit in JSON.
     assert "capped at 3" in report["dataWindows"]["recent_meetings"]
     assert "sample_size" in report["dataWindows"]["head_to_head_summary"]
@@ -242,6 +248,78 @@ def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
     assert "not zero errors" in report["dataWindows"]["insights.away_defensive_errors_estimate"]
     assert "advanced_stats" in report["dataWindows"]["insights.corners_cross_source_note"]
     assert "when they agree" in report["dataWindows"]["insights.corners_cross_source_note"]
+    # Opposite-side estimate asymmetry (Germany vs Greece audit): away side
+    # null while home populated must have an explanation channel.
+    assert "INDEPENDENTLY" in report["dataWindows"]["insights.home/away_*_estimate"]
+    assert "NOT 'zero'" in report["dataWindows"]["insights.home/away_*_estimate"]
+    # Sample-floor rule for the advantage strength label (n<3 withheld).
+    assert "<3 matches" in report["dataWindows"]["insights.away_advantage"]
+    assert "sample_size" in report["dataWindows"]["insights.home_advantage"]
+    # National-team squad shirt numbers repeat across call-up windows.
+    assert "informational" in report["dataWindows"]["squad[].shirt_number"]
+    # Lineups: source-published vs derived, and why projected_xi_basis is absent.
+    assert "field_sources" in report["dataWindows"]["lineups"]
+    assert "projected_xi_basis" in report["dataWindows"]["lineups"]
+    # A. Lineup shirt (matchday kit on the fixture) vs squad shirt (season
+    # roster) can legitimately differ; neither corrects the other.
+    assert "NOT reconciled" in report["dataWindows"]["squad[].shirt_number"]
+    assert "season roster" in report["dataWindows"]["squad[].shirt_number"]
+    assert "matchday kit" in report["dataWindows"]["lineups"]
+    # D. H2H win buckets and meeting venues come from the source's bracket /
+    # searched-team frame, not a verified stadium home/away.
+    assert "NOT from a verified stadium" in report["dataWindows"]["head_to_head_summary"]
+    assert "NOT " in report["dataWindows"]["recent_meetings"]
+    assert "Sofascore-only" in report["dataWindows"]["recent_meetings"]
+    # E. Several independent "last N" windows behind adjacent estimates;
+    # compare within a family, each object's own sample_size is authoritative.
+    assert "insights.sample_size_windows" in report["dataWindows"]
+    assert "authoritative" in report["dataWindows"]["insights.sample_size_windows"]
+    assert "5" in report["dataWindows"]["insights.sample_size_windows"]
+    # B. Canonical signed-iff-nonzero goal_diff across sources.
+    assert "signed iff nonzero" in report["dataWindows"]["match.*_team_standing.goal_diff"]
+    # C. Zone spot counts are clamped to the standings table's size.
+    assert "clamped" in report["dataWindows"]["insights.home/away_standings_zone"]
+    # 4. Null-field documentation: every honest source/mechanism gap that
+    # shows up on a national-team run has an explicit dataWindows entry
+    # (streaks, manager duel vs our own scan, football-data odds, own-venue
+    # coords, rank record, club strength, fullback baseline, transfers,
+    # manager Wikipedia enrichment, venueDetails).
+    assert "source published none" in report["dataWindows"]["match.head_to_head_streaks"]
+    assert "managerDuel" in report["dataWindows"]["match.manager_duel"]
+    assert "sample_size 0 means scanned" in report["dataWindows"]["match.home/away_manager_vs_*_club"]
+    assert "national-team fixture" in report["dataWindows"]["match.betting_odds"]
+    assert "national teams have no club venue" in report["dataWindows"]["match.*_team_venue_lat/lon"]
+    assert "checked zero" in report["dataWindows"]["insights.*_opponent_rank_record"]
+    assert "national teams can't match a club row" in report["dataWindows"]["insights.*_club_strength"]
+    assert "baseline not computable" in report["dataWindows"]["insights.*_fullback_exposure"]
+    assert "national-team call-ups" in report["dataWindows"]["teamProfile.recent_transfers"]
+    assert "coverage asymmetry" in report["dataWindows"]["home/away_manager"]
+    assert "cannot resolve national-team" in report["dataWindows"]["venueDetails"]
+    # Item 3 (A-K): every field the Tottenham run left missing/null now has
+    # its own entry naming the mechanism, not just the value.
+    assert "2 days of" in report["dataWindows"]["match.weather_detail"]  # A: wttr forecast horizon
+    assert "neither has published" in report["dataWindows"]["match.referee"]  # B
+    assert "whenever referee is null" in report["dataWindows"]["match.referee_stats"]  # B
+    assert "whenever referee is null" in report["dataWindows"]["match.referee_card_risk_note"]  # B
+    assert "this far from kickoff" in report["dataWindows"]["match.betting_odds"]  # C
+    assert "close to" in report["dataWindows"]["match.sofascore_betting_odds"]  # C/E
+    assert "never as a full-window total" in report["dataWindows"]["insights.home_advanced_stats"]  # D
+    assert "never as a full-window total" in report["dataWindows"]["insights.away_advanced_stats"]  # D
+    assert "absent from the JSON entirely" in report["dataWindows"]["match.home_formation"]  # F
+    assert "absent from the JSON entirely" in report["dataWindows"]["match.away_formation"]  # F
+    assert "NO source lineup exists" in report["dataWindows"]["match.lineup_confirmed"]  # F
+    assert "FIXTURE-relative" in report["dataWindows"]["insights.* reference frames (own vs home/away)"]  # I
+    assert "ties broken by total minutes" in report["dataWindows"]["insights.projected_xi_basis"]  # G
+    assert "expected, not a broken record" in report["dataWindows"]["recent_meetings"]  # K
+    # Item 5: contradictions closed.
+    assert "null when NO source lineup exists" in report["dataWindows"]["lineups"]  # 5.7
+    assert "record_attendance" in report["dataWindows"]["venueDetails"]  # 5.8
+    assert "NOT part of the dataCompleteness denominator" in report["dataWindows"]["venueDetails"]  # 5.8
+    assert "projected_starter" in report["dataWindows"]["insights.*_presence"]  # 5.5
+    assert "stays false" in report["dataWindows"]["insights.*_presence"]  # 5.5
+    # Item 6: per-player null rows inside populated squad lists are normal.
+    assert "null row inside an otherwise populated list" in report["dataWindows"]["squad_season_stats"]
+    assert "null row inside an otherwise populated list" in report["dataWindows"]["squad_recent_usage"]
 
 
 def test_build_report_json_data_completeness_lists_missing_fields():

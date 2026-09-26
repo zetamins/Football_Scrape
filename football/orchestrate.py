@@ -914,7 +914,11 @@ def _apply_projected_xi(insights_result, own_presence, opponent_presence, merged
     own_selected = ins.mark_projected_starters(own_presence, merged_profile.squad if merged_profile else None)
     opponent_selected = ins.mark_projected_starters(opponent_presence, opponent_profile.squad if opponent_profile else None)
     if own_selected or opponent_selected:
-        insights_result.projected_xi_basis = "Projected, not a published lineup: one goalkeeper plus the ten available outfield players with the most starts in the recent matches whose lineups were read"
+        insights_result.projected_xi_basis = (
+            "Projected, not a published lineup: one goalkeeper plus the ten available outfield players with the "
+            "most starts in the recent matches whose lineups were read; ties broken by total minutes played in "
+            "those matches"
+        )
     return own_selected, opponent_selected
 
 
@@ -1197,9 +1201,17 @@ async def _enrich_weather(merged) -> None:
         kickoff_hour_matched=weather_detail.kickoff_hour_matched,
     )
     merged.field_sources["weather_detail"] = "wttr.in"
-    if not merged.weather and weather_detail.description:
+    if weather_detail.description:
+        # Always overwrite the source weather string when wttr.in has a
+        # description. Confirmed live (Germany): fotmob's weather said
+        # 15°C while the kickoff-hour wttr.in detail below said 16.0°C
+        # for the same venue -- two temperatures in one report because
+        # the old `not merged.weather` gate never reconciled them. The
+        # detail is kickoff-hour matched (weather_detail rides alongside
+        # in the same report), so its string is the consistent choice;
+        # field_source flips to wttr.in so provenance stays honest.
         approx = "" if weather_detail.kickoff_hour_matched else " (same-day approximation, local midday)"
-        merged.weather = f"{weather_detail.description}, {weather_detail.temp_c}°C{approx}"
+        merged.weather = f"{weather_detail.description.strip()}, {weather_detail.temp_c}°C{approx}"
         merged.field_sources["weather"] = "wttr.in"
 
 
@@ -1352,11 +1364,9 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
         profile.non_injury_absences = compute_non_injury_absences(profile)
 
     # Annotate squad rows whose season and last-20 goal totals disagree
-    # (Gallagher 1g season vs 2g recent) directly on the row, so the
-    # discrepancy is visible without cross-referencing two leaderboards.
-    for profile in (merged_profile, opponent_profile):
-        if profile:
-            annotate_stat_window_notes(profile.squad)
+    # (Gallagher 1g season vs 2g recent) directly on the row -- MOVED to
+    # after step 6 below; see the comment at the new call site for why
+    # annotating here was a bug for the opponent squad.
 
     insights_result = ins.compute_insights(merged, merged_profile.average_age if merged_profile else None, own_rest_days, opponent_context)
     venue_details = await fetch_venue_details(merged, merged.venue_country)
@@ -1398,6 +1408,22 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     # multi-minute blank stretch in the UI.
     on_progress(_step_message(6, "Enriching opponent form and ranks..."))
     opponent_form = await _enrich_opponent_form_and_ranks(merged, opponent_name, opponent_context, opponent_profile, own_is_home, form, own_advanced_stats, insights_result, form_source)
+
+    # Annotate squad rows whose season and last-20 goal totals disagree
+    # (Gallagher 1g season vs 2g recent) directly on the row, so the
+    # discrepancy is visible without cross-referencing two leaderboards.
+    # MUST run here, after _enrich_opponent_form_and_ranks: that step is
+    # where the OPPONENT squad's recent_usage first exists (apply_usage_pattern
+    # from the form window, inside _enrich_opponent_form_and_ranks), while
+    # the own squad got its usage during step 1. The previous placement --
+    # before step 2 even fetched the opponent -- saw the opponent's
+    # recent_usage still None, so every opponent-side mismatch shipped with
+    # a null note while the own side was annotated correctly (confirmed
+    # live: 7 Man Utd rows mismatched with null notes beside Gallagher's
+    # set note, violating dataWindows.squad.stat_window_note's own rule).
+    for profile in (merged_profile, opponent_profile):
+        if profile:
+            annotate_stat_window_notes(profile.squad)
 
     # Fotmob is the preferred xG source (per-match "Expected goals" sums
     # over the last 10 finished). When its accumulator came back empty
@@ -1494,63 +1520,78 @@ async def run_search(
     # out later.
     team_name = team_name.strip()
     sofascore_site.reset_block_state()  # a block from a previous run says nothing about this one
-    from .form import clear_details_cache
+    sofascore_site.begin_run_session()  # arm one shared browser session for every
+    # Sofascore operation below; closed in the finally, never left dangling
+    try:
+        from .form import clear_details_cache
 
-    clear_details_cache()
-    on_progress(f'Searching for "{team_name}" (base: Sofascore, supplemented by Fotmob, SoccerDesk, Goal.com, 365Scores)...')
+        clear_details_cache()
+        on_progress(f'Searching for "{team_name}" (base: Sofascore, supplemented by Fotmob, SoccerDesk, Goal.com, 365Scores)...')
 
-    matches_by_source, details_by_source, profile_by_source, statuses = await _scrape_all_sources(team_name, on_progress, on_source_progress)
+        matches_by_source, details_by_source, profile_by_source, statuses = await _scrape_all_sources(team_name, on_progress, on_source_progress)
 
-    merged = merge_match_details(details_by_source) if details_by_source else None
-    form_source = next((s for s in SOURCE_ORDER if matches_by_source.get(s)), None)
-    form = compute_form_summary(team_name, matches_by_source[form_source]) if form_source else None
-    merged_profile = merge_team_profile(profile_by_source) if profile_by_source else None
+        merged = merge_match_details(details_by_source) if details_by_source else None
+        form_source = next((s for s in SOURCE_ORDER if matches_by_source.get(s)), None)
+        form = compute_form_summary(team_name, matches_by_source[form_source]) if form_source else None
+        merged_profile = merge_team_profile(profile_by_source) if profile_by_source else None
 
-    # Confirmed live (Android), two distinct cases, both silently
-    # produced a "successful" report with match=null and no insights
-    # instead of a clear error:
-    #  1. Unrecognized name (e.g. "manutd" -- no source's fuzzy match
-    #     handles a squished/no-space abbreviation, unlike "man utd"):
-    #     every source's own matches_error/profile_error already said
-    #     "No <Source> team found matching ..." (each source's search
-    #     itself works correctly), but that signal never propagated up.
-    #  2. Recognized name, no upcoming fixture (e.g. "westham" -- confirmed
-    #     live: Sofascore's own profile lookup succeeds with zero errors,
-    #     `merged_profile` is populated, but no source has a next match to
-    #     report). Different situation from #1 -- the team genuinely
-    #     exists, there's just nothing to predict right now -- so gets its
-    #     own message rather than being told "not found".
-    # Both raise rather than falling through to `_compute_match_context`
-    # (which needs a real `merged` match to do anything). android_report.py
-    # doesn't catch either, so they propagate as a PyException to Kotlin,
-    # where ReportRepository.search()'s existing `catch (e: PyException)`
-    # already turns it into SearchState.Error -- no Kotlin change needed,
-    # that path was already there for exactly this shape of failure.
-    if not merged:
-        if merged_profile:
-            raise RuntimeError(f'Found "{team_name}", but no upcoming match is currently scheduled.')
-        raise RuntimeError(f'Could not find a team matching "{team_name}". Check the spelling and try again.')
+        # Confirmed live (Android), two distinct cases, both silently
+        # produced a "successful" report with match=null and no insights
+        # instead of a clear error:
+        #  1. Unrecognized name (e.g. "manutd" -- no source's fuzzy match
+        #     handles a squished/no-space abbreviation, unlike "man utd"):
+        #     every source's own matches_error/profile_error already said
+        #     "No <Source> team found matching ..." (each source's search
+        #     itself works correctly), but that signal never propagated up.
+        #  2. Recognized name, no upcoming fixture (e.g. "westham" -- confirmed
+        #     live: Sofascore's own profile lookup succeeds with zero errors,
+        #     `merged_profile` is populated, but no source has a next match to
+        #     report). Different situation from #1 -- the team genuinely
+        #     exists, there's just nothing to predict right now -- so gets its
+        #     own message rather than being told "not found".
+        # Both raise rather than falling through to `_compute_match_context`
+        # (which needs a real `merged` match to do anything). android_report.py
+        # doesn't catch either, so they propagate as a PyException to Kotlin,
+        # where ReportRepository.search()'s existing `catch (e: PyException)`
+        # already turns it into SearchState.Error -- no Kotlin change needed,
+        # that path was already there for exactly this shape of failure.
+        if not merged:
+            if merged_profile:
+                raise RuntimeError(f'Found "{team_name}", but no upcoming match is currently scheduled.')
+            raise RuntimeError(f'Could not find a team matching "{team_name}". Check the spelling and try again.')
 
-    ctx: _MatchContext | None = None
-    if merged:
-        ctx = await _compute_match_context(team_name, merged, merged_profile, form, form_source, matches_by_source, on_progress)
+        ctx: _MatchContext | None = None
+        if merged:
+            ctx = await _compute_match_context(team_name, merged, merged_profile, form, form_source, matches_by_source, on_progress)
 
-    on_progress("Done.")
-    calibration = _score_past_predictions(past_predictions, matches_by_source)
-    generated_at = datetime.now(tz=UTC).isoformat(timespec="milliseconds").replace(_UTC_OFFSET_SUFFIX, "Z")
-    return RunSearchResult(
-        team=team_name,
-        generated_at=generated_at,
-        statuses=statuses,
-        merged=merged,
-        opponent_name=ctx.opponent_name if ctx else None,
-        form=ctx.form if ctx else form,
-        form_source=form_source,
-        opponent_form=ctx.opponent_form if ctx else None,
-        opponent_form_source=ctx.opponent_form_source if ctx else None,
-        merged_profile=merged_profile,
-        opponent_profile=ctx.opponent_profile if ctx else None,
-        insights=ctx.insights_result if ctx else None,
-        venue_details=ctx.venue_details if ctx else None,
-        calibration=calibration,
-    )
+        on_progress("Done.")
+        calibration = _score_past_predictions(past_predictions, matches_by_source)
+        generated_at = datetime.now(tz=UTC).isoformat(timespec="milliseconds").replace(_UTC_OFFSET_SUFFIX, "Z")
+        # Confirmed live: searching "germany" (as typed into the CLI/search
+        # box) shipped "team": "germany" in the JSON while every other name
+        # in the report was the source's canonical spelling ("Germany",
+        # home_team). Display the source's own name when it names the same
+        # team; the raw input keeps driving all matching/scraping above.
+        display_team = team_name
+        if merged and merged.home_team and same_team(team_name, merged.home_team):
+            display_team = merged.home_team
+        elif merged and merged.away_team and same_team(team_name, merged.away_team):
+            display_team = merged.away_team
+        return RunSearchResult(
+            team=display_team,
+            generated_at=generated_at,
+            statuses=statuses,
+            merged=merged,
+            opponent_name=ctx.opponent_name if ctx else None,
+            form=ctx.form if ctx else form,
+            form_source=form_source,
+            opponent_form=ctx.opponent_form if ctx else None,
+            opponent_form_source=ctx.opponent_form_source if ctx else None,
+            merged_profile=merged_profile,
+            opponent_profile=ctx.opponent_profile if ctx else None,
+            insights=ctx.insights_result if ctx else None,
+            venue_details=ctx.venue_details if ctx else None,
+            calibration=calibration,
+        )
+    finally:
+        await sofascore_site.close_run_session()

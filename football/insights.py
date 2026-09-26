@@ -101,6 +101,18 @@ def classify_standings_zone(
     stakes = LEAGUE_STAKES.get(competition) if competition else None
     continental_spots = stakes["continental_spots"] if stakes else 4
     relegation_spots = stakes["relegation_spots"] if stakes else 3
+    # Clamp spot counts to the actual table size. LEAGUE_STAKES counts are
+    # league-wide (designed for ~18-20 team tables), but standings can also
+    # be a group/mini-league table -- without this a 4-team table would push
+    # positions 1-4 into the continental branch (default 4 spots), labelling
+    # even the bottom team "top-of-table" and making the relegation branch
+    # unreachable. Floor of 1 keeps 2-team tables classifiable (winner
+    # top-of-table, loser relegation-zone) and midtable unreachable there,
+    # which is correct for a final. For 4 teams: 1 spot each side, positions
+    # 2-3 midtable.
+    max_zone_spots = max(1, (standing.total_teams - 1) // 2)
+    continental_spots = min(continental_spots, max_zone_spots)
+    relegation_spots = min(relegation_spots, max_zone_spots)
     if standing.position <= continental_spots:
         zone = "top-of-table"
     elif standing.position > standing.total_teams - relegation_spots:
@@ -753,8 +765,15 @@ def derive_projected_bench(
     bench for this fixture (Sofascore is the only source that does, and
     only once lineups are close to confirmed). Mirrors derive_lineup's
     honesty rules: age/shirt_number from the squad when published,
-    everything else None. Returns None when there's nothing meaningful
-    to project (no lineup to subtract, or no squad / no unused players).
+    everything else None -- except that a bench shirt_number colliding
+    with another XI+bench member's number is blanked, because the squad
+    numbering can be stale/duplicated (confirmed live: Germany's derived
+    bench put #18 on BOTH Leweling and Stach while starter Brown also
+    wears #18; the squad itself lists four players as #1). A colliding
+    number would actively mislead a matchday reader; blank means
+    "unknown", not "no number". Returns None when there's nothing
+    meaningful to project (no lineup to subtract, or no squad / no
+    unused players).
 
     `absent`: normalized names ruled out for this fixture (missing/
     suspended/injured) -- never projected onto the bench, so a derived
@@ -791,7 +810,7 @@ def derive_projected_bench(
     if not candidates:
         return None
     candidates.sort(key=lambda m: (m.recent_usage.total_minutes if m.recent_usage else 0), reverse=True)
-    return [
+    bench = [
         LineupPlayer(
             name=m.name, position=m.role, substitute=True,
             minutes_played=None, goals=None, assists=None, xg=None, xa=None, shots=None,
@@ -801,6 +820,20 @@ def derive_projected_bench(
         )
         for m in candidates[:9]
     ]
+    from collections import Counter
+
+    # Blank bench numbers that collide with any other member of the SAME
+    # XI+bench selection: the lineup's numbers are source-published
+    # (authoritative for this match), the bench's come from the squad
+    # (stale/duplicated numbering -- see docstring). Both members of a
+    # bench-internal collision are blanked (no basis to pick a winner).
+    starter_numbers = {p.shirt_number for p in lineup if p.shirt_number is not None}
+    bench_numbers = [p.shirt_number for p in bench if p.shirt_number is not None]
+    colliding = {n for n, c in Counter(bench_numbers).items() if c > 1} | (starter_numbers & set(bench_numbers))
+    for p in bench:
+        if p.shirt_number is not None and p.shirt_number in colliding:
+            p.shirt_number = None
+    return bench
 
 
 def _in_name_set(name: str, name_set: dict[str, bool] | None) -> bool | None:

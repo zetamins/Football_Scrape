@@ -197,11 +197,62 @@ def _to_match_info(f: dict[str, Any]) -> MatchInfo:
     )
 
 
-async def get_fotmob_matches(team_name: str) -> list[MatchInfo]:
-    index = await _load_teams_index()
+async def _resolve_team_entry(
+    index: list[_TeamIndexEntry], team_name: str
+) -> tuple[_TeamIndexEntry | None, list[MatchInfo] | None]:
+    """Resolve `team_name` to its index entry, breaking exact-slug ties.
+
+    Fotmob stores a national team's men's AND women's sides under the
+    SAME slug (confirmed live: slug "germany" = id 5812 (women, all 12
+    fixtures flagged "(W)") + id 8570 (men); slug "greece" = id 5905
+    (women) + id 6383 (men)), and find_best_slug_match's exact-match pass
+    returns the FIRST index hit -- which was the women's team, silently
+    shipping women's shots/passing/card stats as the men's report (the
+    suffix-based tie-breaks elsewhere only help when the slug itself
+    differs, e.g. "liverpool-women"). On a same-slug tie, fetch each
+    candidate's fixtures and keep the first that does NOT look women's.
+    Returns the entry, plus its fixtures when the tie-break already
+    fetched them, so get_fotmob_matches does not refetch.
+
+    Callers that only need the entry (team profiles) may see 1-2 extra
+    fixture fetches on a tie -- ties are rare (national teams only), so
+    the profile path simply discards them.
+    """
     team = _find_best_team_match(index, team_name)
     if team is None:
+        return None, None
+    siblings = [e for e in index if e.slug == team.slug and e.id != team.id]
+    if not siblings:
+        return team, None
+
+    first_matches: list[MatchInfo] | None = None
+    for entry in (team, *siblings):
+        matches = [_to_match_info(f) for f in await _fetch_team_fixtures(entry)]
+        if first_matches is None:
+            first_matches = matches
+        if not _looks_womens(matches):
+            return entry, matches
+    # every same-slug candidate looked women's -- keep the original
+    # first-in-index pick so behaviour only changes when the tie can
+    # actually be broken
+    return team, first_matches
+
+
+def _looks_womens(matches: list[MatchInfo]) -> bool:
+    # Fotmob appends "(W)" to BOTH team names on women's fixtures --
+    # confirmed live: all 12 women's-Germany and all 6 women's-Greece
+    # fixtures carry it; men's fixtures never do (a men's team never
+    # plays a women's team, so the marker cannot appear on either side).
+    return any("(W)" in (m.home_team + m.away_team) for m in matches)
+
+
+async def get_fotmob_matches(team_name: str) -> list[MatchInfo]:
+    index = await _load_teams_index()
+    team, prefetched = await _resolve_team_entry(index, team_name)
+    if team is None:
         raise ValueError(f'No Fotmob team found matching "{team_name}"')
+    if prefetched is not None:
+        return prefetched
 
     fixtures = await _fetch_team_fixtures(team)
     return [_to_match_info(f) for f in fixtures]
@@ -476,7 +527,9 @@ async def get_fotmob_team_profile(team_name: str) -> TeamProfile:
     so this is just a second GET of a page already established as in
     scope."""
     index = await _load_teams_index()
-    team = _find_best_team_match(index, team_name)
+    # same identical-slug tie-break as get_fotmob_matches -- a tied
+    # national team must not resolve to the women's squad/transfers page
+    team, _ = await _resolve_team_entry(index, team_name)
     if team is None:
         raise ValueError(f'No Fotmob team found matching "{team_name}"')
 

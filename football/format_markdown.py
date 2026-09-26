@@ -953,6 +953,11 @@ def advanced_stats_str(x: SeasonAdvancedStatsEstimate, label: str) -> str:
         f"field tilt {tilt}%",
     ]
     note = f"; unavailable from source: {', '.join(sorted(unavailable))}" if unavailable else ""
+    # partial_stats: totals summed over fewer than sample_size matches --
+    # name both the stat and its own n so a partial total can't read as a
+    # full-window one (e.g. distance over 4 of 5 matches).
+    if x.partial_stats:
+        note += f"; partial n (of {x.sample_size}): " + ", ".join(f"{k}={n}" for k, n in sorted(x.partial_stats.items()))
     return f"{label} advanced stats (last {x.sample_size} matched): {', '.join(parts)}{note}"
 
 

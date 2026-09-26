@@ -1191,6 +1191,34 @@ def test_compute_advanced_stats_builds_estimate_from_full_stat_totals():
     assert estimate.sample_size == 3
     assert estimate.touches_in_box_for == 1
     assert estimate.source == "sofascore"
+    assert estimate.partial_stats is None
+
+
+def test_compute_advanced_stats_names_stats_summed_over_fewer_matches_than_the_sample():
+    # Confirmed live: distance/sprints totals jumped between two runs with
+    # an identical sample_size=5 (434->538 km) because one run's per-match
+    # stat set lacked them in a single match -- every other stat was
+    # byte-identical. partial_stats must name the under-covered stat and
+    # its own n, or a 4-match total reads as a full-window total.
+    from football.form import (
+        ADVANCED_STAT_NAMES,
+        _compute_advanced_stats,
+        _SetPieceAccumulator,
+    )
+
+    stat_totals = {key: {"for": 10, "against": 10, "n": 3} for key in ADVANCED_STAT_NAMES}
+    stat_totals["distance_covered_km"]["n"] = 2
+    estimate = _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "sofascore")
+    assert estimate.sample_size == 3
+    assert estimate.partial_stats == {"distance_covered_km": 2}
+    # the partial total still reports what it observed (n=2 of 3), it is
+    # just no longer silent about the coverage
+    assert estimate.distance_covered_km_for == 10
+    # a stat absent from every match stays on the n=0 list, not the partial one
+    stat_totals["sprints"]["n"] = 0
+    estimate = _compute_advanced_stats(stat_totals, _SetPieceAccumulator(), "sofascore")
+    assert estimate.partial_stats == {"distance_covered_km": 2}
+    assert "sprints" in (estimate.unavailable_stats or [])
 
 
 def test_compute_advanced_stats_none_without_any_sample():

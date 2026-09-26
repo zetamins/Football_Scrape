@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 
@@ -11,7 +13,9 @@ def _reset_sofascore_block_state():
 
     original_interval = sofascore._MIN_INTERVAL_S
     sofascore.reset_block_state()
+    asyncio.run(sofascore.close_run_session())  # leak insurance: a test that armed a session must not leave it open
     sofascore._MIN_INTERVAL_S = 0
     yield
     sofascore.reset_block_state()
+    asyncio.run(sofascore.close_run_session())
     sofascore._MIN_INTERVAL_S = original_interval

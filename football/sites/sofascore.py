@@ -17,6 +17,13 @@ Timing is deliberately non-metronomic: warm-up settles on the homepage
 for a randomized pause, `_pace` adds proportional jitter on top of the
 ~800ms floor, and call-site `_sleep` gaps are jittered the same way.
 
+One run = one browser: `run_search` arms a shared session so matches,
+details, profile, older-meetings and form enrichment all reuse a single
+warm page (a cold launch per operation read to the CDN as a bot
+footprint -- confirmed live: OK -> goto timeouts -> 403 across
+consecutive runs). Callers that never arm a session keep the original
+launch-per-call behavior.
+
 Cloudflare's challenge response time is variable -- observed anywhere from
 ~2s to 40s+ under repeated automated traffic -- so every navigation here
 goes through retry_with_backoff rather than a single fixed-timeout attempt.
@@ -30,6 +37,7 @@ import asyncio
 import json
 import random
 import time
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -74,10 +82,55 @@ from ..types import (
     classify_absence,
 )
 
+# Matches the real bundled runtime (Chrome for Testing 151.0.7922.34,
+# see browser.py) so the UA string can't contradict the client hints.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"
 )
+
+# Cloudflare's Turnstile interstitial (captcha.html) reads two signals
+# our default headless launch leaked, observed live 2026-09-25:
+# navigator.webdriver was true, and -- because new_context(user_agent=...)
+# rewrites only the UA *string* -- navigator.userAgentData still branded
+# the browser "HeadlessChrome" 151 while the string claimed Chrome/124.
+# The challenge never solved on that fingerprint, so every API fetch
+# came back 403 challenge. Both signals are corrected before the first
+# navigation: an init script hides webdriver, and a CDP user-agent
+# override makes the client hints tell the same Chrome 151 story.
+_WEBDRIVER_MASK_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+"""
+
+_UA_METADATA = {
+    "brands": [
+        {"brand": "Google Chrome", "version": "151"},
+        {"brand": "Chromium", "version": "151"},
+        {"brand": "Not=A?Brand", "version": "99"},
+    ],
+    "fullVersionList": [
+        {"brand": "Google Chrome", "version": "151.0.7922.34"},
+        {"brand": "Chromium", "version": "151.0.7922.34"},
+        {"brand": "Not=A?Brand", "version": "99.0.0.0"},
+    ],
+    "platform": "Windows",
+    "platformVersion": "10.0",
+    "architecture": "x86",
+    "model": "",
+    "mobile": False,
+    "bitness": "64",
+}
+
+
+async def _apply_fingerprint_hygiene(context: Any, page: Any) -> None:
+    """Run between page creation and warm-up navigation: both overrides
+    take effect on the next navigation, so nothing has loaded yet."""
+    await context.add_init_script(_WEBDRIVER_MASK_JS)
+    cdp = await context.new_cdp_session(page)
+    await cdp.send(
+        "Emulation.setUserAgentOverride",
+        {"userAgent": _USER_AGENT, "userAgentMetadata": _UA_METADATA},
+    )
 
 
 async def _sleep(ms: int) -> None:
@@ -164,6 +217,73 @@ def _raise_if_blocked() -> None:
     skipped = SofascoreBlockedError(f"Sofascore blocked this run ({_block_reason}); further Sofascore requests were skipped")
     skipped._failure_recorded = True  # the block itself was already reported once, with the skipped-requests note
     raise skipped
+
+
+# One shared browser session per run. matches/details/profile/older-
+# meetings and every form-enriched match each used to launch their own
+# cold Chromium + homepage warm-up, so one full run made ~15-20 launches
+# even though every request inside them was correctly paced. Observed
+# live (2026-09-24/25, consecutive runs from one IP): OK -> homepage
+# goto 30s timeouts -> hard 403 challenge -- Cloudflare scoring the
+# launch footprint, not the request rate. begin_run_session() arms
+# sharing so every later operation reuses one warm page; direct callers
+# that never begin a run (tests, ad-hoc entry-point use) keep the
+# original per-call launch behavior exactly.
+_run_session_enabled = False
+_run_browser_cm: Any = None
+_run_page: Any = None
+
+
+def begin_run_session() -> None:
+    """Arm session sharing for the rest of this run. No browser is
+    launched here -- the first operation that actually needs a page pays
+    the warm-up, so a run that never reaches Sofascore launches nothing."""
+    global _run_session_enabled
+    _run_session_enabled = True
+
+
+async def close_run_session() -> None:
+    """Close the shared browser if one was opened and return to per-call
+    mode. Idempotent, and never raises -- a teardown failure must not
+    mask the run's own result."""
+    global _run_browser_cm, _run_page, _run_session_enabled
+    cm, _run_browser_cm, _run_page = _run_browser_cm, None, None
+    _run_session_enabled = False
+    if cm is not None:
+        with suppress(Exception):
+            await cm.__aexit__(None, None, None)
+
+
+@asynccontextmanager
+async def _session_page():
+    """The page an operation runs on: the run's shared page when a run
+    session is armed, otherwise a fresh launch+warm-up per call (the
+    original behavior, kept for direct callers). The first shared open
+    reuses the exact launch/warm-up sequence the per-call path has always
+    used, including _warm_up's block check and the homepage settle."""
+    global _run_browser_cm, _run_page
+    if not _run_session_enabled:
+        async with launch_browser() as browser:
+            context = await browser.new_context(user_agent=_USER_AGENT)
+            page = await context.new_page()
+            await _apply_fingerprint_hygiene(context, page)
+            await _warm_up(page)
+            yield page
+        return
+    if _run_page is None:
+        cm = launch_browser()
+        browser = await cm.__aenter__()
+        try:
+            context = await browser.new_context(user_agent=_USER_AGENT)
+            page = await context.new_page()
+            await _apply_fingerprint_hygiene(context, page)
+            await _warm_up(page)
+        except BaseException:
+            with suppress(Exception):
+                await cm.__aexit__(None, None, None)
+            raise
+        _run_browser_cm, _run_page = cm, page
+    yield _run_page
 
 
 # Same-origin in-page fetch -- the pattern the site's own JS uses. Must
@@ -389,11 +509,7 @@ def _to_match_info(e: dict[str, Any]) -> MatchInfo:
 
 async def get_sofascore_matches(team_name: str) -> list[MatchInfo]:
     _raise_if_blocked()
-    async with launch_browser() as browser:
-        context = await browser.new_context(user_agent=_USER_AGENT)
-        page = await context.new_page()
-        await _warm_up(page)
-
+    async with _session_page() as page:
         team = await _find_team(page, team_name)
         if team is None:
             raise ValueError(f'No Sofascore team found matching "{team_name}"')
@@ -451,10 +567,7 @@ async def get_sofascore_older_meeting_info(
     if not wanted_days:
         return {}
     _raise_if_blocked()
-    async with launch_browser() as browser:
-        context = await browser.new_context(user_agent=_USER_AGENT)
-        page = await context.new_page()
-        await _warm_up(page)
+    async with _session_page() as page:
         team = await _find_team(page, team_name)
         if team is None:
             return {}
@@ -615,6 +728,32 @@ def _extract_season_stats(data: dict[str, Any] | None) -> TeamSeasonStats | None
         red_cards=s.get("redCards", 0),
         average_ball_possession=poss,
     )
+
+
+def _select_standing_rows(
+    standings: dict[str, Any] | None, home_team_id: int, away_team_id: int
+) -> list[dict[str, Any]] | None:
+    """Pick THIS fixture's standings entry from a multi-group response.
+
+    Confirmed live (Germany vs Greece, Nations League): the endpoint
+    returns one entry per group and the old code blindly took index 0,
+    so standings_table shipped Group 1 (Belgium/France/Türkiye/Italy) --
+    the wrong group entirely. Select the entry whose rows contain either
+    of this event's team ids; with multiple entries and no match (shape
+    drift or a cross-group fixture) return None -- a wrong-group table
+    is worse than no table. A single entry is returned as-is to preserve
+    the plain league-table behaviour."""
+    entries = (standings or {}).get("standings") or []
+    if not entries:
+        return None
+    team_ids = {home_team_id, away_team_id}
+    for entry in entries:
+        rows = (entry or {}).get("rows") or []
+        if any((row.get("team") or {}).get("id") in team_ids for row in rows):
+            return rows
+    if len(entries) == 1:
+        return entries[0].get("rows")
+    return None
 
 
 def _extract_standing(rows: list[dict[str, Any]] | None, team_id: int) -> TeamStanding | None:
@@ -1138,11 +1277,7 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
     session per past match after the first 403."""
     _raise_if_blocked()
     event_id = [p for p in match.source_url.split("/") if p][-1]
-    async with launch_browser() as browser:
-        context = await browser.new_context(user_agent=_USER_AGENT)
-        page = await context.new_page()
-        await _warm_up(page)
-
+    async with _session_page() as page:
         event_data = await _fetch_json(page, f"https://www.sofascore.com/api/v1/event/{event_id}")
         e = event_data["event"]
 
@@ -1170,8 +1305,7 @@ async def get_sofascore_match_details(match: MatchInfo) -> MatchDetails:
         ut_id = (e.get("tournament") or {}).get("uniqueTournament", {}).get("id")
         season_id = (e.get("season") or {}).get("id")
         standings, home_season_stats, away_season_stats = await _fetch_standings_and_season_stats(page, e, ut_id, season_id)
-        standing_rows = ((standings or {}).get("standings") or [None])[0]
-        standing_rows = standing_rows.get("rows") if standing_rows else None
+        standing_rows = _select_standing_rows(standings, e["homeTeam"]["id"], e["awayTeam"]["id"])
 
         await _sleep(800)
         home_manager_vs_away_club = await _fetch_manager_club_record(page, e["homeTeam"].get("manager"), e["awayTeam"]["name"])
@@ -1355,11 +1489,7 @@ async def get_sofascore_team_profile(team_name: str) -> TeamProfile:
     separate /injuries endpoint exists (confirmed: 404) -- injury status is
     embedded per player instead."""
     _raise_if_blocked()
-    async with launch_browser() as browser:
-        context = await browser.new_context(user_agent=_USER_AGENT)
-        page = await context.new_page()
-        await _warm_up(page)
-
+    async with _session_page() as page:
         team = await _find_team(page, team_name)
         if team is None:
             raise ValueError(f'No Sofascore team found matching "{team_name}"')

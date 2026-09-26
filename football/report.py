@@ -120,11 +120,26 @@ _DATA_WINDOWS = {
     ),
     "top_scorers_and_assists": "current season to date (top_scorers/top_assists rows also carry window=\"season_to_date\")",
     "recent_form_leaders": "last 20 matches (rows also carry window=\"last_20\")",
-    "squad_season_stats": "current season to date (squad[].season_stats -- goals/assists/cards/rating)",
-    "squad_recent_usage": "last 20 matches with lineup/stats detail (squad[].recent_usage -- totals and per-90)",
+    "squad_season_stats": (
+        "current season to date (squad[].season_stats -- goals/assists/cards/rating); individual rows are null "
+        "for players the source publishes no season line for (no appearances this season, not in the "
+        "source's stat coverage) -- a null row inside an otherwise populated list is normal, not a partial fetch"
+    ),
+    "squad_recent_usage": (
+        "last 20 matches with lineup/stats detail (squad[].recent_usage -- totals and per-90); individual rows "
+        "are null for players with no read appearances in that window (new signing, unused keeper) -- a null "
+        "row inside an otherwise populated list is normal, not a partial fetch"
+    ),
     "squad.stat_window_note": (
         "set when season_stats.goals and recent_usage.total_goals disagree for a player "
         "(e.g. Gallagher 1 season vs 2 recent) -- names both windows and both values"
+    ),
+    "squad[].shirt_number": (
+        "as listed by Sofascore's season roster endpoint; national-team lists can carry the same number on "
+        "different players (observed live: #1 on 4 players, #7 and #10 on 5 each) -- treat it as informational, "
+        "not a unique matchday kit number; the same player can legitimately show a different number in "
+        "home_lineup/away_lineup (matchday kit published on the fixture) than here (season roster) -- the two "
+        "are NOT reconciled against each other, never corrected from either side"
     ),
     "form_by_competition": "last 20 competitive matches (friendlies excluded)",
     "form_by_competition_half_split_venue_split_last20": "last 20 competitive matches (friendlies excluded)",
@@ -132,12 +147,21 @@ _DATA_WINDOWS = {
     "recent_competitions": "last 10 competitive matches plus upcoming fixtures",
     "head_to_head_summary": (
         "all meetings the source records (aggregate sample_size); recent_meetings lists only the "
-        "up-to-3 H2H meetings found in either team's recent match history -- the two counts differ by design"
+        "up-to-3 H2H meetings found in either team's recent match history -- the two counts differ by design; "
+        "home_wins/away_wins/draws count from the SOURCE'S bracket for the fixture (its duel frame, with the "
+        "searched team typically listed first), NOT from a verified stadium home/away -- a neutral-venue "
+        "meeting still lands in one of the two win buckets"
     ),
     "recent_meetings": (
         "capped at 3 most recent H2H fixtures found in either team's form window; non-H2H leftovers "
         "from earlier merges are filtered out when the opponent is known; "
-        "not the full head_to_head_summary.sample_size"
+        "not the full head_to_head_summary.sample_size; venue is the searched-team form frame "
+        "(home/away relative to the requested team's perspective as the source recorded it) and is NOT "
+        "verified against the stadium -- 'neutral' appears only when the source publishes the venue country "
+        "AND both team countries (Sofascore-only fields), so meetings fetched from other sources can show "
+        "'home'/'away' for a genuinely neutral match; per-meeting detail (lineups, formations, xG) exists only "
+        "for meetings whose own event page was fetched -- typically the most recent one -- so a meeting with "
+        "null lineups is expected, not a broken record"
     ),
     "insights.home_corners_estimate": (
         "Goal.com Corner total summed over that team's own last finished matches with the stat present "
@@ -149,11 +173,31 @@ _DATA_WINDOWS = {
     ),
     "insights.home_advanced_stats": (
         "form-source detail window (typically last N matched fixtures); its corners_for is a DIFFERENT "
-        "series from insights.*_corners_estimate (Goal.com Corner total) -- they can legitimately disagree"
+        "series from insights.*_corners_estimate (Goal.com Corner total) -- they can legitimately disagree; "
+        "partial_stats (when present) maps each stat summed over FEWER than sample_size matches to its own n "
+        "-- those totals understate the full window (unavailable_stats covers stats absent from every match); "
+        "AFTER reading the two rules above: a stat published in SOME window matches stays POPULATED as a "
+        "partial total (its n in partial_stats), while a stat absent from EVERY match is null + listed in "
+        "unavailable_stats -- so the same stat can be populated on one side and null on the other, and any "
+        "partial total must be read as 'n of sample_size', never as a full-window total"
     ),
     "insights.away_advanced_stats": (
         "form-source detail window (typically last N matched fixtures); its corners_for is a DIFFERENT "
-        "series from insights.*_corners_estimate (Goal.com Corner total) -- they can legitimately disagree"
+        "series from insights.*_corners_estimate (Goal.com Corner total) -- they can legitimately disagree; "
+        "partial_stats (when present) maps each stat summed over FEWER than sample_size matches to its own n "
+        "-- those totals understate the full window (unavailable_stats covers stats absent from every match); "
+        "AFTER reading the two rules above: a stat published in SOME window matches stays POPULATED as a "
+        "partial total (its n in partial_stats), while a stat absent from EVERY match is null + listed in "
+        "unavailable_stats -- so the same stat can be populated on one side and null on the other, and any "
+        "partial total must be read as 'n of sample_size', never as a full-window total"
+    ),
+    "insights.sample_size_windows": (
+        "the several independent 'last N' windows behind the home/away estimates are NOT shared -- a side can "
+        "legitimately show different n on adjacent rows: advanced_stats = form-source detail window (often the "
+        "side's last 5 matched fixtures), xg/shots estimates = that side's own last finished fotmob matches "
+        "counting only where the stat published (can be 6 of 10), corners_estimate = that side's own last "
+        "finished goal.com matches with a Corner total (can be 10). Compare sample sizes WITHIN one estimate "
+        "family, not across families; each object's own sample_size (or partial_stats per-stat n) is authoritative"
     ),
     "insights.home_defensive_errors_estimate": (
         "Goal.com Defensive error stat summed over that side's own last finished matches with the stat "
@@ -166,6 +210,30 @@ _DATA_WINDOWS = {
     "insights.corners_cross_source_note": (
         "set only when a side's corners_for disagrees between insights.*_advanced_stats and "
         "insights.*_corners_estimate -- names both values and windows; null when they agree"
+    ),
+    "insights.home/away_*_estimate": (
+        "estimate/flag family (xg, shots, aerial, big_chances, passing_style, fouls, goalkeeping, "
+        "possession_matchup, card_discipline_venue_split, set_piece_threat, direct_play_exposure): each side is "
+        "computed INDEPENDENTLY from its own recent-match stat windows (the opponent's fixtures are fetched "
+        "separately); null for one side means those opponent windows carried no usable per-match stats -- common "
+        "for national-team fixtures -- NOT 'zero', and the other side can be fully populated at the same time"
+    ),
+    "insights.home_advantage": (
+        "strength label withheld when either side's win-rate sample is <3 matches (rates and gap still reported; "
+        "home_sample_size/away_sample_size show why the label is absent) -- sample floor added after an n=1 "
+        "'strong' label shipped"
+    ),
+    "insights.away_advantage": (
+        "strength label withheld when either side's win-rate sample is <3 matches (rates and gap still reported; "
+        "home_sample_size/away_sample_size show why the label is absent) -- sample floor added after an n=1 "
+        "'strong' label shipped"
+    ),
+    "insights.home/away_standings_zone": (
+        "position within the standings table classified against spot counts clamped to that table's size "
+        "(top spot = min(league continental spots, (total_teams-1)//2), same for relegation) -- so a 4-team "
+        "group table yields 1 spot per side (1st top-of-table, 2nd-3rd midtable, last relegation-zone) instead "
+        "of labelling every position <=4 top-of-table; points_from_boundary is the closest gap to either "
+        "clamped boundary"
     ),
     "teamProfile.missing_attackers": (
         "teamProfile.injuries by role PLUS match-level missing_players not in injuries "
@@ -192,7 +260,148 @@ _DATA_WINDOWS = {
         "union of teamProfile scrape injuries and match-level missingPlayers with absence_type "
         "in injury/suspension (non-injury absences like coach_decision stay on non_injury_absences only)"
     ),
-    "lineups": "home_lineup/away_lineup/benches are projected/derived unless lineup_confirmed is true",
+    "match.*_team_standing.goal_diff": (
+        "canonical display form, signed iff nonzero ('+8'/'-9'/'0'), derived once from whichever source filled "
+        "the standing -- Sofascore already publishes it this way, other sources vary (goal.com unsigned '15', "
+        "soccerdesk signed '+8'); the string is never rendered '+' before 0, and goal_difference is its int twin"
+    ),
+    "match.head_to_head_streaks": (
+        "Sofascore event team-streaks endpoint, head2head items only ('No losses (home): 7'); the source "
+        "publishes no streak set for some fixtures -- even the same fixture across runs -- so null/missing "
+        "means 'source published none this run', not 'no streaks exist'"
+    ),
+    "match.manager_duel": (
+        "Sofascore h2h managerDuel: W/D/L the two managers' sides have against each other, published by the "
+        "source only when both managers carry such history -- null is a source gap; distinct from "
+        "match.home/away_manager_vs_*_club, which WE compute ourselves"
+    ),
+    "match.home/away_manager_vs_*_club": (
+        "WE scan that manager's own sofascore event history for finished matches against the named opponent; "
+        "sample_size 0 means scanned and zero prior meetings found (an honest value -- 'never looked' would be "
+        "null); markdown hides zero-sample records, JSON keeps them; the two directions are independent"
+    ),
+    "match.betting_odds": (
+        "football-data.co.uk upcoming-fixtures CSV cross-bookmaker Avg prices, tracked club leagues only -- a "
+        "national-team fixture isn't in that file, so null here; sofascore's own single-book prices are always "
+        "carried separately in sofascore_betting_odds and feed the prediction either way; BOTH sources are "
+        "routinely absent this far from kickoff (the CSV only lists fixtures it has published, sofascore odds "
+        "appear closer to the match), so a pre-match report weeks ahead commonly has no market odds at all -- "
+        "prediction.market_implied is then null and confidence falls back to model methods only"
+    ),
+    "match.sofascore_betting_odds": (
+        "sofascore's own single-book 1X2/OU prices for this fixture (deliberately kept separate from betting_odds' "
+        "cross-bookmaker Avg so a single book is never mistaken for a market average); published only close to "
+        "kickoff -- null weeks ahead is normal availability, not a fetch failure"
+    ),
+    "match.referee": (
+        "appointed referee for THIS fixture: filled from football-data.co.uk's upcoming-fixture row (its "
+        "Referee column) or the sofascore event page -- both lag far-from-kickoff fixtures, so null here means "
+        "neither has published the appointment yet, not that the match has no referee"
+    ),
+    "match.referee_stats": (
+        "aggregate of that referee's recent matches -- computed only when match.referee is named, so it is null "
+        "whenever referee is null (one root cause, two null fields)"
+    ),
+    "match.referee_card_risk_note": (
+        "needs match.referee PLUS card-risk data to say anything about this referee's card habits -- null "
+        "whenever referee is null"
+    ),
+    "match.weather_detail": (
+        "structured wttr.in forecast (temp/humidity/wind/gust/cloud/precip) is fetched ONLY within 2 days of "
+        "kickoff -- wttr.in's forecast horizon; further out weather_detail is null while the plain source "
+        "weather string (fotmob/sofascore) remains, which is why a report can show weather='Few Showers, 15C' "
+        "with no detail block beside it; inside the window the detail is kickoff-hour matched and its "
+        "description overwrites the source string (field_source becomes wttr.in)"
+    ),
+    "match.home_formation": (
+        "formation beside a lineup only when a lineup can carry it: absent from the JSON entirely (not null) "
+        "when empty on an unplayed match -- same cosmetic prune as lineups/bench -- and cleared when the XI "
+        "is OUR derived projection (a formation orphaned from the real XI is untrustworthy); still counted in "
+        "dataCompleteness.missing while absent"
+    ),
+    "match.away_formation": (
+        "formation beside a lineup only when a lineup can carry it: absent from the JSON entirely (not null) "
+        "when empty on an unplayed match -- same cosmetic prune as lineups/bench -- and cleared when the XI "
+        "is OUR derived projection (a formation orphaned from the real XI is untrustworthy); still counted in "
+        "dataCompleteness.missing while absent"
+    ),
+    "match.lineup_confirmed": (
+        "false = a source published an XI but hasn't confirmed it; null = NO source lineup exists to confirm "
+        "(a derived XI has nothing to confirm) -- present-with-null while the formation keys above are "
+        "pruned-when-empty, an intentional asymmetry between an outcome flag and a display field"
+    ),
+    "match.*_team_venue_lat/lon": (
+        "each side's OWN published home-venue coordinates (club sides carry one; national teams have no club "
+        "venue) -- distinct from match.venue_lat/lon, which is the fixture's venue"
+    ),
+    "insights.*_opponent_rank_record": (
+        "same-competition results against opponents ranked ABOVE this side in the CURRENT standings (no source "
+        "publishes point-in-time tables) -- null when zero results qualify, e.g. early in a group before any "
+        "match vs a higher-ranked opponent; that is a checked zero, not a lookup failure"
+    ),
+    "insights.*_club_strength": (
+        "statsultra 480-club strength table matched by team name -- national teams can't match a club row, so "
+        "both sides are null together; per-side best-effort even for clubs (uncovered league -> null)"
+    ),
+    "insights.*_fullback_exposure": (
+        "from that side's squad per-player defensive stats (chances created vs own-team median, ground-duel "
+        "rate); null = no squad or fewer than 2 defenders with the needed stats (baseline not computable), "
+        "while a real empty list = checked, nobody exposed and counts as populated"
+    ),
+    "teamProfile.recent_transfers": (
+        "source transfer lists unioned across profiles (club sides populate them); national-team call-ups are "
+        "not transfer records, so both profiles are null together -- not a lookup failure"
+    ),
+    "home/away_manager": (
+        "name/country from the match source; appointed_date, previous_manager, recent_appointment, "
+        "record_at_club and age are filled only when a Wikipedia tenure row resolves for THAT manager -- one "
+        "side populated and the other null is coverage asymmetry, both sides run the same enrichment"
+    ),
+    "venueDetails": (
+        "StadiumDB venue details (stadium, capacity, coordinates context); it cannot resolve national-team "
+        "venues, so null for national-team fixtures -- see also match.source_conflicts; record_attendance is "
+        "the stadium's documented record crowd and is null whenever StadiumDB doesn't publish one; "
+        "venueDetails fields are NOT part of the dataCompleteness denominator (which scores MatchDetails + "
+        "MatchInsights only), so a null here never appears in dataCompleteness.missing"
+    ),
+    "insights.*_presence": (
+        "availability rows computed from SOURCE-published lineups/bench/injuries at step 1-2 time: starting = "
+        "a source named him in its XI, on_bench = a source published him on its bench. When the final "
+        "match.home_lineup/home_bench are OUR derived lists (field_sources='derived'), starting stays false "
+        "and on_bench null on purpose -- projected_starter is the flag that marks our own XI, so the two "
+        "objects never disagree about WHO said what: presence reports source knowledge, projected_starter "
+        "reports our projection"
+    ),
+    "insights.* reference frames (own vs home/away)": (
+        "two conventions coexist: keys using own_/opponent_ (rest_comparison.own_rest_days, "
+        "experience_comparison, fatigue_flag) are REPORT-TEAM-relative (own = the searched team, here "
+        "Tottenham, wherever the fixture lists them), while keys using home_/away_ (home_advantage, "
+        "rest/experience fields named home_* or away_*) are FIXTURE-relative (home = match.home_team, the "
+        "side listed first -- the OPPONENT when the searched team plays away); each key follows its own "
+        "name consistently, but the file never mixes them inside one object"
+    ),
+    "insights.projected_xi_basis": (
+        "the exact selection rule behind a derived XI: one goalkeeper plus the ten AVAILABLE outfield players "
+        "with the most starts in recent matches whose lineups were read, ties broken by total minutes played "
+        "in those matches (so a 4-way tie at 2 starts is decided by minutes: 193>192>181>173 picks the top "
+        "two); no position balance is enforced -- it reflects who has actually been starting"
+    ),
+    "lineups": (
+        "home_lineup/away_lineup come from a named source when field_sources says so (Sofascore publishes an "
+        "unconfirmed XI days ahead; lineup_confirmed stays false until a source confirms it -- or null when NO "
+        "source lineup exists to confirm at all, see match.lineup_confirmed) or 'derived' when no "
+        "source published one; a source-published XI is shown exactly AS PUBLISHED -- players with few or zero "
+        "starts appear because the SOURCE named them, never from starts-based ranking (that ranking exists only "
+        "in projected_xi_basis); home_bench/away_bench='derived' means no source publishes a bench (projected from "
+        "the published XI minus absences, with shirt numbers that collide with another XI+bench member blanked -- "
+        "stale squad numbering); duplicate shirt numbers across the full squad list are expected for national teams "
+        "(players keep club numbers between camps) and are not matchday numbers; lineup shirt_number is the "
+        "matchday kit published on the fixture and can differ from the same player's squad[].shirt_number (season "
+        "roster) -- a known, documented source-window mismatch, neither side corrected from the other; "
+        "projected_xi_basis is set only "
+        "when WE project the XI from starts data and is intentionally absent -- and not counted missing -- "
+        "whenever a real source lineup exists"
+    ),
 }
 
 

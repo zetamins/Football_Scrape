@@ -31,6 +31,7 @@ from football.sites.sofascore import (
     _manager_event_outcome,
     _match_details_note,
     _normalize,
+    _select_standing_rows,
     _standings_table_from,
     _summary_from_duel,
     _to_iso_z,
@@ -68,7 +69,28 @@ def _mock_fetch_json_router(url_map: dict[str, dict], default: dict | None = Non
     return fake
 
 
+class _FakeCdpSession:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, method, params=None):
+        self.sent.append((method, params))
+
+    async def detach(self):
+        return None
+
+
 class _FakeContext:
+    def __init__(self):
+        self.init_scripts = []
+        self.cdp = _FakeCdpSession()
+
+    async def add_init_script(self, script):
+        self.init_scripts.append(script)
+
+    async def new_cdp_session(self, page):
+        return self.cdp
+
     async def new_page(self):
         return _FakePage()
 
@@ -322,6 +344,36 @@ def test_extract_standing_finds_row_by_team_id():
 
 def test_extract_standing_none_when_team_missing():
     assert _extract_standing([], 42) is None
+
+
+def test_select_standing_rows_picks_group_containing_event_team():
+    # Confirmed live (Germany vs Greece, Nations League): standings has
+    # one entry per group; the old [0] took Group 1 (Belgium/France/
+    # Türkiye/Italy) for a fixture whose teams were in Group 2.
+    group1 = {"name": "Group 1", "rows": [{"team": {"id": 10, "name": "Belgium"}}]}
+    group2 = {"name": "Group 2", "rows": [{"team": {"id": 757, "name": "Germany"}}, {"team": {"id": 769, "name": "Greece"}}]}
+    standings = {"standings": [group1, group2]}
+    rows = _select_standing_rows(standings, 757, 769)
+    assert rows is group2["rows"]
+
+
+def test_select_standing_rows_none_when_no_group_matches_multi_group():
+    # Wrong-group table is worse than no table: neither event team is in
+    # any entry -> None (family/aggregate shapes we can't judge).
+    standings = {"standings": [{"rows": [{"team": {"id": 1}}]}, {"rows": [{"team": {"id": 2}}]}]}
+    assert _select_standing_rows(standings, 757, 769) is None
+
+
+def test_select_standing_rows_single_entry_returned_as_is():
+    # Plain league table (club seasons): one entry, no id match needed
+    # beyond what _extract_standing does; behaviour preserved.
+    entry = {"rows": [{"team": {"id": 5}}]}
+    assert _select_standing_rows({"standings": [entry]}, 757, 769) is entry["rows"]
+
+
+def test_select_standing_rows_none_without_standings():
+    assert _select_standing_rows(None, 1, 2) is None
+    assert _select_standing_rows({}, 1, 2) is None
 
 
 # --- _extract_streaks / _extract_match_stats / _extract_player_of_the_match -----------------
@@ -923,6 +975,21 @@ def test_team_standing_derives_numeric_goal_difference_from_the_string():
     assert standing("+8").goal_diff == "+8"
 
 
+def test_team_standing_goal_diff_display_is_canonical_signed_iff_nonzero():
+    from football.types import TeamStanding
+
+    def standing(gd):
+        return TeamStanding(position=1, played=1, wins=1, draws=0, losses=0, points=3, goal_diff=gd, total_teams=20)
+
+    # Cross-source canonical form: sofascore-signed stays identical,
+    # goal.com's unsigned positive gains its sign, zero never gains "+".
+    assert standing("15").goal_diff == "+15"
+    assert standing("0").goal_diff == "0"
+    assert standing("-9").goal_diff == "-9"
+    assert standing("n/a").goal_diff == "n/a"  # unparseable left verbatim
+    assert standing("n/a").goal_difference is None
+
+
 # --- _pick_team_hit --------------------------------------------------------------------------------
 
 
@@ -1130,3 +1197,207 @@ def test_reset_block_state_clears_the_pacing_floor_timestamp():
     sofascore.reset_block_state()
     assert sofascore._block_reason is None
     assert sofascore._last_request_at == 0.0
+
+
+# --- shared run session: one browser per run, per-call fallback without one --------------
+
+
+class _RecordingBrowserCM(_FakeBrowserCM):
+    """_FakeBrowserCM that records __aexit__ so tests can see exactly
+    when the shared (or per-call) browser is closed."""
+
+    def __init__(self, exits: list):
+        self._exits = exits
+
+    async def __aexit__(self, *exc):
+        self._exits.append("exit")
+        return False
+
+
+def _session_test_router():
+    from football.types import MatchInfo
+
+    event_response = {"event": {
+        "homeTeam": {"id": 1, "name": "Home FC", "manager": None, "country": {"name": "England"}},
+        "awayTeam": {"id": 2, "name": "Away FC", "manager": None, "country": {"name": "England"}},
+        "venue": {"name": "Some Stadium", "city": {"name": "Somewhere"}, "country": {"name": "England"},
+                  "venueCoordinates": {"latitude": 51.5, "longitude": -0.1}, "capacity": 60000},
+        "referee": {"name": "Some Ref"},
+        "attendance": 55000,
+        "tournament": {"uniqueTournament": {"id": None}},
+        "season": {},
+    }}
+    # Specific sub-endpoint keys first (substring match, dict order wins)
+    # so event/999/h2h etc. fall to default=None, not the bare event body.
+    router = _mock_fetch_json_router({
+        "event/999/h2h": None, "event/999/team-streaks": None, "event/999/lineups": None,
+        "event/999/statistics": None, "event/999/incidents": None, "event/999/shotmap": None,
+        "event/999/best-players": None,
+        "search/all": {"results": [{"type": "team", "entity": {"id": 1, "name": "Home FC", "slug": "home-fc"}}]},
+        "events/next": {"events": [{
+            "id": 999, "slug": "home-fc-vs-away-fc", "startTimestamp": int(datetime.now(tz=UTC).timestamp()),
+            "homeTeam": {"name": "Home FC"}, "awayTeam": {"name": "Away FC"}, "homeScore": {}, "awayScore": {},
+            "tournament": {"name": "Premier League"}, "status": {"type": "notstarted"}, "season": {}, "roundInfo": {},
+        }]},
+        "events/last": {"events": []},
+        "event/999": event_response,
+        "players": {"players": []},
+        "transfers": {"transfersIn": [], "transfersOut": []},
+    }, default=None)
+    match = MatchInfo(
+        source="sofascore", source_url="https://www.sofascore.com/event/home-fc-vs-away-fc/999", competition="Premier League",
+        home_team="Home FC", away_team="Away FC", kickoff_utc="2026-01-01T15:00:00.000Z", venue=None, status="notstarted",
+        home_score=None, away_score=None, home_score_ht=None, away_score_ht=None, season=None, round=None, match_id="999",
+    )
+    return router, match
+
+
+def test_run_session_reuses_one_browser_across_operations(monkeypatch):
+    """The whole point of begin_run_session(): matches, details and
+    profile share one launch + one warm-up instead of three cold ones."""
+    from football.sites import sofascore as sc
+
+    launches, exits = [], []
+    router, match = _session_test_router()
+    monkeypatch.setattr(sc, "launch_browser", lambda: launches.append("launch") or _RecordingBrowserCM(exits))
+    monkeypatch.setattr(sc, "_sleep", _no_sleep)
+    monkeypatch.setattr(sc, "_fetch_json", router)
+
+    sc.begin_run_session()
+    try:
+        assert launches == []  # arming costs nothing on its own
+        asyncio.run(get_sofascore_matches("Home FC"))
+        asyncio.run(get_sofascore_match_details(match))
+        asyncio.run(get_sofascore_team_profile("Home FC"))
+        assert launches == ["launch"], "every operation must reuse the run's one browser"
+        assert exits == [], "the shared browser must stay open for the next operation"
+    finally:
+        asyncio.run(sc.close_run_session())
+    assert exits == ["exit"], "close_run_session must close the shared browser"
+
+
+def test_direct_caller_without_run_session_still_launches_per_call(monkeypatch):
+    """Opt-in sharing: tests and ad-hoc entry-point callers that never
+    call begin_run_session keep the original one-launch-per-call shape."""
+    from football.sites import sofascore as sc
+
+    launches, exits = [], []
+    router, _match = _session_test_router()
+    monkeypatch.setattr(sc, "launch_browser", lambda: launches.append("launch") or _RecordingBrowserCM(exits))
+    monkeypatch.setattr(sc, "_sleep", _no_sleep)
+    monkeypatch.setattr(sc, "_fetch_json", router)
+
+    asyncio.run(get_sofascore_matches("Home FC"))
+    asyncio.run(get_sofascore_matches("Home FC"))
+    assert launches == ["launch", "launch"]
+    assert exits == ["exit", "exit"], "each per-call browser must close with its own call"
+
+
+def test_close_run_session_is_idempotent_and_restores_per_call_mode(monkeypatch):
+    from football.sites import sofascore as sc
+
+    launches, exits = [], []
+    router, _match = _session_test_router()
+    monkeypatch.setattr(sc, "launch_browser", lambda: launches.append("launch") or _RecordingBrowserCM(exits))
+    monkeypatch.setattr(sc, "_sleep", _no_sleep)
+    monkeypatch.setattr(sc, "_fetch_json", router)
+
+    sc.begin_run_session()
+    asyncio.run(get_sofascore_matches("Home FC"))
+    asyncio.run(sc.close_run_session())
+    assert exits == ["exit"]
+    asyncio.run(sc.close_run_session())  # idempotent: nothing left to close
+    assert exits == ["exit"]
+    asyncio.run(get_sofascore_matches("Home FC"))  # per-call mode again
+    assert launches == ["launch", "launch"]
+    assert exits == ["exit", "exit"]
+
+
+def test_session_open_cleans_up_when_warm_up_refuses_a_blocked_run(monkeypatch):
+    """If the breaker is already tripped when the shared page would be
+    opened, _warm_up's block check fires and the just-entered browser
+    must still be closed -- no dangling process, no half-open session."""
+    from football.sites import sofascore as sc
+
+    exits = []
+    monkeypatch.setattr(sc, "launch_browser", lambda: _RecordingBrowserCM(exits))
+    sc.begin_run_session()
+    sc._block_reason = "HTTP 403 Forbidden"
+
+    async def attempt():
+        with pytest.raises(sc.SofascoreBlockedError):
+            async with sc._session_page():
+                pass
+
+    asyncio.run(attempt())
+    assert exits == ["exit"]
+    assert sc._run_page is None
+    asyncio.run(sc.close_run_session())
+
+
+def test_session_page_applies_fingerprint_hygiene_before_warm_up(monkeypatch):
+    """Observed live 2026-09-25: the Turnstile challenge never solved
+    because navigator.webdriver was true and client hints still said
+    HeadlessChrome (the new_context UA override only rewrites the string).
+    Both corrections must run before the first navigation, on both the
+    per-call and shared-session paths."""
+    from football.sites import sofascore as sc
+
+    events = []
+
+    class _Page:
+        async def goto(self, *_a, **_k):
+            events.append("warm_up_goto")
+
+    class _Cdp:
+        async def send(self, method, params=None):
+            events.append("ua_override")
+            self.last = (method, params)
+
+    class _Context:
+        def __init__(self):
+            self.cdp = _Cdp()
+            self.init_scripts = []
+
+        async def add_init_script(self, script):
+            events.append("init_script")
+            self.init_scripts.append(script)
+
+        async def new_cdp_session(self, page):
+            return self.cdp
+
+        async def new_page(self):
+            return _Page()
+
+    ctx = _Context()
+
+    class _Browser:
+        async def new_context(self, **_k):
+            return ctx
+
+    monkeypatch.setattr(sc, "launch_browser", lambda: _FakeBrowserCM_With(_Browser))
+    monkeypatch.setattr(sc, "_sleep", _no_sleep)
+    monkeypatch.setattr(sc, "_fetch_json", _mock_fetch_json({"results": []}, []))
+
+    with pytest.raises(ValueError, match="No Sofascore team"):
+        asyncio.run(get_sofascore_matches("No Team"))
+
+    assert events == ["init_script", "ua_override", "warm_up_goto"], "hygiene must land before warm-up navigation"
+    assert any("webdriver" in s for s in ctx.init_scripts), "webdriver mask init script required"
+    method, params = ctx.cdp.last
+    assert method == "Emulation.setUserAgentOverride"
+    assert params["userAgent"] == sc._USER_AGENT
+    brands = [b["brand"] for b in params["userAgentMetadata"]["brands"]]
+    assert "HeadlessChrome" not in brands
+    assert "Google Chrome" in brands, "client hints must brand like a real Chrome"
+
+
+class _FakeBrowserCM_With:
+    def __init__(self, browser_cls):
+        self._browser = browser_cls()
+
+    async def __aenter__(self):
+        return self._browser
+
+    async def __aexit__(self, *_exc):
+        return False

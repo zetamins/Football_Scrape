@@ -32,6 +32,7 @@ from football.types import (
     LineupPlayer,
     MatchDetails,
     MissingPlayer,
+    PlayerOfTheMatch,
     PlayerUsagePattern,
     SeasonPlayerStats,
     SquadMember,
@@ -144,6 +145,43 @@ def test_merge_match_details_fills_gaps_in_source_order():
     merged = merge_match_details(by_source)
     assert merged.venue_name == "Anfield"
     assert merged.field_sources["venue_name"] == "fotmob"
+
+
+def test_merge_match_details_clears_player_of_the_match_before_kickoff():
+    # Confirmed live (Germany vs Greece): 365scores shipped a POTM while
+    # status was "notstarted" and kickoff was 2 days away. Pre-match the
+    # field must be None and must not keep claiming a source.
+    potm = PlayerOfTheMatch(name="Jamal Musiala", rating="8.4")
+    by_source = {
+        "sofascore": _match_details("sofascore", kickoff_utc="2099-01-01T15:00:00.000Z"),
+        "365scores": _match_details("365scores", kickoff_utc="2099-01-01T15:00:00.000Z", player_of_the_match=potm),
+    }
+    merged = merge_match_details(by_source)
+    assert merged.player_of_the_match is None
+    assert "player_of_the_match" not in merged.field_sources
+
+
+def test_merge_match_details_keeps_player_of_the_match_after_kickoff():
+    potm = PlayerOfTheMatch(name="Jamal Musiala", rating="8.4")
+    by_source = {
+        "sofascore": _match_details("sofascore", kickoff_utc="2020-01-01T15:00:00.000Z"),
+        "365scores": _match_details("365scores", kickoff_utc="2020-01-01T15:00:00.000Z", player_of_the_match=potm),
+    }
+    merged = merge_match_details(by_source)
+    assert merged.player_of_the_match is not None
+    assert merged.field_sources["player_of_the_match"] == "365scores"
+
+
+def test_merge_match_details_keeps_player_of_the_match_without_kickoff():
+    # Kickoff absent/unparseable -> can't judge; never clear on a
+    # timestamp we can't parse (honesty rule: no guessing).
+    potm = PlayerOfTheMatch(name="Jamal Musiala", rating="8.4")
+    by_source = {
+        "sofascore": _match_details("sofascore", kickoff_utc=None),
+        "365scores": _match_details("365scores", kickoff_utc=None, player_of_the_match=potm),
+    }
+    merged = merge_match_details(by_source)
+    assert merged.player_of_the_match is not None
 
 
 def test_merge_match_details_collects_notes_from_non_base_sources():
@@ -433,17 +471,35 @@ def test_apply_deep_recent_meetings_keeps_h2h_and_frameless_leftovers_when_under
     assert merged.field_sources.get("recent_meetings") == "mixed"
 
 
-def test_apply_deep_recent_meetings_leaves_empty_deep_fallback_untouched_even_with_opponent():
-    # Deep computation failure must not clobber the earlier fallback --
-    # filtering runs only when deep_meetings is non-empty.
+def test_apply_deep_recent_meetings_filters_empty_deep_fallback_when_opponent_known():
+    # Confirmed live (Germany vs Greece): deep H2H window legitimately
+    # had no GER-GRE meetings, so the empty-deep path used to return
+    # early and ship the fallback's Germany vs Australia rows. The
+    # opponent filter must still run when the opponent is known, even
+    # with zero deep rows -- wrong-opponent meetings never ship.
     non_h2h = _meeting(date="2025-06-01T00:00:00.000Z", home_team="Germany", away_team="Australia")
     merged = merge_match_details({
         "sofascore": _match_details("sofascore"),
         "soccerdesk": _match_details("soccerdesk", recent_meetings=[non_h2h]),
     })
+    apply_deep_recent_meetings(merged, [], "sofascore", opponent_name="Greece")
+    assert merged.recent_meetings == []
+    # An empty list must not keep claiming a source it no longer contains rows from.
+    assert "recent_meetings" not in merged.field_sources
+
+
+def test_apply_deep_recent_meetings_keeps_true_h2h_row_when_deep_empty():
+    # Only non-opponent rows are dropped; a true-H2H fallback row
+    # survives an empty deep pass untouched (same as the no-opponent case).
+    true_h2h = _meeting(date="2025-06-01T00:00:00.000Z", home_team="Germany", away_team="Greece")
+    merged = merge_match_details({
+        "sofascore": _match_details("sofascore"),
+        "soccerdesk": _match_details("soccerdesk", recent_meetings=[true_h2h]),
+    })
     original = merged.recent_meetings
-    apply_deep_recent_meetings(merged, [], "sofascore", opponent_name="Netherlands")
+    apply_deep_recent_meetings(merged, [], "sofascore", opponent_name="Greece")
     assert merged.recent_meetings == original
+    assert merged.field_sources.get("recent_meetings") == "soccerdesk"
 
 
 def test_text_conflict_resolution_flags_completely_different_places_as_wrong_fixture():

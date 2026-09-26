@@ -989,6 +989,7 @@ def _advanced_stats(**overrides):
     fields["sample_size"] = 10
     fields["source"] = "sofascore"
     fields["unavailable_stats"] = None
+    fields["partial_stats"] = None
     fields["possession_pct_avg"] = 55.0
     fields["field_tilt_pct"] = 52.0
     fields.update(overrides)
@@ -1010,6 +1011,23 @@ def test_advanced_stats_str_na_without_possession_or_tilt():
     result = advanced_stats_str(_advanced_stats(possession_pct_avg=None, field_tilt_pct=None), "Home")
     assert "possession n/a%" in result
     assert "field tilt n/a%" in result
+
+
+def test_advanced_stats_str_names_partial_stats_with_their_own_n():
+    # Confirmed live: distance/sprints totals changed between two runs
+    # with an identical sample_size -- a partial total must name the stat
+    # and its own n so it can't read as full-window coverage.
+    from football.format_markdown import advanced_stats_str
+
+    result = advanced_stats_str(_advanced_stats(partial_stats={"distance_covered_km": 4, "sprints": 3}), "Home")
+    assert "partial n (of 10): distance_covered_km=4, sprints=3" in result
+
+
+def test_advanced_stats_str_omits_the_partial_note_when_every_stat_covered_the_sample():
+    from football.format_markdown import advanced_stats_str
+
+    result = advanced_stats_str(_advanced_stats(partial_stats=None), "Home")
+    assert "partial n" not in result
 
 
 def test_advanced_stats_str_null_unavailable_pair_renders_na_not_zero():

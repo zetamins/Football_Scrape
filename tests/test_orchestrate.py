@@ -276,6 +276,44 @@ def test_apply_presence_and_bench_insights_handles_missing_profiles_gracefully()
     assert result.home_bench_info is None
 
 
+def test_apply_presence_projected_basis_states_the_full_rule_including_the_tie_break():
+    # Tottenham audit G: a 4-way tie at 2 starts was resolved by minutes
+    # with no rule written down, so the XI wasn't reproducible from the
+    # report. The basis text must carry the complete rule.
+    from football.types import PlayerUsagePattern, SquadMember
+
+    def player(name, role, starts, minutes):
+        return _all_none(SquadMember, name=name, role=role, recent_usage=_all_none(PlayerUsagePattern, starts=starts, total_minutes=minutes))
+
+    squad = [player("Keeper", "G", 5, 450)] + [player(f"Out{i}", "M", 2, 100 + i) for i in range(12)]
+    own_profile = _profile_with_squad("Own", squad)
+    merged = _all_none(orchestrate.MergedMatch, status="notstarted", field_sources={}, home_lineup=None, away_lineup=None, home_bench=None, away_bench=None, home_suspended_players=None, away_suspended_players=None)
+    result = _insights_result()
+    _apply_presence_and_bench_insights(result, own_is_home=True, merged=merged, merged_profile=own_profile, opponent_profile=None)
+
+    assert merged.home_lineup is not None and len(merged.home_lineup) == 11
+    assert "Projected, not a published lineup" in result.projected_xi_basis
+    assert "most starts" in result.projected_xi_basis
+    assert "ties broken by total minutes" in result.projected_xi_basis
+
+
+def test_stat_window_notes_are_annotated_after_the_opponent_usage_is_applied():
+    # Item 5.1: annotate_stat_window_notes() used to run BEFORE step 6,
+    # which is where the opponent squad's recent_usage first exists (the
+    # own squad gets its usage in step 1). Every opponent-side
+    # season-vs-recent goal mismatch therefore shipped with a null note
+    # while the own side was annotated (confirmed live: 7 Man Utd rows
+    # mismatched/null beside Gallagher's set note), violating
+    # dataWindows.squad.stat_window_note's own rule. Source-order guard:
+    # the annotate call must come after the opponent enrichment call.
+    import inspect
+
+    src = inspect.getsource(orchestrate)
+    opponent_enrichment = src.index("await _enrich_opponent_form_and_ranks(")
+    annotate = src.index("annotate_stat_window_notes(profile.squad)")
+    assert opponent_enrichment < annotate
+
+
 def test_apply_squad_strength_insights_computes_for_both_sides():
     from football.types import SquadMember
 
@@ -311,7 +349,7 @@ def test_compute_corners_cross_source_note_names_both_series_when_they_disagree(
 
     def _adv(corners_for, n=5, source="fotmob"):
         base = {f.name: 1 for f in _dc_fields(SeasonAdvancedStatsEstimate)}
-        base.update(sample_size=n, source=source, unavailable_stats=None, possession_pct_avg=50.0, field_tilt_pct=50.0, corners_for=corners_for)
+        base.update(sample_size=n, source=source, unavailable_stats=None, partial_stats=None, possession_pct_avg=50.0, field_tilt_pct=50.0, corners_for=corners_for)
         return SeasonAdvancedStatsEstimate(**base)
 
     est = SeasonCornersEstimate(sample_size=7, corners_for=47, corners_against=28, source="goal")
@@ -885,6 +923,69 @@ def test_enrich_weather_populates_weather_detail_and_string(monkeypatch):
     assert merged.weather == "Sunny, 20.0°C"
     assert merged.field_sources["weather"] == "wttr.in"
     assert merged.field_sources["weather_detail"] == "wttr.in"
+
+
+def test_enrich_weather_overwrites_stale_source_weather_string(monkeypatch):
+    # Confirmed live (Germany): fotmob's weather said 15°C while the
+    # kickoff-hour wttr.in detail said 16.0°C for the same venue --
+    # two temperatures in one report because the old `not merged.weather`
+    # gate never reconciled them. The detail string must win.
+    from football.orchestrate import _enrich_weather
+
+    class _Detail:
+        description = "Partly cloudy"
+        temp_c = 16.0
+        humidity_pct = 60.0
+        wind_speed_kmph = 12.0
+        precip_mm = 0.1
+        chance_of_rain_pct = 20.0
+        wind_gust_kmph = 18.0
+        cloud_cover_pct = 55.0
+        feels_like_c = 15.0
+        kickoff_hour_matched = True
+
+    async def fake_detail(_city, _kickoff, _country):
+        return _Detail()
+
+    monkeypatch.setattr(orchestrate.wttrin, "get_wttr_weather_detail", fake_detail)
+    merged = _all_none(
+        orchestrate.MergedMatch, venue_city="Berlin", venue_name=None,
+        weather="Clear, 15°C", weather_detail=None, kickoff_utc=None, venue_country=None,
+        field_sources={"weather": "fotmob"},
+    )
+    asyncio.run(_enrich_weather(merged))
+    assert merged.weather == "Partly cloudy, 16.0°C"
+    assert merged.field_sources["weather"] == "wttr.in"
+
+
+def test_enrich_weather_keeps_source_weather_when_detail_has_no_description(monkeypatch):
+    from football.orchestrate import _enrich_weather
+
+    class _Detail:
+        description = ""
+        temp_c = 16.0
+        humidity_pct = 60.0
+        wind_speed_kmph = 12.0
+        precip_mm = 0.1
+        chance_of_rain_pct = 20.0
+        wind_gust_kmph = 18.0
+        cloud_cover_pct = 55.0
+        feels_like_c = 15.0
+        kickoff_hour_matched = True
+
+    async def fake_detail(_city, _kickoff, _country):
+        return _Detail()
+
+    monkeypatch.setattr(orchestrate.wttrin, "get_wttr_weather_detail", fake_detail)
+    merged = _all_none(
+        orchestrate.MergedMatch, venue_city="Berlin", venue_name=None,
+        weather="Clear, 15°C", weather_detail=None, kickoff_utc=None, venue_country=None,
+        field_sources={"weather": "fotmob"},
+    )
+    asyncio.run(_enrich_weather(merged))
+    assert merged.weather == "Clear, 15°C"
+    assert merged.weather_detail is not None  # numeric detail still rides along
+    assert merged.field_sources["weather"] == "fotmob"
 
 
 def test_enrich_weather_gracefully_handles_fetch_failure(monkeypatch):
@@ -1892,6 +1993,46 @@ def test_run_search_returns_a_fully_populated_result_on_success(monkeypatch):
     assert result.form_source == SOURCE_ORDER[0]
 
 
+def test_run_search_displays_the_sources_canonical_team_name(monkeypatch):
+    # Confirmed live: searching "germany" (as typed into the CLI/search
+    # box) shipped "team": "germany" in the JSON while every other name in
+    # the report was the source's canonical spelling ("Germany" ==
+    # match.home_team). The raw input keeps driving matching/scraping; the
+    # reported team name uses the source's own spelling.
+    _mock_full_pipeline(monkeypatch)
+
+    async def one_match_details(_match_info):
+        from football.types import MatchDetails
+
+        return _all_none(
+            MatchDetails, source=_match_info.source, source_url=_match_info.source_url,
+            competition="Premier League", home_team="Home FC", away_team="Away FC",
+            status="scheduled", kickoff_utc=(datetime.now(tz=UTC) + timedelta(days=3)).isoformat(),
+            match_id="1",
+        )
+
+    async def one_match(_team_name):
+        return [_match(home_team="Home FC", away_team="Away FC", status="scheduled", kickoff_utc=(datetime.now(tz=UTC) + timedelta(days=3)).isoformat())]
+
+    async def working_profile(_team_name):
+        from football.types import TeamProfile
+
+        return _all_none(TeamProfile, source="sofascore", team_name="Home FC", squad=None)
+
+    fake_scrapers = {SOURCE_ORDER[0]: _Scraper(run=one_match, details=one_match_details, profile=working_profile)}
+    for source in SOURCE_ORDER[1:]:
+        async def empty_matches(_team_name):
+            return []
+
+        fake_scrapers[source] = _Scraper(run=empty_matches, details=None, profile=working_profile)
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    result = asyncio.run(run_search("home fc"))
+    assert result.team == "Home FC"
+    assert result.merged is not None
+    assert result.merged.home_team == "Home FC"
+
+
 def test_note_missing_defensive_stats_set_only_when_no_member_has_stats():
     from football.orchestrate import _note_missing_defensive_stats
     from football.types import DefensiveStats, SquadMember
@@ -2256,3 +2397,38 @@ def test_derived_bench_excludes_absent_players():
 
     assert merged.home_bench is not None
     assert "DB0" not in {p.name for p in merged.home_bench}
+
+
+def test_run_search_arms_and_always_closes_the_sofascore_run_session(monkeypatch):
+    """The shared-session lifecycle must bracket the whole run: armed
+    once after the block-state reset, and awaited in a finally so even a
+    raised error path (unrecognized team here) cannot leave the browser
+    open. Both hooks wrap the real functions rather than replacing them,
+    so the flag state stays honest for conftest's teardown."""
+    from football.sites import sofascore as sc
+
+    events = []
+    real_begin, real_close = sc.begin_run_session, sc.close_run_session
+
+    def begin():
+        events.append("begin")
+        real_begin()
+
+    async def close():
+        events.append("close")
+        await real_close()
+
+    monkeypatch.setattr(sc, "begin_run_session", begin)
+    monkeypatch.setattr(sc, "close_run_session", close)
+
+    async def not_found(_team_name):
+        raise ValueError('No Fotmob team found matching "Spurs"')
+
+    fake_scrapers = {source: _Scraper(run=not_found, details=not_found, profile=not_found) for source in SOURCE_ORDER}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    with pytest.raises(RuntimeError, match="Could not find a team"):
+        asyncio.run(run_search("Spurs"))
+
+    assert events == ["begin", "close"], "session must be armed before scraping and closed exactly once on the raise path"
+    assert sc._run_session_enabled is False and sc._run_page is None

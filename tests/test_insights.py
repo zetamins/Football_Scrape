@@ -715,6 +715,32 @@ def test_standings_zone_points_from_boundary_uses_closest_gap():
     assert zone.in_the_mix is False
 
 
+def test_standings_zone_clamps_spots_to_small_table_size():
+    # 4-team group table: without the clamp the default 4 continental spots
+    # would label EVERY position "top-of-table" and make relegation
+    # unreachable. Clamped: 1 spot per side.
+    assert classify_standings_zone(_standing(position=1, total_teams=4), "UEFA Nations League", None).zone == "top-of-table"
+    assert classify_standings_zone(_standing(position=2, total_teams=4), "UEFA Nations League", None).zone == "midtable"
+    assert classify_standings_zone(_standing(position=3, total_teams=4), "UEFA Nations League", None).zone == "midtable"
+    assert classify_standings_zone(_standing(position=4, total_teams=4), "UEFA Nations League", None).zone == "relegation-zone"
+
+
+def test_standings_zone_clamp_preserves_named_league_counts():
+    # 20-team tables are unaffected by the clamp: (20-1)//2 = 9 >= any real
+    # spot count in LEAGUE_STAKES or the 4/3 fallback.
+    assert classify_standings_zone(_standing(position=6, total_teams=20), "Brasileirão Betano", None).zone == "top-of-table"
+    assert classify_standings_zone(_standing(position=7, total_teams=20), "Brasileirão Betano", None).zone == "midtable"
+    assert classify_standings_zone(_standing(position=17, total_teams=20), "Brasileirão Betano", None).zone == "relegation-zone"
+    assert classify_standings_zone(_standing(position=4, total_teams=20), "Some Obscure League", None).zone == "top-of-table"
+    assert classify_standings_zone(_standing(position=18, total_teams=20), "Some Obscure League", None).zone == "relegation-zone"
+
+
+def test_standings_zone_two_team_table_final_classification():
+    # floor of 1: winner top-of-table, loser relegation-zone, no midtable.
+    assert classify_standings_zone(_standing(position=1, total_teams=2), "Club Friendly", None).zone == "top-of-table"
+    assert classify_standings_zone(_standing(position=2, total_teams=2), "Club Friendly", None).zone == "relegation-zone"
+
+
 # --- classify_match_type --------------------------------------------------
 
 
@@ -2530,6 +2556,38 @@ def test_derive_projected_bench_excludes_absent_players():
     names = {p.name for p in bench}
     assert "Bench Fit" in names
     assert "Bench Injured" not in names
+
+
+def test_derive_projected_bench_blanks_shirt_numbers_that_collide_with_the_xi_or_each_other():
+    # Confirmed live (Germany): the derived bench put #18 on BOTH Leweling
+    # and Stach while starter Brown also wore #18 (stale squad numbering),
+    # and the squad itself lists four players as #1 -- a colliding number
+    # would actively mislead a matchday reader, so it is blanked instead.
+    from football.insights import derive_projected_bench
+    from football.types import LineupPlayer, PlayerUsagePattern
+
+    def _sq(name, role, number):
+        return _all_none(
+            SquadMember, name=name, role=role, shirt_number=number,
+            recent_usage=_all_none(PlayerUsagePattern, starts=1, total_minutes=90, matches_in_squad=5),
+        )
+
+    squad = [
+        _sq("GK", "G", 1), _sq("Starter", "M", 4),
+        _sq("Bench A", "M", 18), _sq("Bench B", "M", 18),
+        _sq("Bench C", "F", 9), _sq("Bench D", "M", 4),
+    ]
+    lineup = [
+        _all_none(LineupPlayer, name="GK", substitute=False, shirt_number=1),
+        _all_none(LineupPlayer, name="Starter", substitute=False, shirt_number=4),
+    ]
+    bench = derive_projected_bench(lineup, squad)
+    assert bench is not None
+    numbers = {p.name: p.shirt_number for p in bench}
+    assert numbers["Bench C"] == 9     # unique and uncontested -> kept
+    assert numbers["Bench A"] is None  # duplicate #18 within the bench
+    assert numbers["Bench B"] is None
+    assert numbers["Bench D"] is None  # #4 collides with the starter's source-published #4
 
 
 # --- add_clean_sheets_recent_check --------------------------------------------------------------

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from ._jsmath import js_round_to
@@ -331,6 +332,21 @@ def detect_source_conflicts(
     return conflicts
 
 
+def _kickoff_in_future(kickoff_utc: str | None) -> bool:
+    """True only when kickoff_utc parses as a timestamp later than now.
+    Absent/unparseable kickoff -> False: never clear data on a timestamp
+    we can't judge."""
+    if not kickoff_utc:
+        return False
+    try:
+        kickoff = datetime.fromisoformat(kickoff_utc.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if kickoff.tzinfo is None:
+        kickoff = kickoff.replace(tzinfo=UTC)
+    return kickoff > datetime.now(tz=UTC)
+
+
 def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
     base_source = next((s for s in SOURCE_ORDER if s in by_source), next(iter(by_source)))
     base = by_source[base_source]
@@ -349,6 +365,20 @@ def merge_match_details(by_source: dict[Source, MatchDetails]) -> MergedMatch:
     merged["away_lineup"] = _validate_lineup_positions(merged.get("away_lineup"), merged.get("away_formation"))
 
     source_conflicts = detect_source_conflicts(by_source, base_source, merged, field_sources)
+
+    # Sources emit player_of_the_match before the ball has even been
+    # kicked (confirmed live: Germany vs Greece shipped a 365scores POTM
+    # while status was "notstarted" and kickoff was 2 days away --
+    # player of the match is definitionally un-knowable pre-match).
+    # Clear it whenever kickoff is in the future so it can't leak into
+    # the report; completeness already treats it as outcome-only
+    # (_MATCH_OUTCOME_ONLY_FIELDS in insights.py) -- this makes the
+    # stored value agree with that model. Status enums are deliberately
+    # NOT consulted (undocumented and source-specific; cf. soccerdesk.py
+    # using score+past-kickoff instead of trusting a status enum).
+    if _kickoff_in_future(merged.get("kickoff_utc")):
+        merged["player_of_the_match"] = None
+        field_sources.pop("player_of_the_match", None)
 
     return MergedMatch(
         **merged,
@@ -1169,35 +1199,52 @@ def apply_deep_recent_meetings(merged: MergedMatch, deep_meetings: list, source:
     previously exceed the documented cap of 3."""
     from .team_aliases import same_team
 
+    def _keep_true_h2h(rows):
+        """Rows judged against the opponent: keep same-opponent rows and
+        unjudgeable ones (neither home nor away populated -- can't be
+        judged either way, so kept rather than silently dropping real
+        history); drop rows that are provably against someone else."""
+        out = []
+        for m in rows:
+            if not m.home_team and not m.away_team:
+                out.append(m)
+                continue
+            if same_team(m.home_team or "", opponent_name or "") or same_team(m.away_team or "", opponent_name or ""):
+                out.append(m)
+        return out
+
     if not deep_meetings:
         # Deep computation failed or came back empty: leave the earlier
-        # merge's fallback (or None) exactly as it was -- filtering here
-        # would clobber a fallback list we have no better replacement for
-        # (confirmed by test_apply_own_recent_meetings_and_form_tolerates_failures).
+        # merge's fallback (or None) as it was -- but the opponent filter
+        # STILL applies when the opponent is known. Confirmed live
+        # (Germany vs Greece): the fallback carried Germany vs Australia
+        # rows because the deep H2H window legitimately had no GER-GRE
+        # meetings, and the old "preserve the fallback untouched" path
+        # skipped the very filter dataWindows documents -- wrong-opponent
+        # meetings must never ship just because the deep pass was empty.
+        if opponent_name and merged.recent_meetings:
+            kept = _keep_true_h2h(merged.recent_meetings)[:3]
+            if len(kept) != len(merged.recent_meetings):
+                merged.recent_meetings = kept
+                if not kept:
+                    # Nothing true-H2H survived: an empty list must not
+                    # keep claiming a source it no longer contains rows from.
+                    merged.field_sources.pop("recent_meetings", None)
         return
     # HeadToHeadMeeting.date is str | None (soccerdesk/fotmob/form-only
     # can omit it); slicing None TypeError-kills the whole team run.
     deep_days = {m.date[:10] for m in deep_meetings if m.date}
     leftovers = [m for m in (merged.recent_meetings or []) if not m.date or m.date[:10] not in deep_days]
     if opponent_name:
-        # Keep only true H2H leftovers against this opponent. Rows with
-        # neither home_team nor away_team populated (form-only fallbacks
-        # that predate the frame fix) can't be judged either way -- keep
-        # them rather than silently dropping real history. Confirmed
-        # live (Germany): non-H2H leftovers like Germany vs Australia
-        # were sitting in recent_meetings for a Germany vs Netherlands
-        # fixture because the generic field-merge doesn't know the
-        # opponent. Also cap the final list at 3 to match the documented
-        # window -- deep_meetings (already [:3]) plus leftovers could
-        # previously grow past it.
-        filtered = []
-        for m in leftovers:
-            if not m.home_team and not m.away_team:
-                filtered.append(m)
-                continue
-            if same_team(m.home_team or "", opponent_name) or same_team(m.away_team or "", opponent_name):
-                filtered.append(m)
-        leftovers = filtered
+        # Keep only true H2H leftovers against this opponent (same helper
+        # as the empty-deep path above; see _keep_true_h2h for why
+        # teamless rows are kept). Confirmed live (Germany): non-H2H
+        # leftovers like Germany vs Australia were sitting in
+        # recent_meetings for a Germany vs Netherlands fixture because
+        # the generic field-merge doesn't know the opponent. Also caps
+        # the final list at 3 to match the documented window -- deep_meetings
+        # (already [:3]) plus leftovers could previously grow past it.
+        leftovers = _keep_true_h2h(leftovers)
     merged.recent_meetings = sorted(deep_meetings + leftovers, key=lambda m: m.date or "", reverse=True)[:3]
     if leftovers:
         merged.field_sources["recent_meetings"] = "mixed"
