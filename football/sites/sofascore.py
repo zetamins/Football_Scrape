@@ -133,7 +133,15 @@ _UA_METADATA = {
 
 async def _apply_fingerprint_hygiene(context: Any, page: Any) -> None:
     """Run between page creation and warm-up navigation: both overrides
-    take effect on the next navigation, so nothing has loaded yet."""
+    take effect on the next navigation, so nothing has loaded yet.
+
+    Desktop Playwright/Chromium only. The Android WebView context
+    (browser._WebViewContext) has no add_init_script or CDP session, and
+    must not be forced to a Windows UA anyway: it deliberately keeps its
+    own Android UA so every fingerprint signal stays consistent (see
+    _WebViewBrowser.new_context). Skip it there instead of crashing."""
+    if not hasattr(context, "add_init_script"):
+        return
     await context.add_init_script(_WEBDRIVER_MASK_JS)
     cdp = await context.new_cdp_session(page)
     await cdp.send(

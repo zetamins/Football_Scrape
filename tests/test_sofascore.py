@@ -1393,6 +1393,37 @@ def test_session_page_applies_fingerprint_hygiene_before_warm_up(monkeypatch):
     assert "Google Chrome" in brands, "client hints must brand like a real Chrome"
 
 
+def test_session_page_skips_fingerprint_hygiene_on_webview_context(monkeypatch):
+    """Observed on Android 2026-09-28: "'_WebViewContext' object has no
+    attribute 'add_init_script'" killed both Sofascore sources. The WebView
+    context has no init scripts / CDP and keeps its own Android UA, so the
+    hygiene step must be skipped there, not crash."""
+    from football.sites import sofascore as sc
+
+    events = []
+
+    class _Page:
+        async def goto(self, *_a, **_k):
+            events.append("warm_up_goto")
+
+    class _WebViewLikeContext:  # mirrors browser._WebViewContext: new_page only
+        async def new_page(self):
+            return _Page()
+
+    class _Browser:
+        async def new_context(self, **_k):
+            return _WebViewLikeContext()
+
+    monkeypatch.setattr(sc, "launch_browser", lambda: _FakeBrowserCM_With(_Browser))
+    monkeypatch.setattr(sc, "_sleep", _no_sleep)
+    monkeypatch.setattr(sc, "_fetch_json", _mock_fetch_json({"results": []}, []))
+
+    with pytest.raises(ValueError, match="No Sofascore team"):
+        asyncio.run(get_sofascore_matches("No Team"))
+
+    assert events == ["warm_up_goto"]
+
+
 class _FakeBrowserCM_With:
     def __init__(self, browser_cls):
         self._browser = browser_cls()

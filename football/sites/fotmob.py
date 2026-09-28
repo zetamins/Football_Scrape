@@ -150,7 +150,14 @@ async def _fetch_team_fixtures(entry: _TeamIndexEntry) -> list[dict[str, Any]]:
     if key is None:
         raise ValueError("team fallback key not found in Fotmob __NEXT_DATA__")
 
-    return fallback[key]["fixtures"]["allFixtures"]["fixtures"]
+    # A team page with no fixtures tab carries `"fixtures": false` instead
+    # of a dict -- confirmed live on the women's Zimbabwe page (id 741975),
+    # which shares the "zimbabwe" slug with the men's side. Treat it as
+    # "no fixtures" rather than crashing the whole Fotmob source.
+    fixtures = fallback[key].get("fixtures")
+    if not isinstance(fixtures, dict):
+        return []
+    return fixtures["allFixtures"]["fixtures"]
 
 
 def _fixture_status(status: dict[str, Any], finished: bool) -> str:
@@ -230,7 +237,9 @@ async def _resolve_team_entry(
         matches = [_to_match_info(f) for f in await _fetch_team_fixtures(entry)]
         if first_matches is None:
             first_matches = matches
-        if not _looks_womens(matches):
+        # an empty fixture list can't show the "(W)" marker, so it proves
+        # nothing -- keep looking (women's Zimbabwe has no fixtures at all)
+        if matches and not _looks_womens(matches):
             return entry, matches
     # every same-slug candidate looked women's -- keep the original
     # first-in-index pick so behaviour only changes when the tie can

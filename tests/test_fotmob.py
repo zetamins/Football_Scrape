@@ -560,6 +560,35 @@ def test_get_fotmob_matches_same_slug_tie_prefers_the_mens_entry(monkeypatch, tm
     assert [m.home_team for m in matches] == ["Germany"]
 
 
+def test_get_fotmob_matches_same_slug_tie_skips_page_without_fixtures(monkeypatch, tmp_path):
+    # Confirmed live 2026-09-28: women's Zimbabwe (id 741975, first in the
+    # index under slug "zimbabwe") ships `"fixtures": false`, which crashed
+    # the source with "'bool' object is not subscriptable" before the
+    # men's sibling was ever tried.
+    _tie_seed(tmp_path, monkeypatch)
+
+    async def fake_fetch_text(url):
+        if "/5812/" in url:
+            return _next_data_html({"props": {"pageProps": {"fallback": {"team-5812": {"fixtures": False}}}}})
+        return _next_data_html(_tie_fixtures_page(8570, "Germany", "Spain"))
+
+    monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_fotmob_matches("Germany"))
+    assert [m.home_team for m in matches] == ["Germany"]
+
+
+def test_get_fotmob_matches_page_without_fixtures_returns_empty(monkeypatch, tmp_path):
+    seed_path = tmp_path / "fotmob-teams.json"
+    seed_path.write_text(json.dumps([{"id": 8650, "slug": "liverpool", "url": "https://www.fotmob.com/teams/8650/overview/liverpool"}]), encoding="utf-8")
+    monkeypatch.setattr(fotmob, "data_dir", lambda: tmp_path)
+
+    async def fake_fetch_text(_url):
+        return _next_data_html({"props": {"pageProps": {"fallback": {"team-8650": {"fixtures": False}}}}})
+
+    monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
+    assert asyncio.run(get_fotmob_matches("Liverpool")) == []
+
+
 def test_get_fotmob_matches_same_slug_tie_keeps_first_pick_when_all_look_womens(monkeypatch, tmp_path):
     # If every same-slug candidate looks women's the tie cannot be
     # broken -- keep the original first-in-index pick so behaviour only
