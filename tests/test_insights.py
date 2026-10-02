@@ -368,6 +368,41 @@ def test_compute_recent_meetings_prefers_details_xg_over_form_when_both_present(
     assert meetings[0].away_xg == 0.9
 
 
+def test_compute_recent_meetings_falls_back_per_side_when_only_one_side_parses(monkeypatch):
+    """Regression: Sofascore's own Expected goals row can have one side
+    parse cleanly and the other come back empty/malformed -- the old
+    `home_xg is None and away_xg is None` gate skipped the fallback
+    entirely whenever ONE side already had a real number, permanently
+    losing the other side's xG even though the form window had a usable
+    value for it."""
+    from football import orchestrate
+    from football.types import MatchStatItem
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x",
+        home_team="Home FC", away_team="Rival FC",
+        # home parses fine; away is blank/malformed on Sofascore's side.
+        match_stats=[MatchStatItem(name="Expected goals (xG)", home="1.8", away="N/A")],
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    form_results = [_form_result(
+        opponent="Rival FC", date="2026-01-01T15:00:00.000Z",
+        venue="home", xg_for=9.9, xg_against=2.4,
+    )]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    # Home's real, successfully-parsed Sofascore value is kept untouched...
+    assert meetings[0].home_xg == 1.8
+    # ...while away falls back to the form window instead of staying None.
+    assert meetings[0].away_xg == 2.4
+
+
 def test_compute_recent_meetings_caps_at_three(monkeypatch):
     from football import orchestrate
 

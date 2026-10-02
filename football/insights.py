@@ -343,10 +343,12 @@ def _form_result_xg_into_home_first(meeting, own_was_home: bool) -> tuple[float 
 def _build_h2h_meeting(meeting, details, source: Source | None = None, historical_odds: BettingOdds | None = None) -> HeadToHeadMeeting:
     """Extracted from compute_recent_meetings to keep its own cognitive
     complexity down (python:S3776). Falls back to the form window's own
-    xG for this result when details.match_stats has no Expected goals row
-    (common on older events where Sofascore keeps the score but not the
-    full box score). Formations/lineups stay details-only -- the form
-    window never carries them.
+    xG for whichever side's value is missing -- independently per side,
+    not only when BOTH are missing -- whether that's because
+    details.match_stats has no Expected goals row at all (common on older
+    events where Sofascore keeps the score but not the full box score) or
+    because the row exists but only one side's value parsed. Formations/
+    lineups stay details-only -- the form window never carries them.
 
     match_stats/event_timeline/shotmap_stats/set_piece_goals/missing_players/
     venue_name/venue_country/attendance/referee/player_of_the_match all come
@@ -356,8 +358,16 @@ def _build_h2h_meeting(meeting, details, source: Source | None = None, historica
     xg_stat = next((s for s in (details.match_stats or []) if "expected goals" in s.name.lower()), None)
     home_xg = _parse_xg_stat_value(xg_stat.home) if xg_stat else None
     away_xg = _parse_xg_stat_value(xg_stat.away) if xg_stat else None
-    if home_xg is None and away_xg is None:
-        home_xg, away_xg = _form_result_xg_into_home_first(meeting, own_was_home=meeting.venue == "home")
+    if home_xg is None or away_xg is None:
+        # Per side, not "both or nothing" -- a real bug: Sofascore's own
+        # Expected goals row can have one side parse cleanly and the other
+        # come back empty/malformed (confirmed live), and the old `and`
+        # gate skipped the fallback entirely whenever ONE side already had
+        # a real number, permanently losing the other side's xG even
+        # though the form window had a usable value for it.
+        fallback_home_xg, fallback_away_xg = _form_result_xg_into_home_first(meeting, own_was_home=meeting.venue == "home")
+        home_xg = fallback_home_xg if home_xg is None else home_xg
+        away_xg = fallback_away_xg if away_xg is None else away_xg
     return HeadToHeadMeeting(
         date=meeting.date, competition=meeting.competition, scoreline=meeting.scoreline,
         venue=_h2h_meeting_venue(meeting.venue, details),
