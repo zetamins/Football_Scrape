@@ -439,6 +439,26 @@ def test_get_goal_matches_same_slug_tie_prefers_the_mens_entry(monkeypatch, tmp_
     assert [m.competition for m in matches] == ["UEFA Nations League A"]
 
 
+def test_get_goal_matches_same_slug_tie_prefers_fuller_schedule_when_no_marker(monkeypatch, tmp_path):
+    # Confirmed live 2026-09-28: women's Morocco (first under slug
+    # "morocco") lists its 2023 Women's World Cup games as plain
+    # "World Cup" -- 6 fixtures, no women's marker anywhere; the men's
+    # entry has 48. Neither looks women's, so the fuller schedule wins.
+    _seed_index(tmp_path, monkeypatch, _TIE_SEED)
+
+    async def fake_fetch_text(url):
+        if "x0vulday" in url:
+            return _next_data_html(_tie_page("World Cup"))
+        return _next_data_html({"props": {"pageProps": {"content": {"matches": [
+            _raw_match(competition={"name": "World Cup Qualification CAF"}),
+            _raw_match(competition={"name": "Friendlies"}),
+        ]}}}})
+
+    monkeypatch.setattr(goal, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_goal_matches("Germany"))
+    assert [m.competition for m in matches] == ["World Cup Qualification CAF", "Friendlies"]
+
+
 def test_get_goal_matches_same_slug_tie_keeps_first_pick_when_all_look_womens(monkeypatch, tmp_path):
     # If every same-slug candidate looks women's the tie cannot be
     # broken -- keep the original first-in-index pick so behaviour only

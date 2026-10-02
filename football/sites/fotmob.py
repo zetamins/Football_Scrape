@@ -141,7 +141,14 @@ def _extract_next_data(html: str) -> Any:
     return json.loads(html[start:end])
 
 
-async def _fetch_team_fixtures(entry: _TeamIndexEntry) -> list[dict[str, Any]]:
+async def _fetch_team_data(entry: _TeamIndexEntry) -> tuple[list[dict[str, Any]], bool]:
+    """(fixtures, is_womens_team) from one team page.
+
+    is_womens_team reads the page's own details.gender / "(W)" name --
+    the fixture-name "(W)" marker alone is not reliable: confirmed live
+    2026-09-28, women's Egypt (id 1353680) lists "Zambia v Egypt" with no
+    marker, and the same held for Senegal, Algeria and Morocco, so their
+    women's pages (listed first under the shared slug) won the tie-break."""
     html = await fetch_text(entry.url)
     data = _extract_next_data(html)
 
@@ -150,14 +157,21 @@ async def _fetch_team_fixtures(entry: _TeamIndexEntry) -> list[dict[str, Any]]:
     if key is None:
         raise ValueError("team fallback key not found in Fotmob __NEXT_DATA__")
 
+    team = fallback[key]
+    details = team.get("details") if isinstance(team.get("details"), dict) else {}
+    female = details.get("gender") == "female" or "(W)" in (details.get("name") or "")
     # A team page with no fixtures tab carries `"fixtures": false` instead
     # of a dict -- confirmed live on the women's Zimbabwe page (id 741975),
     # which shares the "zimbabwe" slug with the men's side. Treat it as
     # "no fixtures" rather than crashing the whole Fotmob source.
-    fixtures = fallback[key].get("fixtures")
+    fixtures = team.get("fixtures")
     if not isinstance(fixtures, dict):
-        return []
-    return fixtures["allFixtures"]["fixtures"]
+        return [], female
+    return fixtures["allFixtures"]["fixtures"], female
+
+
+async def _fetch_team_fixtures(entry: _TeamIndexEntry) -> list[dict[str, Any]]:
+    return (await _fetch_team_data(entry))[0]
 
 
 def _fixture_status(status: dict[str, Any], finished: bool) -> str:
@@ -234,12 +248,13 @@ async def _resolve_team_entry(
 
     first_matches: list[MatchInfo] | None = None
     for entry in (team, *siblings):
-        matches = [_to_match_info(f) for f in await _fetch_team_fixtures(entry)]
+        fixtures, female = await _fetch_team_data(entry)
+        matches = [_to_match_info(f) for f in fixtures]
         if first_matches is None:
             first_matches = matches
         # an empty fixture list can't show the "(W)" marker, so it proves
         # nothing -- keep looking (women's Zimbabwe has no fixtures at all)
-        if matches and not _looks_womens(matches):
+        if matches and not female and not _looks_womens(matches):
             return entry, matches
     # every same-slug candidate looked women's -- keep the original
     # first-in-index pick so behaviour only changes when the tie can

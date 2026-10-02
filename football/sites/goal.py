@@ -154,17 +154,22 @@ async def _resolve_team_entry(
     if not siblings:
         return team, None
 
-    first_matches: list[MatchInfo] | None = None
-    for entry in (team, *siblings):
-        matches = await _fetch_goal_fixtures(entry)
-        if first_matches is None:
-            first_matches = matches
-        if not _looks_womens(matches):
-            return entry, matches
+    # Check every candidate, then keep the non-women's one with the MOST
+    # fixtures. The competition-name check alone is not enough: confirmed
+    # live 2026-09-28, the women's "morocco" entry (6y63y4ciqdo5i94ba3v1z8xyb,
+    # first in the index) lists its 2023 Women's World Cup games as plain
+    # "World Cup" (Germany/South Korea/Colombia v Morocco), 6 fixtures in
+    # all, and no page field states gender. The men's entry had 48. A men's
+    # national side's schedule (qualifiers, continental cups, friendlies)
+    # is reliably the fuller one.
+    candidates = [(entry, await _fetch_goal_fixtures(entry)) for entry in (team, *siblings)]
+    mens = [c for c in candidates if not _looks_womens(c[1])]
+    if mens:
+        return max(mens, key=lambda c: len(c[1]))  # max() keeps the first on equal counts
     # every same-slug candidate looked women's -- keep the original
     # first-in-index pick so behaviour only changes when the tie can
     # actually be broken
-    return team, first_matches
+    return candidates[0]
 
 
 def _looks_womens(matches: list[MatchInfo]) -> bool:

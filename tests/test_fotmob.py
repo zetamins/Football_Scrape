@@ -560,6 +560,24 @@ def test_get_fotmob_matches_same_slug_tie_prefers_the_mens_entry(monkeypatch, tm
     assert [m.home_team for m in matches] == ["Germany"]
 
 
+def test_get_fotmob_matches_same_slug_tie_uses_page_gender_when_fixtures_lack_marker(monkeypatch, tmp_path):
+    # Confirmed live 2026-09-28: women's Egypt (id 1353680, first under slug
+    # "egypt") lists "Zambia v Egypt" with no "(W)" marker; only the page's
+    # details.gender says female. Same for Senegal, Algeria, Morocco.
+    _tie_seed(tmp_path, monkeypatch)
+
+    async def fake_fetch_text(url):
+        if "/5812/" in url:
+            page = _tie_fixtures_page(5812, "Zambia", "Germany")
+            page["props"]["pageProps"]["fallback"]["team-5812"]["details"] = {"name": "Germany (W)", "gender": "female"}
+            return _next_data_html(page)
+        return _next_data_html(_tie_fixtures_page(8570, "Germany", "Spain"))
+
+    monkeypatch.setattr(fotmob, "fetch_text", fake_fetch_text)
+    matches = asyncio.run(get_fotmob_matches("Germany"))
+    assert [m.home_team for m in matches] == ["Germany"]
+
+
 def test_get_fotmob_matches_same_slug_tie_skips_page_without_fixtures(monkeypatch, tmp_path):
     # Confirmed live 2026-09-28: women's Zimbabwe (id 741975, first in the
     # index under slug "zimbabwe") ships `"fixtures": false`, which crashed
