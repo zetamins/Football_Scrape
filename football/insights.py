@@ -25,6 +25,7 @@ from .merge import (
 )
 from .team_aliases import canonical_for, same_team
 from .types import (
+    BettingOdds,
     CardDisciplineInfo,
     CardDisciplineVenueSplit,
     DirectPlayExposureFlag,
@@ -339,13 +340,19 @@ def _form_result_xg_into_home_first(meeting, own_was_home: bool) -> tuple[float 
     return meeting.xg_against, meeting.xg_for
 
 
-def _build_h2h_meeting(meeting, details) -> HeadToHeadMeeting:
+def _build_h2h_meeting(meeting, details, source: Source | None = None, historical_odds: BettingOdds | None = None) -> HeadToHeadMeeting:
     """Extracted from compute_recent_meetings to keep its own cognitive
     complexity down (python:S3776). Falls back to the form window's own
     xG for this result when details.match_stats has no Expected goals row
     (common on older events where Sofascore keeps the score but not the
     full box score). Formations/lineups stay details-only -- the form
-    window never carries them."""
+    window never carries them.
+
+    match_stats/event_timeline/shotmap_stats/set_piece_goals/missing_players/
+    venue_name/venue_country/attendance/referee/player_of_the_match all come
+    from this SAME details() fetch -- no new requests, just no longer
+    discarding the rest of the response the way the pre-existing fields
+    above already did."""
     xg_stat = next((s for s in (details.match_stats or []) if "expected goals" in s.name.lower()), None)
     home_xg = _parse_xg_stat_value(xg_stat.home) if xg_stat else None
     away_xg = _parse_xg_stat_value(xg_stat.away) if xg_stat else None
@@ -357,6 +364,14 @@ def _build_h2h_meeting(meeting, details) -> HeadToHeadMeeting:
         home_formation=details.home_formation, away_formation=details.away_formation,
         home_xg=home_xg, away_xg=away_xg, home_lineup=details.home_lineup, away_lineup=details.away_lineup,
         home_team=details.home_team, away_team=details.away_team,
+        details_source=source,
+        venue_name=details.venue_name, venue_country=details.venue_country,
+        attendance=details.attendance, referee=details.referee,
+        match_stats=details.match_stats, event_timeline=details.event_timeline,
+        shotmap_stats=details.shotmap_stats, set_piece_goals=details.set_piece_goals,
+        player_of_the_match=details.player_of_the_match,
+        home_missing_players=details.home_missing_players, away_missing_players=details.away_missing_players,
+        historical_odds=historical_odds,
     )
 
 
@@ -397,6 +412,23 @@ def _build_h2h_meeting_from_form_only(
     )
 
 
+async def _fetch_historical_odds_or_none(meeting, details) -> BettingOdds | None:
+    """One extra, genuinely new plain-HTTP fetch per H2H meeting (capped at
+    3, sequential, never retried) -- football-data.co.uk's own archived
+    season CSV for the season this meeting was played in. Best-effort: a
+    missing/blocked file, an uncovered competition, or a name/date miss all
+    fall through to None rather than failing the whole meeting."""
+    from .sites import footballdata
+
+    try:
+        return await footballdata.get_historical_match_odds(
+            meeting.competition, details.home_team, details.away_team, meeting.date
+        )
+    except Exception as err:  # noqa: BLE001 - best-effort just like the details() fetch above
+        record_step_failure("past meeting historical odds", err)
+        return None
+
+
 async def compute_recent_meetings(
     raw_matches: list[MatchInfo], form_results, opponent_name: str, source: Source,
     team_name: str | None = None,
@@ -433,7 +465,8 @@ async def compute_recent_meetings(
         try:
             details = await SCRAPERS[source].details(raw)
             cache_match_details(raw, details)
-            out.append(_build_h2h_meeting(meeting, details))
+            historical_odds = await _fetch_historical_odds_or_none(meeting, details)
+            out.append(_build_h2h_meeting(meeting, details, source=source, historical_odds=historical_odds))
         except Exception as err:  # noqa: BLE001 - best-effort per past meeting
             record_step_failure("past meeting details", err)
             out.append(_build_h2h_meeting_from_form_only(meeting, raw.home_team, raw.away_team))

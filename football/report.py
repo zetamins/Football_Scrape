@@ -159,9 +159,14 @@ _DATA_WINDOWS = {
         "(home/away relative to the requested team's perspective as the source recorded it) and is NOT "
         "verified against the stadium -- 'neutral' appears only when the source publishes the venue country "
         "AND both team countries (Sofascore-only fields), so meetings fetched from other sources can show "
-        "'home'/'away' for a genuinely neutral match; per-meeting detail (lineups, formations, xG) exists only "
+        "'home'/'away' for a genuinely neutral match; per-meeting detail (lineups, formations, xG, match_stats, "
+        "event_timeline, shotmap_stats, set_piece_goals, missing_players, venue/attendance/referee) exists only "
         "for meetings whose own event page was fetched -- typically the most recent one -- so a meeting with "
-        "null lineups is expected, not a broken record"
+        "null lineups/stats is expected, not a broken record; `details_source` names which site supplied that detail, "
+        "since a Fotmob/SoccerDesk-sourced meeting only ever carries formations/xG, never the richer fields; "
+        "home_team_season_stats/standings are deliberately NOT included per meeting -- Sofascore's event-detail "
+        "fetch returns each team's CURRENT cumulative season figures regardless of event age, so attaching them "
+        "to an old meeting would misrepresent today's numbers as that meeting's pre-match state"
     ),
     "insights.home_corners_estimate": (
         "Goal.com Corner total summed over that team's own last finished matches with the stat present "

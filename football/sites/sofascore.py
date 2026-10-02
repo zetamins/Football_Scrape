@@ -656,6 +656,7 @@ def _extract_lineup_player(p: dict[str, Any], substitute: bool) -> LineupPlayer:
         key_passes=s.get("keyPass"),
         shirt_number=(int(p["shirtNumber"]) if p.get("shirtNumber") is not None else None),
         age=_age_from_timestamp(p["player"].get("dateOfBirthTimestamp")),
+        player_id=p["player"].get("id"),
     )
 
 
@@ -1450,6 +1451,7 @@ def _build_sofascore_squad(players_data: dict[str, Any], top_player_stats: dict[
                 defensive_stats=None,
                 recent_usage=None,
                 shirt_number=(int(player["shirtNumber"]) if player.get("shirtNumber") is not None else None),
+                player_id=player.get("id"),
             )
         )
     return squad

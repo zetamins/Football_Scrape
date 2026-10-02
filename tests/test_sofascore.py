@@ -7,6 +7,7 @@ from football.sites import sofascore
 from football.sites.sofascore import (
     _age_from_timestamp,
     _apply_category_stat,
+    _build_sofascore_squad,
     _empty_goal_counts,
     _empty_shotmap_side_stats,
     _extract_bench,
@@ -233,6 +234,31 @@ def test_extract_lineup_player_reads_stats_and_parses_shirt_number():
     assert p.rating == 7.5
     assert p.shirt_number == 9
     assert p.substitute is False
+
+
+def test_extract_lineup_player_carries_sofascore_player_id():
+    p = _extract_lineup_player(_raw_player(player={"id": 884732, "name": "Player A", "position": "F"}), substitute=False)
+    assert p.player_id == 884732
+
+
+def test_extract_lineup_player_id_none_without_one():
+    p = _extract_lineup_player(_raw_player(), substitute=False)
+    assert p.player_id is None
+
+
+# --- _build_sofascore_squad ------------------------------------------------------------
+
+
+def test_build_sofascore_squad_carries_sofascore_player_id():
+    players_data = {"players": [{"player": {"id": 884732, "name": "Player A", "position": "F"}}]}
+    squad = _build_sofascore_squad(players_data, {})
+    assert squad[0].player_id == 884732
+
+
+def test_build_sofascore_squad_player_id_none_without_one():
+    players_data = {"players": [{"player": {"name": "Player A", "position": "F"}}]}
+    squad = _build_sofascore_squad(players_data, {})
+    assert squad[0].player_id is None
 
 
 def test_extract_lineup_filters_to_non_substitutes_only():

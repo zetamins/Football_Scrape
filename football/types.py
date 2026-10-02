@@ -84,6 +84,12 @@ class LineupPlayer:
     # Sofascore only, derived from dateOfBirthTimestamp at extraction time
     # (age as of the match, not stored as a birth date).
     age: int | None = None
+    # Sofascore's own stable player id (player.id in its payload) -- lets a
+    # consumer track the same player across matches/seasons by id rather
+    # than by name string (a name alone breaks on diacritics, nicknames, or
+    # a mid-career transfer that changes how a source spells it). Null from
+    # every other source -- never guessed from a name match.
+    player_id: int | None = None
 
 
 @dataclass
@@ -450,6 +456,55 @@ class HeadToHeadMeeting:
     # formations above are in this same home-first order).
     home_team: str | None = None
     away_team: str | None = None
+    # Everything below comes from the SAME details() fetch that already
+    # supplied home_lineup/away_lineup/home_xg/away_xg above -- zero extra
+    # requests, just no longer discarding the rest of that response. All
+    # stay None on a form-only row (no details fetch happened) or when the
+    # meeting's own details fetch failed/was blocked.
+    #
+    # Which source's details() call supplied this meeting's lineup/stats/
+    # timeline -- lets a consumer tell a Sofascore-sourced meeting (richest)
+    # from a Fotmob/SoccerDesk one (formations/xG only, no timeline/missing
+    # players) instead of silently treating every meeting as equally
+    # detailed.
+    #
+    # Named details_source, NOT source: report.py's _strip_source_labels
+    # removes every "source" key anywhere in the match tree (it's noise on
+    # MatchInfo/MatchDetails, superseded by field_sources/base_source) --
+    # confirmed live this got silently eaten from recent_meetings output
+    # the one release it was named "source", despite compute_recent_meetings
+    # setting it correctly every time.
+    details_source: Source | None = None
+    venue_name: str | None = None
+    venue_country: str | None = None
+    attendance: int | None = None
+    referee: str | None = None
+    match_stats: list[MatchStatItem] | None = None
+    event_timeline: list[TimelineEvent] | None = None
+    # Sofascore only, from that meeting's own shotmap -- non-penalty xG,
+    # set-piece xG and penalties awarded per side, independent of the
+    # aggregate home_xg/away_xg above (which is read off match_stats'
+    # "Expected goals" row, or the form window, when shotmap isn't
+    # available for an older event).
+    shotmap_stats: ShotmapStats | None = None
+    set_piece_goals: SetPieceGoals | None = None
+    player_of_the_match: PlayerOfTheMatch | None = None
+    # Sofascore only -- that meeting's own confirmed absences (injury/
+    # suspension/coach_decision), NOT the squad's current injury list.
+    home_missing_players: list[MissingPlayer] | None = None
+    away_missing_players: list[MissingPlayer] | None = None
+    # Deliberately NOT carried over from details: home_team_season_stats,
+    # away_team_season_stats, home_team_standing, away_team_standing.
+    # Sofascore's event-detail fetch returns each team's CURRENT cumulative
+    # season figures regardless of which (possibly old) event was queried --
+    # attaching them to a historical meeting would misrepresent today's
+    # numbers as that meeting's pre-match state.
+    #
+    # football-data.co.uk's own per-season results CSV for the season this
+    # meeting was actually played in -- a genuinely separate, extra fetch
+    # (not free like the fields above), so only attempted for the 5
+    # competitions that site covers; None otherwise, or on a name/date miss.
+    historical_odds: BettingOdds | None = None
 
 
 @dataclass
@@ -734,6 +789,10 @@ class SquadMember:
     # of leaving the consumer to notice it from two separate leaderboards.
     # None when the numbers match or one side is missing.
     stat_window_note: str | None = None
+    # Sofascore's own stable player id -- see LineupPlayer.player_id for why
+    # this matters (tracking one player across matches/seasons without
+    # relying on name matching). Null from every other source.
+    player_id: int | None = None
 
 
 @dataclass

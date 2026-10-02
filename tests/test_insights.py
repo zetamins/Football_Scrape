@@ -138,6 +138,86 @@ def test_compute_recent_meetings_fetches_details_for_matching_raw_fixtures(monke
     assert (meetings[0].home_team, meetings[0].away_team) == ("Home FC", "Rival FC")
 
 
+def test_compute_recent_meetings_surfaces_the_full_details_fetch_not_just_formations_xg(monkeypatch):
+    """The details() fetch already pulls match_stats, event_timeline,
+    shotmap_stats, set_piece_goals, missing players and venue/attendance/
+    referee -- these were being fetched and then discarded. Zero extra
+    requests to surface them on the meeting itself, plus which source
+    supplied them."""
+    from football import orchestrate
+    from football.types import (
+        MatchStatItem,
+        MissingPlayer,
+        PlayerOfTheMatch,
+        SetPieceGoalCounts,
+        SetPieceGoals,
+        ShotmapSideStats,
+        ShotmapStats,
+        TimelineEvent,
+    )
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    timeline = [TimelineEvent(minute=23, type="goal", detail=None, player="A. Striker", team="home")]
+    shotmap = ShotmapStats(
+        home=ShotmapSideStats(non_penalty_xg=1.2, set_piece_xg=0.3, penalties_awarded=0),
+        away=ShotmapSideStats(non_penalty_xg=0.5, set_piece_xg=0.1, penalties_awarded=1),
+    )
+    set_pieces = SetPieceGoals(
+        home=SetPieceGoalCounts(corner=1, free_kick=0, penalty=0),
+        away=SetPieceGoalCounts(corner=0, free_kick=0, penalty=1),
+    )
+    potm = PlayerOfTheMatch(name="A. Striker", rating="8.4")
+    missing = [MissingPlayer(name="B. Injured", description="Knee Injury", expected_return=None, absence_type="injury")]
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x", home_team="Home FC", away_team="Rival FC",
+        home_formation="4-3-3", away_formation="4-4-2", home_lineup=None, away_lineup=None,
+        match_stats=[MatchStatItem(name="Expected goals (xG)", home="1.8", away="0.9")],
+        event_timeline=timeline, shotmap_stats=shotmap, set_piece_goals=set_pieces,
+        player_of_the_match=potm, home_missing_players=missing, away_missing_players=None,
+        venue_name="Old Trafford", venue_country="England", attendance=73000, referee="M. Oliver",
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", scoreline="2-1")]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+
+    meeting = meetings[0]
+    assert meeting.details_source == "sofascore"
+    assert meeting.venue_name == "Old Trafford"
+    assert meeting.venue_country == "England"
+    assert meeting.attendance == 73000
+    assert meeting.referee == "M. Oliver"
+    assert meeting.match_stats == details.match_stats
+    assert meeting.event_timeline == timeline
+    assert meeting.shotmap_stats == shotmap
+    assert meeting.set_piece_goals == set_pieces
+    assert meeting.player_of_the_match == potm
+    assert meeting.home_missing_players == missing
+    assert meeting.away_missing_players is None
+
+
+def test_compute_recent_meetings_form_only_row_leaves_the_rich_fields_none():
+    """A form-only row (no details fetch happened -- raw fixture never
+    matched) must not fabricate match_stats/timeline/etc.; honest absence,
+    same as the pre-existing home_formation/home_lineup None on this path."""
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z", scoreline="2-1", venue="home")]
+    meetings = asyncio.run(compute_recent_meetings([], form_results, "Rival FC", "sofascore", team_name="Home FC"))
+    meeting = meetings[0]
+    assert meeting.details_source is None
+    assert meeting.match_stats is None
+    assert meeting.event_timeline is None
+    assert meeting.shotmap_stats is None
+    assert meeting.set_piece_goals is None
+    assert meeting.player_of_the_match is None
+    assert meeting.home_missing_players is None
+    assert meeting.away_missing_players is None
+
+
 def test_compute_recent_meetings_detects_neutral_venue(monkeypatch):
     """Regression: a cup final at a neutral venue was previously forced
     into "home"/"away" -- HeadToHeadMeeting.venue had no third option and
@@ -303,6 +383,78 @@ def test_compute_recent_meetings_caps_at_three(monkeypatch):
     form_results = [_form_result(opponent="Rival FC", date=f"2026-01-0{i}T15:00:00.000Z") for i in range(1, 5)]
     meetings = asyncio.run(compute_recent_meetings(raw_matches, form_results, "Rival FC", "sofascore"))
     assert len(meetings) == 3
+
+
+def test_compute_recent_meetings_attaches_historical_odds_from_football_data(monkeypatch):
+    """football-data.co.uk's archived season CSV is a genuinely separate
+    fetch (unlike match_stats/lineup, which ride along for free on the
+    same details() call) -- confirm it's actually wired through to the
+    meeting, keyed off that meeting's own competition/teams/date."""
+    from football import orchestrate
+    from football.sites import footballdata
+    from football.types import BettingOdds
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x", home_team="Home FC", away_team="Rival FC",
+        home_lineup=None, away_lineup=None, match_stats=None,
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    odds = BettingOdds(
+        home_win_odds=2.0, draw_odds=3.5, away_win_odds=4.0,
+        home_win_implied_pct=None, draw_implied_pct=None, away_win_implied_pct=None,
+        over_2_5_odds=None, under_2_5_odds=None, overround_pct=None,
+        home_win_fair_pct=None, draw_fair_pct=None, away_win_fair_pct=None,
+        over_2_5_implied_pct=None, under_2_5_implied_pct=None, over_under_2_5_overround_pct=None,
+        over_2_5_fair_pct=None, under_2_5_fair_pct=None,
+    )
+    seen_args = []
+
+    async def fake_get_historical_match_odds(competition, home_team, away_team, kickoff_utc):
+        seen_args.append((competition, home_team, away_team, kickoff_utc))
+        return odds
+
+    monkeypatch.setattr(footballdata, "get_historical_match_odds", fake_get_historical_match_odds)
+
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z")]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    assert meetings[0].historical_odds == odds
+    assert seen_args == [("Premier League", "Home FC", "Rival FC", "2026-01-01T15:00:00.000Z")]
+
+
+def test_compute_recent_meetings_tolerates_historical_odds_fetch_failure(monkeypatch):
+    """A failure fetching the odds CSV must not drop the whole meeting --
+    same best-effort contract as the details() fetch itself."""
+    from football import orchestrate
+    from football.sites import footballdata
+
+    raw_match = _match(home_team="Home FC", away_team="Rival FC", kickoff_utc="2026-01-01T15:00:00.000Z")
+    details = _all_none(
+        MatchDetails, source="sofascore", source_url="https://x", home_team="Home FC", away_team="Rival FC",
+        home_lineup=None, away_lineup=None, match_stats=None,
+    )
+
+    async def fake_details(_match_info):
+        return details
+
+    fake_scrapers = {"sofascore": type("S", (), {"details": staticmethod(fake_details)})()}
+    monkeypatch.setattr(orchestrate, "SCRAPERS", fake_scrapers)
+
+    async def fake_get_historical_match_odds(*_args):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(footballdata, "get_historical_match_odds", fake_get_historical_match_odds)
+
+    form_results = [_form_result(opponent="Rival FC", date="2026-01-01T15:00:00.000Z")]
+    meetings = asyncio.run(compute_recent_meetings([raw_match], form_results, "Rival FC", "sofascore"))
+    assert len(meetings) == 1
+    assert meetings[0].historical_odds is None
 
 
 # --- compute_rotation_info (async) ------------------------------------------------------

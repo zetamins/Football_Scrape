@@ -210,6 +210,32 @@ def test_build_report_json_strips_only_per_item_source_from_match():
     assert report["match"]["field_sources"]["home_team"] == "sofascore"  # populated, unlabeled -> base source
 
 
+def test_build_report_json_keeps_recent_meetings_details_source_despite_the_generic_strip():
+    """Regression: HeadToHeadMeeting.details_source was originally named
+    "source", which _strip_source_labels deletes from EVERY dict at any
+    depth in the match tree (it's noise on MatchInfo/MatchDetails) --
+    confirmed live via a same-match double-run audit that this silently
+    ate the field from every recent_meetings entry despite
+    compute_recent_meetings setting it correctly every time. Renamed to
+    avoid the collision; this guards against the same collision
+    recurring under a different field name."""
+    from football.merge import MergedMatch
+    from football.types import HeadToHeadMeeting
+
+    meeting = _all_none(
+        HeadToHeadMeeting, date="2026-01-01T00:00:00.000Z", competition="Premier League", scoreline="2-1",
+        venue="home", details_source="sofascore",
+    )
+    merged = _all_none(
+        MergedMatch, home_team="Home FC", away_team="Away FC", status="finished",
+        source="sofascore", base_source="sofascore", field_sources={}, additional_notes=[],
+        recent_meetings=[meeting],
+    )
+    report = build_report_json(_run_search_result(merged=merged))
+    assert "source" not in report["match"]
+    assert report["match"]["recent_meetings"][0]["details_source"] == "sofascore"
+
+
 def test_build_report_json_labels_the_window_each_family_of_numbers_covers():
     report = build_report_json(_run_search_result())
     assert report["dataWindows"]["team_season_stats"].startswith("current season")

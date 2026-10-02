@@ -352,7 +352,14 @@ def _extract_timeline(events: list[dict[str, Any]] | None, home_id: int, name_by
 
 
 def _extract_standing(rows: list[dict[str, Any]] | None, team_id: int) -> TeamStanding | None:
-    row = next((r for r in (rows or []) if r["competitor"]["id"] == team_id), None)
+    """Found live 2026-10-02: a UEFA Nations League standings table can
+    include a row with no "competitor" key at all (a group-summary/note
+    row mixed into the same list, not seen on a domestic-league table) --
+    r["competitor"]["id"] raised an unhandled KeyError there, crashing
+    get365_scores_match_details entirely (losing venue/referee/lineups
+    too, not just the standing). (r.get("competitor") or {}).get("id")
+    just treats that row as a non-match, same as any other team_id miss."""
+    row = next((r for r in (rows or []) if (r.get("competitor") or {}).get("id") == team_id), None)
     if row is None:
         return None
 

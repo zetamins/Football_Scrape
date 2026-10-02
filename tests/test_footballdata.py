@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 
 import httpx
 
@@ -8,12 +9,15 @@ from football.sites.footballdata import (
     _find_matching_row,
     _names_match,
     _parse_rows,
+    _season_code_for_date,
     _surname,
     form_map_from_csv,
+    get_historical_match_odds,
     get_league_form,
     get_referee_home_away_bias,
     get_upcoming_fixture,
     get_upcoming_match_odds,
+    historical_odds_from_csv,
 )
 
 # --- _parse_rows ------------------------------------------------------------------------
@@ -379,3 +383,82 @@ def test_get_upcoming_fixture_referee_none_when_column_empty_or_absent(monkeypat
     odds, referee = asyncio.run(get_upcoming_fixture("Arsenal", "Chelsea"))
     assert odds is not None
     assert referee is None
+
+
+# --- _season_code_for_date -----------------------------------------------------------------
+
+
+def test_season_code_for_date_mid_season():
+    assert _season_code_for_date(datetime(2024, 1, 15, tzinfo=UTC)) == "2324"
+
+
+def test_season_code_for_date_before_july_boundary():
+    assert _season_code_for_date(datetime(2024, 6, 30, tzinfo=UTC)) == "2324"
+
+
+def test_season_code_for_date_on_july_boundary():
+    assert _season_code_for_date(datetime(2024, 7, 1, tzinfo=UTC)) == "2425"
+
+
+# --- historical_odds_from_csv --------------------------------------------------------------
+
+
+def test_historical_odds_from_csv_finds_the_right_leg():
+    csv = (
+        "Div,HomeTeam,AwayTeam,AvgH,AvgD,AvgA,Avg>2.5,Avg<2.5\n"
+        "E0,Arsenal,Chelsea,2.0,3.5,4.0,1.9,2.0\n"
+        "E0,Chelsea,Arsenal,2.5,3.2,2.9,1.8,2.1\n"
+    )
+    odds = historical_odds_from_csv(csv, "Chelsea", "Arsenal")
+    assert odds is not None
+    assert odds.home_win_odds == 2.5
+    assert odds.away_win_odds == 2.9
+
+
+def test_historical_odds_from_csv_none_without_matching_row():
+    csv = "Div,HomeTeam,AwayTeam,AvgH,AvgD,AvgA\nE0,Arsenal,Chelsea,2.0,3.5,4.0\n"
+    assert historical_odds_from_csv(csv, "Liverpool", "Everton") is None
+
+
+def test_historical_odds_from_csv_none_without_required_columns():
+    assert historical_odds_from_csv("Div,Date\nE0,2026-01-01\n", "Arsenal", "Chelsea") is None
+
+
+# --- get_historical_match_odds (async) -----------------------------------------------------
+
+
+def test_get_historical_match_odds_none_without_competition_or_kickoff():
+    assert asyncio.run(get_historical_match_odds(None, "Arsenal", "Chelsea", "2024-01-15T15:00:00.000Z")) is None
+    assert asyncio.run(get_historical_match_odds("Premier League", "Arsenal", "Chelsea", None)) is None
+
+
+def test_get_historical_match_odds_none_for_unmapped_competition():
+    assert asyncio.run(get_historical_match_odds("Not A Real League", "Arsenal", "Chelsea", "2024-01-15T15:00:00.000Z")) is None
+
+
+def test_get_historical_match_odds_none_for_unparseable_kickoff():
+    assert asyncio.run(get_historical_match_odds("Premier League", "Arsenal", "Chelsea", "not-a-date")) is None
+
+
+def test_get_historical_match_odds_fetches_the_matchs_own_season(monkeypatch):
+    csv = "Div,HomeTeam,AwayTeam,AvgH,AvgD,AvgA\nE0,Arsenal,Chelsea,2.0,3.5,4.0\n"
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, text=csv)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    odds = asyncio.run(get_historical_match_odds("Premier League", "Arsenal", "Chelsea", "2024-01-15T15:00:00.000Z"))
+    assert odds is not None
+    assert odds.home_win_odds == 2.0
+    assert len(calls) == 1
+    assert "/mmz4281/2324/E0.csv" in calls[0]
+
+
+def test_get_historical_match_odds_none_when_season_not_archived(monkeypatch):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    monkeypatch.setattr(footballdata, "new_client", _mock_client_factory(handler))
+    assert asyncio.run(get_historical_match_odds("Premier League", "Arsenal", "Chelsea", "1994-01-15T15:00:00.000Z")) is None

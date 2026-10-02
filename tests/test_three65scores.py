@@ -224,6 +224,16 @@ def test_extract_standing_none_when_team_missing():
     assert _extract_standing(None, 1) is None
 
 
+def test_extract_standing_skips_a_row_with_no_competitor_key():
+    """Regression: a UEFA Nations League standings table returned a row
+    with no "competitor" key at all, crashing with an unhandled KeyError
+    (confirmed live 2026-10-02, via a same-match double-run audit)."""
+    rows = [{"note": "Group summary"}, {"competitor": {"id": 1}, "position": 3, "statsData": [{"key": "points", "value": "41"}]}]
+    standing = _extract_standing(rows, 1)
+    assert standing.position == 3
+    assert standing.points == 41
+
+
 # --- _pool_competitors / _find_team (async) ---------------------------------------------
 
 

@@ -287,6 +287,121 @@ def _cell_float(row: list[str], idx: dict, key: str) -> float | None:
         return None
 
 
+def _odds_idx(header: list[str]) -> dict[str, int]:
+    """Column lookup shared by the upcoming-fixture and historical-meeting
+    odds paths -- both read the same "Avg" (cross-bookmaker average)
+    columns from a football-data.co.uk CSV, just a different file
+    (fixtures.csv vs a per-season results CSV)."""
+    return {
+        "home": _header_col(header, "HomeTeam"), "away": _header_col(header, "AwayTeam"),
+        "avg_h": _header_col(header, "AvgH"), "avg_d": _header_col(header, "AvgD"), "avg_a": _header_col(header, "AvgA"),
+        "avg_over": _header_col(header, "Avg>2.5"), "avg_under": _header_col(header, "Avg<2.5"),
+    }
+
+
+def _odds_from_row(row: list[str], idx: dict[str, int]) -> BettingOdds:
+    """Build a BettingOdds from one CSV row's Avg columns plus the derived
+    implied/fair/overround percentages. Extracted so the upcoming-fixture
+    and historical-meeting paths share one implementation instead of two
+    copies drifting apart."""
+    home_odds = _cell_float(row, idx, "avg_h")
+    draw_odds = _cell_float(row, idx, "avg_d")
+    away_odds = _cell_float(row, idx, "avg_a")
+    over_odds = _cell_float(row, idx, "avg_over")
+    under_odds = _cell_float(row, idx, "avg_under")
+    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = implied_and_fair_percentages(home_odds, draw_odds, away_odds)
+    over_pct, under_pct, ou_overround, over_fair, under_fair = implied_and_fair_percentages_2way(over_odds, under_odds)
+    return BettingOdds(
+        home_win_odds=home_odds,
+        draw_odds=draw_odds,
+        away_win_odds=away_odds,
+        home_win_implied_pct=home_pct,
+        draw_implied_pct=draw_pct,
+        away_win_implied_pct=away_pct,
+        over_2_5_odds=over_odds,
+        under_2_5_odds=under_odds,
+        overround_pct=overround,
+        home_win_fair_pct=home_fair,
+        draw_fair_pct=draw_fair,
+        away_win_fair_pct=away_fair,
+        over_2_5_implied_pct=over_pct,
+        under_2_5_implied_pct=under_pct,
+        over_under_2_5_overround_pct=ou_overround,
+        over_2_5_fair_pct=over_fair,
+        under_2_5_fair_pct=under_fair,
+    )
+
+
+def _season_code_for_date(reference: datetime) -> str:
+    """Same season-code math as _season_code, anchored to a specific match
+    date instead of "now" -- finds the archived season CSV an
+    ALREADY-PLAYED match actually belongs in, instead of the current
+    season's (still-in-progress or not-yet-started) file."""
+    start_year = reference.year if reference.month >= 7 else reference.year - 1
+
+    def yy(y: int) -> str:
+        return f"{y % 100:02d}"
+
+    return f"{yy(start_year)}{yy(start_year + 1)}"
+
+
+def historical_odds_from_csv(csv: str, home_team: str, away_team: str) -> BettingOdds | None:
+    """Pure parse half of get_historical_match_odds, split out so it's
+    testable without a network fetch. None when the CSV lacks the expected
+    columns or has no row for this exact home/away pairing (the two
+    meetings in a season are home/away-reversed fixtures, so matching on
+    both roles in order picks the right one, same as _find_matching_row's
+    existing upcoming-fixture use)."""
+    lines = csv.strip().split("\n")
+    header = lines[0].strip().split(",")
+    idx = _odds_idx(header)
+    if idx["home"] == -1 or idx["away"] == -1:
+        return None
+    row = _find_matching_row(lines, idx, home_team, away_team)
+    if row is None:
+        return None
+    return _odds_from_row(row, idx)
+
+
+async def get_historical_match_odds(
+    competition: str | None, home_team: str, away_team: str, kickoff_utc: str | None
+) -> BettingOdds | None:
+    """1X2 and Over/Under 2.5 odds for an ALREADY-PLAYED match (a past H2H
+    meeting), read from football-data.co.uk's own per-season results CSV --
+    the exact same file get_league_form/get_referee_home_away_bias already
+    fetch for the CURRENT season, here fetched for the season that match
+    was actually played in. One plain-HTTP fetch, no browser (this site's
+    robots.txt is fully open, same as every other use in this module).
+
+    Each bookmaker column in this file is one recorded price, not reliably
+    split into "opening" vs "closing" across every season this site
+    publishes -- reported here as the cross-bookmaker "Avg" market price,
+    the same representative figure get_upcoming_fixture already uses, not
+    fabricated as an opening/closing pair the file doesn't actually give.
+
+    None when the competition isn't one of the 5 covered here, the date
+    can't be parsed, that season's file isn't archived, or no matching row
+    is found (name-match miss, or a competition/round this site doesn't
+    track, e.g. cup replays some seasons)."""
+    if not competition or not kickoff_utc:
+        return None
+    code = _COMPETITION_CODES.get(competition)
+    if not code:
+        return None
+    try:
+        reference = datetime.fromisoformat(kickoff_utc.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    try:
+        csv = await _fetch_csv_or_none(f"https://www.football-data.co.uk/mmz4281/{_season_code_for_date(reference)}/{code}.csv")
+    except httpx.HTTPError:
+        csv = None
+    if not csv:
+        return None
+    return historical_odds_from_csv(csv, home_team, away_team)
+
+
 async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingOdds | None, str | None]:
     """One shared fetch (a single live all-leagues upcoming-fixtures file,
     distinct from the per-season results CSV get_referee_home_away_bias
@@ -316,12 +431,8 @@ async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingO
     lines = csv.strip().split("\n")
     header = lines[0].strip().split(",")
 
-    idx = {
-        "home": _header_col(header, "HomeTeam"), "away": _header_col(header, "AwayTeam"),
-        "avg_h": _header_col(header, "AvgH"), "avg_d": _header_col(header, "AvgD"), "avg_a": _header_col(header, "AvgA"),
-        "avg_over": _header_col(header, "Avg>2.5"), "avg_under": _header_col(header, "Avg<2.5"),
-        "referee": _header_col(header, "Referee"),
-    }
+    idx = _odds_idx(header)
+    idx["referee"] = _header_col(header, "Referee")
     if idx["home"] == -1 or idx["away"] == -1:
         return None, None
 
@@ -329,39 +440,11 @@ async def get_upcoming_fixture(home_team: str, away_team: str) -> tuple[BettingO
     if row is None:
         return None, None
 
-    home_odds = _cell_float(row, idx, "avg_h")
-    draw_odds = _cell_float(row, idx, "avg_d")
-    away_odds = _cell_float(row, idx, "avg_a")
-    over_odds = _cell_float(row, idx, "avg_over")
-    under_odds = _cell_float(row, idx, "avg_under")
-
     referee = None
     if idx["referee"] != -1 and idx["referee"] < len(row):
         referee = row[idx["referee"]].strip() or None
 
-    home_pct, draw_pct, away_pct, overround, home_fair, draw_fair, away_fair = implied_and_fair_percentages(home_odds, draw_odds, away_odds)
-    over_pct, under_pct, ou_overround, over_fair, under_fair = implied_and_fair_percentages_2way(over_odds, under_odds)
-
-    odds = BettingOdds(
-        home_win_odds=home_odds,
-        draw_odds=draw_odds,
-        away_win_odds=away_odds,
-        home_win_implied_pct=home_pct,
-        draw_implied_pct=draw_pct,
-        away_win_implied_pct=away_pct,
-        over_2_5_odds=over_odds,
-        under_2_5_odds=under_odds,
-        overround_pct=overround,
-        home_win_fair_pct=home_fair,
-        draw_fair_pct=draw_fair,
-        away_win_fair_pct=away_fair,
-        over_2_5_implied_pct=over_pct,
-        under_2_5_implied_pct=under_pct,
-        over_under_2_5_overround_pct=ou_overround,
-        over_2_5_fair_pct=over_fair,
-        under_2_5_fair_pct=under_fair,
-    )
-    return odds, referee
+    return _odds_from_row(row, idx), referee
 
 
 async def get_upcoming_match_odds(home_team: str, away_team: str) -> BettingOdds | None:
