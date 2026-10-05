@@ -86,3 +86,17 @@ def test_strata_report_tiers_without_drawing_a_verdict():
     assert t["a starter is out"]["n"] == 1 and "no starter out" in t
     text = F.format_evaluation(F.evaluate(settled))
     assert "tier confirmed lineup" in text and "no verdict from a tier" in text
+
+
+def test_timestamps_are_compared_as_times_and_reversed_fixtures_settle_with_swapped_outcome():
+    import datetime as dt
+    from football.oracle import forward_log as F
+    late = {"home_team": "A", "away_team": "B", "kickoff_utc": "2026-10-05T20:00:00+02:00", "generated_at": "2026-10-05T19:30:00Z", "off": [.4, .3, .3], "on": [.4, .3, .3]}
+    early = {**late, "generated_at": "2026-10-05T17:00:00Z"}
+    assert F._latest_pre_kickoff([late]) == [] and F._latest_pre_kickoff([early]) == [early]      # 20:00+02:00 is 18:00Z: 19:30Z is after kickoff
+    assert F._latest_pre_kickoff([early, {**early, "generated_at": "2026-10-05T17:30:00+00:00"}])[0]["generated_at"] == "2026-10-05T17:30:00+00:00"
+    from football.national_elo import canonical_name as cn
+    res = [{"home": cn("B"), "away": cn("A"), "hg": 0, "ag": 2, "day": dt.date(2026, 10, 5)}]       # listed the other way round: A won 2-0, so outcome 0 (home win) for the record A v B
+    assert F.settle([early], res) == [(early, 0)]
+    same = [{"home": cn("A"), "away": cn("B"), "hg": 1, "ag": 1, "day": dt.date(2026, 10, 5)}]
+    assert F.settle([early], same) == [(early, 1)]

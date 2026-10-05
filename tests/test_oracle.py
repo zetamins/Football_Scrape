@@ -1510,14 +1510,16 @@ def test_goals_bets_need_60_percent_and_a_double_chance_replaces_a_weak_1x2_pick
     m50 = {"over_2_5": 0.47, "btts": 0.45}                                  # Under 53%, BTTS No 55%: both in the 50s
     r = O.recommend("A", "B", [0.62, 0.20, 0.18], m50)                      # a clear 1X2 pick wins; the goals picks are not eligible
     assert r["market"] == "1X2" and r["selection"] == "A to win" and r["reason"] == "" and r["not_recommended"] == []
-    r2 = O.recommend("A", "B", [0.35, 0.30, 0.35], m50)                      # no outcome reaches 50%: the better double chance, not a 55% goals bet
+    r2 = O.recommend("A", "B", [0.35, 0.30, 0.35], m50)                      # no outcome reaches 60%: the better double chance, not a 55% goals bet
     assert r2["market"] == "Double chance" and r2["selection"] == "Either side to win (no draw)" and r2["probability_pct"] == 70.0
-    assert "no single outcome reaches 50%" in r2["reason"] and r2["not_recommended"][0]["selection"] == "Both teams to score: No"   # the 55% goals bet it would have picked before
+    assert "no single outcome reaches 60%" in r2["reason"] and r2["not_recommended"][0]["selection"] == "Both teams to score: No"   # the 55% goals bet it would have picked before
     assert r2["observed_hit_pct"] == 73.2
     r3 = O.recommend("A", "B", [0.45, 0.30, 0.25], {"over_2_5": 0.3, "btts": 0.4})      # Under 70% is eligible and beats the 45% pick; the double chance 1X (75%) wins the contest
     assert r3["market"] == "Double chance" and r3["selection"] == "A or draw" and r3["probability_pct"] == 75.0
-    r4 = O.recommend("A", "B", [0.55, 0.25, 0.20], {"over_2_5": 0.3, "btts": 0.4})      # a 55% 1X2 pick: double chance is not eligible (pick >= 50%), Under 70% is
+    r4 = O.recommend("A", "B", [0.62, 0.20, 0.18], {"over_2_5": 0.3, "btts": 0.4})      # a 62% 1X2 pick: double chance is not eligible (pick >= 60%), Under 70% is
     assert r4["market"] == "Under 2.5" and r4["probability_pct"] == 70.0 and any(a["market"] == "Double chance" for a in r4["alternatives"])
+    r5 = O.recommend("A", "B", [0.55, 0.25, 0.20], {"over_2_5": 0.3, "btts": 0.4})      # a 55% pick is below the 60% trigger: the double chance A or draw (80%) now wins
+    assert r5["market"] == "Double chance" and r5["selection"] == "A or draw" and r5["probability_pct"] == 80.0
     assert O.recommend("A", "B", [0.35, 0.30, 0.35], m50, weak_model=True)["strength"] == "lean"
 
 
@@ -1817,3 +1819,65 @@ def test_roles_command_lists_only_absentees_without_a_position(tmp_path, capsys)
     out = capsys.readouterr().out
     assert "Nobody Known" in out and "Declan Rice" not in out and "1 absentee(s) need a position" in out
     assert O.main(["oracle", "roles"]) == 2
+
+
+def test_wrong_typed_fields_never_crash_and_unreadable_reports_say_so(tmp_path, capsys):
+    from football.oracle.facts import as_number, norm
+    assert as_number("7") == 7.0 and as_number("") is None and as_number("n/a") is None and as_number(True) is None and as_number(float("nan")) is None and as_number(3) == 3
+    assert norm(5) == "5" and norm(None) == "" and norm({"a": 1}) == "" and norm("Ünal") == "unal"
+    rep = _report()
+    rep["dataCompleteness"] = {"populated": "", "total": 10}
+    rep["insights"]["rest_comparison"] = {"own_rest_days": "x", "opponent_rest_days": ""}
+    rep["insights"]["home_xg_estimate"] = {"sample_size": "5", "xg_for": 4, "xg_against": None}
+    rep["insights"]["away_standings_impact"] = 5
+    rep["match"]["away_missing_players"] = [{"description": "no name"}, 7, {"name": None}]
+    rep["match"]["home_lineup"] = [{"name": {"x": 1}}, {"name": "Ok Player"}, 3]
+    assert O.predict(rep, panel="none")["prediction"] is not None and O.brief(rep)["brief"]
+    broken = _report(); broken["form"] = {"last10_overall": [{"scoreline": "1-0", "date": 5, "opponent": 9, "result": 4}]}
+    out = O.predict({"match": {"home_team": "A", "away_team": "B"}, "form": 5, "teamProfile": [1]}, panel="none")
+    assert out["prediction"] is None or isinstance(out["prediction"], dict)
+    p1, p2 = tmp_path / "l.json", tmp_path / "o.json"
+    p1.write_text("[1, 2]"); p2.write_text("{}")
+    assert O.main(["oracle", "lint", str(p1), str(p2)]) == 2 and "does not hold a JSON object" in capsys.readouterr().err
+
+
+def test_scorecard_settles_a_fixture_listed_the_other_way_round_with_the_score_swapped(tmp_path):
+    import datetime as dt
+    from football.oracle import scorecard as SC
+    from football.national_elo import canonical_name as cn
+    rep = _report(odds=False)
+    m = rep["match"]
+    day = dt.date.fromisoformat(m["kickoff_utc"][:10])
+    straight = SC.score_reports([rep], [{"home": cn(m["home_team"]), "away": cn(m["away_team"]), "hg": 3, "ag": 1, "day": day}])
+    flipped = SC.score_reports([rep], [{"home": cn(m["away_team"]), "away": cn(m["home_team"]), "hg": 1, "ag": 3, "day": day}])
+    assert straight["rows"] and flipped["rows"] and straight["rows"][0]["score"] == flipped["rows"][0]["score"] == "3-1"
+    rep2 = json.loads(json.dumps(rep)); rep2["match"]["kickoff_utc"] = "not a date"
+    assert SC.score_reports([rep2], []) is not None
+
+
+def test_the_audit_stays_fast_on_a_huge_answer_and_the_engine_is_deterministic():
+    import time
+    from football.oracle import audit_answer as AA, draft as DR
+    rep = _report(odds=False)
+    base = DR.compose_answer(rep, {}, free_text=False)
+    for junk in ("the odds and the gap and the market " * 3000, "xG -0.4 vs -0.8 worse " * 3000, "The odds are fine. " * 5000):
+        t0 = time.time()
+        AA.audit_answer(rep, base + "\nWhy: " + junk)
+        assert time.time() - t0 < 15, "a pattern is quadratic in the length of a sentence"
+    a, b = O.predict(rep, panel="none"), O.predict(rep, panel="none")
+    assert json.dumps(a["prediction"], sort_keys=True) == json.dumps(b["prediction"], sort_keys=True)
+    assert DR.compose_answer(rep, {}, free_text=False) == base
+
+
+def test_lint_says_so_when_the_report_cannot_be_analysed():
+    from football.oracle import lint as LT
+    res = LT.lint_opinion({"match": {"home_team": "A", "away_team": "B", "head_to_head_summary": {"draws": "x"}}, "form": 5}, {"confidence": 0.3})
+    assert res["clean"] is False and res["advocate_problems"] and LT.format_lint(res)
+
+
+def test_table_shows_the_latest_report_of_a_fixture_once():
+    rep = _report(odds=False)
+    a = O.predict(rep, panel="none")
+    table = O.format_table([a, a, {**a, "home": "Other", "away": "Team"}])
+    rows = [l for l in table.splitlines() if l.startswith("| ") and not l.startswith("| #") and "---" not in l]
+    assert len(rows) == 2 and "1 older report(s) of the same fixture hidden" in table

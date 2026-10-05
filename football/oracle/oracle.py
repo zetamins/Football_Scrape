@@ -61,7 +61,7 @@ GOAL_BET_HIT_BY_BAND = ((60, 56.7), (65, 59.8), (70, 65.0), (75, 65.9), (80, 76.
 DOUBLE_CHANCE_HIT_BY_BAND = ((70, 64.8), (75, 73.2), (80, 78.7), (101, 86.5))
 # RULE (user request, measured in research/reco_min_goals.py): a goal-market bet (Over/Under 2.5, BTTS) is only recommended from 60%; below that it is a coin flip (the 50-60% goals bets hit 56.7%).
 # When the best single 1X2 outcome is under 50%, the better double chance competes instead. Held-out: hit 72.8% (quoted 71.7%) against 68.2% for "most likely of everything".
-GOALS_BET_MIN_PCT, DOUBLE_CHANCE_BELOW_PCT = 60.0, 50.0
+GOALS_BET_MIN_PCT, DOUBLE_CHANCE_BELOW_PCT = 60.0, 60.0
 
 
 def observed_hit_for(probability_pct: float, market: str = "1X2") -> float:
@@ -164,7 +164,7 @@ def _engine(facts: dict, use_odds: bool = False) -> dict | None:
             "probs": quant.outcome_probs(lam_h1, lam_a1)}
 
 
-def brief(report: dict, use_odds: bool = False) -> dict:
+def _brief_impl(report: dict, use_odds: bool = False) -> dict:
     """What a reviewer (an LLM agent or a person) needs to give context adjustments: the tagged brief, the evidence tags, the
     baseline, the audit, and the exact opinion format."""
     facts = extract_facts(report)
@@ -193,7 +193,7 @@ OPINION_FORMAT = {
 }
 
 
-def predict(report: dict, panel: str | list | None = "auto", sims: int | None = None, seed: int = 0, use_cache: bool = True,
+def _predict_impl(report: dict, panel: str | list | None = "auto", sims: int | None = None, seed: int = 0, use_cache: bool = True,
             opinions: list[dict] | None = None, opinion_trust: float | None = None, use_odds: bool = False) -> dict:
     facts = extract_facts(report)
     result: dict = {"home": facts["home"], "away": facts["away"], "competition": facts["competition"], "kickoff": facts["kickoff"]}
@@ -269,6 +269,31 @@ def predict(report: dict, panel: str | list | None = "auto", sims: int | None = 
     return result
 
 
+UNREADABLE = (TypeError, KeyError, AttributeError, ValueError, IndexError, ZeroDivisionError)
+
+
+def _unreadable(report, err: Exception) -> dict:
+    m = report.get("match") if isinstance(report, dict) and isinstance(report.get("match"), dict) else {}
+    msg = f"the report could not be analysed ({type(err).__name__}: {err}); a field has an unexpected type or shape"
+    return {"home": m.get("home_team") if isinstance(m.get("home_team"), str) else None, "away": m.get("away_team") if isinstance(m.get("away_team"), str) else None,
+            "competition": None, "kickoff": None, "mode": "independent", "prediction": None, "reason": msg, "brief": None, "challenge": None, "dossier": {"home": [], "away": [], "both": []},
+            "advocates": None, "audit": {"quality": 0.0, "findings": [{"severity": "error", "code": "unreadable_report", "message": msg}]}}
+
+
+def brief(report: dict, use_odds: bool = False) -> dict:
+    try:
+        return _brief_impl(report, use_odds)
+    except UNREADABLE as e:
+        return _unreadable(report, e)
+
+
+def predict(report: dict, *args, **kwargs) -> dict:
+    try:
+        return _predict_impl(report, *args, **kwargs)
+    except UNREADABLE as e:
+        return _unreadable(report, e)
+
+
 def format_report(r: dict) -> str:
     p, aud = r.get("prediction"), r["audit"]
     lines = [f"# {r['home']} vs {r['away']}" + (f" -- {r['competition']}" if r.get("competition") else ""), "", f"## 1. Data audit (quality {aud['quality']:.0%})"]
@@ -322,10 +347,10 @@ def format_report(r: dict) -> str:
               f"- **Recommended bet: {rec['selection']}** ({rec['market']}) {rec['probability_pct']}%; bets of this kind at this probability hit {rec['observed_hit_pct']}% in 8,054 held-out matches; strength: {rec['strength']}"
               + (" (weak model: treat as a lean)" if rec["weak_model"] else "") + "; next best: " + ", ".join(f"{a['selection']} {a['probability_pct']}%" for a in rec["alternatives"][:2])
               + (f". Why this market: {rec['reason']}" if rec["reason"] else "") + (f". Not recommended: {rec['not_recommended'][0]['selection']} {rec['not_recommended'][0]['probability_pct']}% (goals bets need {GOALS_BET_MIN_PCT:.0f}%, below that they are coin flips)" if rec["not_recommended"] else ""),
-              *([f"- Cautions on the recommended bet: " + "; ".join(rec["cautions"])] if rec["cautions"] else []),
+              *(["- Cautions on the recommended bet: " + "; ".join(rec["cautions"])] if rec["cautions"] else []),
               *([f"- Benchmark only (odds are not an input; the bet and its strength do not use them): the odds differ from the engine by {abs(rec['odds_gap']['gap_pct']):.1f} points on {rec['odds_gap']['outcome']} (engine {rec['odds_gap']['engine_pct']}%, odds {rec['odds_gap']['odds_pct']}%)"]
                 if rec["odds_gap"] and abs(rec["odds_gap"]["gap_pct"]) >= BENCHMARK_NOTE_PCT else []),
-              f"- Plausible range if the goal rates are off by the sources' disagreement: " + ", ".join(f"{k} {lo}-{hi}%" for k, (lo, hi) in p["ranges_pct"].items()),
+              "- Plausible range if the goal rates are off by the sources' disagreement: " + ", ".join(f"{k} {lo}-{hi}%" for k, (lo, hi) in p["ranges_pct"].items()),
               f"- Expected goals {sim['expected_goals'][0]}-{sim['expected_goals'][1]}; likeliest scores " + ", ".join(f"{s['score']} ({s['pct']}%)" for s in sim["top_scores"][:4]),
               f"- Over 1.5 / 2.5 / 3.5: {sim['markets_pct']['over_1_5']}% / {sim['markets_pct']['over_2_5']}% / {sim['markets_pct']['over_3_5']}%; both score {sim['markets_pct']['btts']}%; clean sheet home {sim['markets_pct']['home_cs']}% / away {sim['markets_pct']['away_cs']}%"]
     d = p["draw"]
@@ -343,7 +368,7 @@ def format_report(r: dict) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str]) -> int:
+def _main(argv: list[str]) -> int:
     args = argv[1:]
     def flag(name: str, default=None):
         if name in args:
@@ -420,6 +445,14 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def main(argv: list[str]) -> int:
+    try:
+        return _main(argv)
+    except UNREADABLE as e:                 # a scraped field with an unexpected type or shape: say so plainly instead of printing a traceback
+        print(f"cannot analyse the input: {type(e).__name__}: {e} (a field in the report has an unexpected type or shape)", file=sys.stderr)
+        return 2
+
+
 def _lint_cli(args: list[str], use_odds: bool) -> int:
     from . import lint
     paths = [a for a in args if not a.startswith("--")]
@@ -431,7 +464,14 @@ def _lint_cli(args: list[str], use_odds: bool) -> int:
     except (OSError, ValueError) as e:
         print(f"cannot read the files: {e}", file=sys.stderr)
         return 2
-    print(lint.format_lint(lint.lint_opinion(report, opinion, use_odds=use_odds)))
+    if not isinstance(report, dict):
+        print("cannot lint: the report file does not hold a JSON object", file=sys.stderr)
+        return 2
+    try:
+        print(lint.format_lint(lint.lint_opinion(report, opinion, use_odds=use_odds)))
+    except UNREADABLE as e:
+        print(f"cannot lint: the report could not be analysed ({type(e).__name__}: {e})", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -527,7 +567,12 @@ def _review_cli(args: list[str], use_odds: bool) -> int:
 
 
 def format_table(results: list[dict]) -> str:
-    """One row per match: the numbers, the pick, the draw flag and the audit findings that matter."""
+    """One row per match: the numbers, the pick, the draw flag and the audit findings that matter. Several reports of the same fixture (a re-run for lineups) show once: the latest."""
+    latest: dict[tuple, int] = {}
+    for idx, r in enumerate(results):
+        latest[(r.get("home"), r.get("away"), str(r.get("kickoff") or "")[:10]) if r.get("home") and r.get("away") else ("row", idx)] = idx
+    hidden = len(results) - len(latest)
+    results = [results[i] for i in sorted(latest.values())]
     lines = ["| # | Match | Competition | Home % | Draw % | Away % | Pick | Recommended bet | Draw flag | Data quality | Main audit findings |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for i, r in enumerate(results, 1):
         p, aud = r.get("prediction"), r["audit"]
@@ -540,6 +585,8 @@ def format_table(results: list[dict]) -> str:
             continue
         d = p["draw"]
         lines.append(f"| {i} | {names} | {comp} | {p['home_win_pct']:.1f} | {p['draw_pct']:.1f} | {p['away_win_pct']:.1f} | {p['pick']} ({p['pick_probability_pct']:.0f}%) | {p['recommendation']['selection']} {p['recommendation']['probability_pct']:.0f}% ({p['recommendation']['strength']}) | {d['alert'].upper() if d['alert'] != 'none' else '-'} | {aud['quality']:.0%} | {findings} |")
+    if hidden:
+        lines.append(f"\n({hidden} older report(s) of the same fixture hidden; the latest is shown.)")
     return "\n".join(lines)
 
 

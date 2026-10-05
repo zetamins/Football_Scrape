@@ -14,7 +14,7 @@ import json
 import math
 import random
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -79,14 +79,28 @@ def append(record: dict, path: Path | None = None) -> bool:
     return True
 
 
+def _ts(value: str) -> datetime | None:
+    """An ISO-8601 time as an aware UTC datetime (a trailing Z or +02:00 offset both work); None when it cannot be read. Text comparison breaks with mixed formats."""
+    try:
+        dt = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _before(generated: str, kickoff: str) -> bool:
+    g, k = _ts(generated), _ts(kickoff)
+    return (g < k) if g and k else generated < kickoff
+
+
 def _latest_pre_kickoff(records: list[dict]) -> list[dict]:
     """One record per fixture: the latest generated before kickoff (a report made after kickoff may contain the result)."""
     best: dict[tuple, dict] = {}
     for r in records:
-        if r["generated_at"] >= r["kickoff_utc"]:
+        if not _before(r["generated_at"], r["kickoff_utc"]):
             continue
         key = (canonical_name(r["home_team"]), canonical_name(r["away_team"]), r["kickoff_utc"][:10])
-        if key not in best or r["generated_at"] > best[key]["generated_at"]:
+        if key not in best or (_ts(r["generated_at"]) or datetime.min.replace(tzinfo=timezone.utc)) > (_ts(best[key]["generated_at"]) or datetime.min.replace(tzinfo=timezone.utc)):
             best[key] = r
     return list(best.values())
 
@@ -98,9 +112,12 @@ def settle(records: list[dict], results: list[dict]) -> list[tuple[dict, int]]:
     out = []
     for rec in _latest_pre_kickoff(records):
         kickoff = date.fromisoformat(rec["kickoff_utc"][:10])
-        for r in index.get((canonical_name(rec["home_team"]), canonical_name(rec["away_team"])), []):
-            if abs((r["day"] - kickoff).days) <= 1:
-                out.append((rec, 0 if r["hg"] > r["ag"] else 1 if r["hg"] == r["ag"] else 2))
+        h, a = canonical_name(rec["home_team"]), canonical_name(rec["away_team"])
+        for key, flip in (((h, a), False), ((a, h), True)):          # a source may list a neutral-venue fixture the other way round: then home and away swap
+            hit = next((r for r in index.get(key, []) if abs((r["day"] - kickoff).days) <= 1), None)
+            if hit:
+                hg, ag = (hit["ag"], hit["hg"]) if flip else (hit["hg"], hit["ag"])
+                out.append((rec, 0 if hg > ag else 1 if hg == ag else 2))
                 break
     return out
 

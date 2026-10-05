@@ -39,6 +39,9 @@ def lint_opinion(report: dict, op: dict, use_odds: bool = False) -> dict:
     facts = extract_facts(report)
     from . import oracle  # local import: oracle imports this module for the CLI
     b = oracle.brief(report, use_odds=use_odds)
+    if "tags" not in b:                                  # the report could not be analysed (or has no fixture): nothing to check the opinion against
+        why = (b.get("audit", {}).get("findings") or [{"message": "no quantitative baseline"}])[0]["message"]
+        return {"home": facts["home"], "away": facts["away"], "factors": [], "numbers": [], "advocate_problems": [f"cannot lint: {why}"], "confidence": 0.0, "clean": False}
     valid = set(b["tags"])
     weak = context.weak_absence_tags(facts)
     v = context.validate_opinion(op, valid, weak)

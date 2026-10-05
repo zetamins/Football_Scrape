@@ -320,7 +320,8 @@ def _h2h_claims(h2h: dict | None, sentence: str) -> list[str]:
 
 ROTATION_HEAVY_MIN = 8
 CONCESSION = re.compile(r"\b(but|however|although|though|despite|yet|even so|concede[sd]?|admittedly|whereas|while)\b", re.I)
-XG_SENTENCE = re.compile(r"[^.\n]*\bxG\b[^.\n]*?([+-]\d+\.\d+)\s*(?:vs\.?|against|to|and)\s*(?:\w+'?s?\s+)?([+-]\d+\.\d+)[^.\n]*", re.I)
+XG_PAIR = re.compile(r"([+-]\d+\.\d+)\s*(?:vs\.?|against|to|and)\s*(?:\w+'?s?\s+)?([+-]\d+\.\d+)", re.I)      # no leading wildcard: sentences are split first, so the cost stays linear
+SENTENCE_SPLIT = re.compile(r"(?<=[\w\]%)])\.\s+(?=[A-Z\[])|;\s+|\n")
 XG_WORSE = re.compile(r"\b(worse|weaker|lower|poorer|underperform\w*|overstate\w*|flatter\w*)\b", re.I)
 XG_BETTER = re.compile(r"\b(better|stronger|higher|superior|outperform\w*)\b", re.I)
 
@@ -337,12 +338,17 @@ def _reasoning_failures(text: str, facts: dict | None = None) -> list[str]:
         for m in HEAVY_ROTATION.finditer(text):
             if max(changed) < ROTATION_HEAVY_MIN:
                 bad.append(f"'{m.group(0)}' but the most changes either side made is {max(changed)} of 11: heavy rotation means {ROTATION_HEAVY_MIN}+; say the number instead")
-    for m in XG_SENTENCE.finditer(text):
-        a, b = float(m.group(1)), float(m.group(2))
-        if a > b and XG_WORSE.search(m.group(0)):
-            bad.append(f"xG sentence reads the numbers backwards ({a:+.2f} vs {b:+.2f}: the first side is BETTER, the sentence says worse/underperforming): {m.group(0).strip()[:120]}")
-        elif a < b and XG_BETTER.search(m.group(0)):
-            bad.append(f"xG sentence reads the numbers backwards ({a:+.2f} vs {b:+.2f}: the first side is WORSE, the sentence says better): {m.group(0).strip()[:120]}")
+    for sent in SENTENCE_SPLIT.split(text):
+        if not re.search(r"\bxG\b", sent):
+            continue
+        pair = XG_PAIR.search(sent)
+        if not pair:
+            continue
+        a, b = float(pair.group(1)), float(pair.group(2))
+        if a > b and XG_WORSE.search(sent):
+            bad.append(f"xG sentence reads the numbers backwards ({a:+.2f} vs {b:+.2f}: the first side is BETTER, the sentence says worse/underperforming): {sent.strip()[:120]}")
+        elif a < b and XG_BETTER.search(sent):
+            bad.append(f"xG sentence reads the numbers backwards ({a:+.2f} vs {b:+.2f}: the first side is WORSE, the sentence says better): {sent.strip()[:120]}")
     for m in re.finditer(r"\b[Ee]xpected goals\b[^\n]{0,100}", text):         # decimals contain dots, so do not split on them
         if re.search(r"\bxG\b", m.group(0)) and not re.search(r"\bxG (difference|sources?|data)", m.group(0)):
             bad.append(f"the engine's expected goals are a MODEL estimate, not data xG: {m.group(0).strip()[:110]}")

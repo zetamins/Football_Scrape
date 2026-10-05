@@ -30,6 +30,7 @@ _FOLD = str.maketrans({"ı": "i", "İ": "i", "ł": "l", "Ł": "l", "ø": "o", "�
 
 
 def norm(s: str | None) -> str:
+    s = s if isinstance(s, str) else ("" if s is None or isinstance(s, (dict, list)) else str(s))      # a scraped name can be a number or an object: never crash on it
     s = "".join(c for c in unicodedata.normalize("NFKD", (s or "").translate(_FOLD)) if not unicodedata.combining(c))
     return "".join(c for c in s.lower() if c.isalnum())
 
@@ -60,17 +61,19 @@ def _form_rows(form: dict | None) -> list[dict]:
             continue
         shootout = _shootout_like(parsed[0], parsed[1], r.get("competition"))
         rows.append({"gf": parsed[0], "ga": parsed[1], "xg_for": r.get("xg_for"), "xg_against": r.get("xg_against"),
-                     "result": "D" if shootout else r.get("result"), "competition": r.get("competition"), "venue": r.get("venue"),
-                     "date": (r.get("date") or "")[:10], "opponent": r.get("opponent"), "shootout": shootout})
+                     "result": "D" if shootout else (r.get("result") if r.get("result") in ("W", "D", "L") else None), "competition": r.get("competition"), "venue": r.get("venue"),
+                     "date": (r.get("date") if isinstance(r.get("date"), str) else "")[:10], "opponent": r.get("opponent") if isinstance(r.get("opponent"), str) else None, "shootout": shootout})
     return rows
 
 
 def _squad(profile: dict | None) -> list[dict]:
     out = []
     for p in _get(profile, "squad", default=[]) or []:
-        use = p.get("recent_usage") or {}
-        matches = use.get("matches_in_squad") or 0
-        minutes = use.get("total_minutes") or 0
+        if not isinstance(p, dict):
+            continue
+        use = _dict(p.get("recent_usage")) or {}
+        matches = as_number(use.get("matches_in_squad")) or 0
+        minutes = as_number(use.get("total_minutes")) or 0
         out.append({
             "name": p.get("name"), "role": p.get("role"), "value": p.get("market_value") or 0, "age": p.get("age"),
             "minutes_share": min(1.0, minutes / (90.0 * matches)) if matches else 0.0,
@@ -79,6 +82,26 @@ def _squad(profile: dict | None) -> list[dict]:
             "rating": use.get("avg_rating"), "injury": p.get("injury"),
         })
     return out
+
+
+def _dict(x):
+    """A scraped section that must be an object; anything else (a number, text, a list) counts as missing."""
+    return x if isinstance(x, dict) else None
+
+
+def as_number(x):
+    """A number from a scraped field, or None: text such as '' or 'n/a', booleans and non-finite values are not numbers."""
+    if isinstance(x, bool):
+        return None
+    if isinstance(x, (int, float)):
+        return x if x == x and abs(x) != float("inf") else None
+    if isinstance(x, str):
+        try:
+            v = float(x.strip())
+        except ValueError:
+            return None
+        return v if v == v and abs(v) != float("inf") else None
+    return None
 
 
 def _role_reference() -> dict[str, str]:
@@ -100,6 +123,8 @@ def _absentees(missing: list[dict], squad: list[dict], injuries: list[dict] | No
     inj = {norm(x.get("name")): x for x in (injuries or []) if isinstance(x, dict) and x.get("name")}     # the profile's injury list knows role, age and market value of players the squad list lacks
     items, attack_loss, defence_loss = [], 0.0, 0.0
     for m in missing or []:
+        if not isinstance(m, dict) or not isinstance(m.get("name"), str) or not m["name"].strip():
+            continue                                        # a missing-player entry without a usable name cannot be described
         p = by_name.get(norm(m.get("name")))
         known = inj.get(norm(m.get("name"))) if p is None else None
         value = p["value"] if p else (known.get("market_value") or 0 if known else 0)
@@ -134,9 +159,10 @@ def home_edge(m: dict) -> tuple[int, str]:
 
 
 def _xg(est: dict | None) -> dict | None:
-    if est and est.get("sample_size"):
-        n = est["sample_size"]
-        return {"for_pg": est["xg_for"] / n, "against_pg": est["xg_against"] / n, "n": n}
+    est = _dict(est)
+    n, xf, xa = (as_number(est.get(k)) for k in ("sample_size", "xg_for", "xg_against")) if est else (None, None, None)
+    if n and xf is not None and xa is not None:
+        return {"for_pg": xf / n, "against_pg": xa / n, "n": n}
     return None
 
 
@@ -163,6 +189,8 @@ def _meetings_seen(m: dict) -> dict | None:
     home, away = norm(m.get("home_team")), norm(m.get("away_team"))
     out = {"home": 0, "draws": 0, "away": 0, "n": 0}
     for r in m.get("recent_meetings") or []:
+        if not isinstance(r, dict):
+            continue
         try:
             gh, ga = [int(x) for x in str(r.get("scoreline")).split("-")]
         except (TypeError, ValueError):
@@ -178,7 +206,26 @@ def _meetings_seen(m: dict) -> dict | None:
     return out if out["n"] else None
 
 
+SECTIONS = ("match", "form", "opponentForm", "teamProfile", "opponentProfile", "insights", "dataCompleteness")
+MATCH_SECTIONS = ("betting_odds", "head_to_head_summary", "home_team_standing", "away_team_standing", "home_manager", "away_manager")
+
+
+def _sanitize(report: dict) -> dict:
+    """Sections that must be objects but arrive as text, numbers or lists count as missing, so one bad field cannot crash the analysis."""
+    clean = {k: v for k, v in report.items()}
+    for k in SECTIONS:
+        if k in clean and not isinstance(clean[k], dict):
+            clean[k] = {}
+    m = dict(clean.get("match") or {})
+    for k in MATCH_SECTIONS:
+        if k in m and not isinstance(m[k], dict):
+            m[k] = {}
+    clean["match"] = m
+    return clean
+
+
 def extract_facts(report: dict) -> dict:
+    report = _sanitize(report if isinstance(report, dict) else {})
     m = report.get("match") or {}
     ins = report.get("insights") or {}
     own_home = own_is_home(report)
@@ -192,7 +239,7 @@ def extract_facts(report: dict) -> dict:
         absent, loss = _absentees(m.get(f"{side}_missing_players") or [], squad, (profiles[side] or {}).get("injuries"))
         elo = ins.get(f"{side}_elo_rating") or {}
         rest = ins.get("rest_comparison") or {}
-        own_rest = rest.get("own_rest_days") if (side == "home") == own_home else rest.get("opponent_rest_days")
+        own_rest = as_number(rest.get("own_rest_days") if (side == "home") == own_home else rest.get("opponent_rest_days"))
         sides[side] = {
             "name": m.get(f"{side}_team"),
             "form": _form_rows(forms[side]),
@@ -200,11 +247,11 @@ def extract_facts(report: dict) -> dict:
             "elo": ({"rating": elo["elo"], "national": elo.get("sample_source") == "eloratings.net"} if elo.get("elo") else None),
             "squad": squad, "squad_value": sum(p["value"] for p in squad) or None,
             "absentees": absent, "absence_loss": loss,
-            "standing": m.get(f"{side}_team_standing"), "zone": ins.get(f"{side}_standings_zone"), "stakes": ins.get(f"{side}_standings_impact"),
-            "rest_days": own_rest, "rotation": ins.get(f"{side}_rotation"), "fatigue": ins.get(f"{side}_fatigue_flag"),
+            "standing": _dict(m.get(f"{side}_team_standing")), "zone": _dict(ins.get(f"{side}_standings_zone")), "stakes": _dict(ins.get(f"{side}_standings_impact")),
+            "rest_days": own_rest, "rotation": _dict(ins.get(f"{side}_rotation")), "fatigue": _dict(ins.get(f"{side}_fatigue_flag")),
             "manager": _get(m, f"{side}_manager", "name"), "formation": m.get(f"{side}_formation"),
-            "lineup": [p.get("name") for p in (m.get(f"{side}_lineup") or []) if not p.get("substitute")],
-            "discipline": ins.get(f"{side}_card_discipline"), "set_pieces": ins.get(f"{side}_set_piece_threat"),
+            "lineup": [p["name"] for p in (m.get(f"{side}_lineup") or []) if isinstance(p, dict) and isinstance(p.get("name"), str) and not p.get("substitute")],
+            "discipline": _dict(ins.get(f"{side}_card_discipline")), "set_pieces": _dict(ins.get(f"{side}_set_piece_threat")),
             "home_advantage": ins.get(f"{side}_advantage"),
         }
     h2h = m.get("head_to_head_summary") or {}
@@ -312,6 +359,7 @@ def audit_facts(facts: dict, now_iso: str | None = None, independent: bool = Fal
     if facts["source_conflicts"]:
         add("info", "source_conflicts", f"{len(facts['source_conflicts'])} field(s) differ between sources")
     comp = facts.get("completeness") or {}
-    if comp.get("total") and comp["populated"] / comp["total"] < 0.7:
-        add("warn", "low_completeness", f"only {comp['populated'] / comp['total']:.0%} of expected fields populated", 0.1)
+    populated, total = as_number(comp.get("populated")), as_number(comp.get("total"))
+    if total and populated is not None and populated / total < 0.7:
+        add("warn", "low_completeness", f"only {populated / total:.0%} of expected fields populated", 0.1)
     return {"findings": findings, "quality": round(max(0.0, min(1.0, 1.0 - penalty)), 2)}

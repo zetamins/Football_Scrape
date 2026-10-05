@@ -16,7 +16,6 @@ import json
 import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from . import llm
 from .debate import MAX_ABSENTEES
@@ -114,7 +113,7 @@ def build_brief(facts: dict, baseline: dict, mode: str = "independent") -> tuple
         if st:
             add(f"{tag}.table", f"{s['name']} position {st.get('position')}/{st.get('total_teams')}, {st.get('points')} pts from {st.get('played')} played, GD {st.get('goal_diff')}")
         if s["stakes"]:
-            sc = "; ".join(f"{x['outcome']} -> {x['new_points']} pts, position {x['new_position']}" for x in s["stakes"].get("scenarios", []))
+            sc = "; ".join(f"{x['outcome']} -> {x['new_points']} pts, position {x['new_position']}" for x in (s["stakes"].get("scenarios") or []) if isinstance(x, dict) and {"outcome", "new_points", "new_position"} <= set(x))
             add(f"{tag}.stakes", f"{s['name']} table scenarios: {sc}; zone {(s['zone'] or {}).get('zone')}")
         if s["rotation"]:
             r = s["rotation"]

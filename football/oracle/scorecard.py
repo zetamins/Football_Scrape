@@ -71,12 +71,21 @@ def score_reports(reports: list[dict], results: list[dict]) -> dict:
         m = rep.get("match") or {}
         if not (m.get("home_team") and m.get("away_team") and m.get("kickoff_utc")):
             continue
-        kick = date.fromisoformat(m["kickoff_utc"][:10])
-        res = next((r for r in index.get((canonical_name(m["home_team"]), canonical_name(m["away_team"])), []) if abs((r["day"] - kick).days) <= 1), None)
+        try:
+            kick = date.fromisoformat(str(m["kickoff_utc"])[:10])
+        except ValueError:
+            continue
+        hk, ak = canonical_name(m["home_team"]), canonical_name(m["away_team"])
+        res = next((r for r in index.get((hk, ak), []) if abs((r["day"] - kick).days) <= 1), None)
+        flip = False
+        if res is None:                                              # the results file may list a neutral-venue fixture the other way round
+            res = next((r for r in index.get((ak, hk), []) if abs((r["day"] - kick).days) <= 1), None)
+            flip = res is not None
         pred = oracle.predict(rep, panel="none").get("prediction")
         if not res or not pred:
             continue
-        h, a, hg, ag = m["home_team"], m["away_team"], res["hg"], res["ag"]
+        h, a = m["home_team"], m["away_team"]
+        hg, ag = (res["ag"], res["hg"]) if flip else (res["hg"], res["ag"])
         odds = extract_facts(rep)["odds"]
         o = 0 if hg > ag else 1 if hg == ag else 2
         probs = [pred["home_win_pct"] / 100, pred["draw_pct"] / 100, pred["away_win_pct"] / 100]

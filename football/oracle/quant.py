@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Any
 
 from ..history_model import expected_goals as _history_goals
 from ..history_model import load_model as _history_model
