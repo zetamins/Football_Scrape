@@ -1,0 +1,1077 @@
+[
+ {
+  "rank": 1,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=50 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 50,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 2,
+  "model": "blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.25,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 3,
+  "model": "blend[pois r=0.361 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.361,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 4,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 5,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=50 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 50,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 6,
+  "model": "blend[pois r=0.175 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.175,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 7,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 8,
+  "model": "blend[pois r=0.361 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.361,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 9,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 10,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 11,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=50 kf=20 h=60 margin w=16] w=0.3 geo T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 50,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.3,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 12,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 confed | elo k=50 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4981,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": true,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 50,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 13,
+  "model": "blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.3 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.25,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.3,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 14,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 | elo k=40 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0",
+  "search_brier": 0.4984,
+  "adj": 0.4996,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 40,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 15,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 | elo k=40 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 40,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 16,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=60 kf=20 h=80 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 80,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 17,
+  "model": "blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.25,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 18,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=50 kf=20 h=80 margin w=16] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 50,
+     "kf": 20,
+     "home": 80,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 19,
+  "model": "blend[pois r=0.361 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.2 T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.361,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.2,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 20,
+  "model": "blend[pois r=0.425 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.2 T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.425,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.2,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 21,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 tw={'other': 0.5} | elo k=60 kf=20 h=100 margin w=12] w=0.25 geo T=1.1 dm=1.0",
+  "search_brier": 0.4982,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 0.5
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 100,
+     "margin": true,
+     "window": 12,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.25,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 22,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.2 T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.2,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 23,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 tw={'other': 0.5} | elo k=60 kf=20 h=100 margin w=12] w=0.2 geo T=1.1 dm=1.0",
+  "search_brier": 0.4982,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 0.5
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 100,
+     "margin": true,
+     "window": 12,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.2,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 24,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.2 geo T=1.1 dm=1.0",
+  "search_brier": 0.4985,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 1.0
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 60,
+     "margin": true,
+     "window": 16,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.2,
+   "geo": true,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ },
+ {
+  "rank": 25,
+  "model": "blend[pois r=0.5 hl=4.5 st=1998 tw={'other': 0.5} | elo k=60 kf=20 h=100 margin w=12] w=0.2 T=1.1 dm=1.0",
+  "search_brier": 0.4982,
+  "adj": 0.4997,
+  "genome": {
+   "f": "blend",
+   "parts": [
+    {
+     "f": "pois",
+     "ridge": 0.5,
+     "hl": 4.5,
+     "start": 1998,
+     "cap": 0,
+     "tw": {
+      "friendly": 1.0,
+      "qualifier": 1.0,
+      "nations_league": 1.0,
+      "major": 1.0,
+      "other": 0.5
+     },
+     "confed": false,
+     "group_ridge": 1.0,
+     "T": 1.0,
+     "dm": 1.0
+    },
+    {
+     "f": "elo",
+     "k": 60,
+     "kf": 20,
+     "home": 100,
+     "margin": true,
+     "window": 12,
+     "T": 1.0,
+     "dm": 1.0
+    }
+   ],
+   "w": 0.2,
+   "geo": false,
+   "T": 1.1,
+   "dm": 1.0
+  }
+ }
+]

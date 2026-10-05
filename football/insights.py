@@ -152,13 +152,26 @@ def classify_match_type(competition: str | None) -> MatchType | None:
     return "friendly" if is_friendly_competition(competition) else "competitive"
 
 
+# Card-flag sample guards. The flags below used to fire on 1-2 game samples
+# (Norway: 1 red in 2 games -> 0.5 red/game "elevated"; a one-appearance red
+# card became a "prior dismissal" risk; every referee was "elevated" because
+# the 2.5 yellows/game cutoff sits below any referee's average of 4-5).
+_MIN_CARD_SAMPLE_GAMES = 5
+_ELEVATED_REFEREE_YELLOWS_PER_GAME = 5.0
+_MIN_REFEREE_MATCHES = 10
+
+
+def _card_elevated(yellow_per_game: float, red_per_game: float, games: int) -> bool:
+    return games >= _MIN_CARD_SAMPLE_GAMES and (yellow_per_game > 2.5 or red_per_game > 0.2)
+
+
 def classify_card_discipline(stats, standing: TeamStanding | None) -> CardDisciplineInfo | None:
     played = standing.played if standing else None
     if not stats or not played:
         return None
     yellow_per_game = js_round_to(stats.yellow_cards / played, 2)
     red_per_game = js_round_to(stats.red_cards / played, 2)
-    return CardDisciplineInfo(yellow_per_game=yellow_per_game, red_per_game=red_per_game, elevated_risk=(yellow_per_game > 2.5 or red_per_game > 0.2))
+    return CardDisciplineInfo(yellow_per_game=yellow_per_game, red_per_game=red_per_game, elevated_risk=_card_elevated(yellow_per_game, red_per_game, played))
 
 
 def card_discipline_from_venue_split(split) -> CardDisciplineInfo | None:
@@ -193,7 +206,7 @@ def card_discipline_from_venue_split(split) -> CardDisciplineInfo | None:
     red_per_game = js_round_to(red / total, 2)
     return CardDisciplineInfo(
         yellow_per_game=yellow_per_game, red_per_game=red_per_game,
-        elevated_risk=(yellow_per_game > 2.5 or red_per_game > 0.2),
+        elevated_risk=_card_elevated(yellow_per_game, red_per_game, total),
     )
 
 
@@ -1273,7 +1286,8 @@ def compute_card_risks(squad: list[SquadMember] | None, count: int = 5) -> list[
             appearances=m.season_stats.appearances, accumulation_risk=(m.season_stats.yellow_cards >= 4),
             prior_dismissal=(m.season_stats.red_cards >= 1),
         )
-        if r.accumulation_risk or r.prior_dismissal:
+        # A single red in a handful of appearances isn't a pattern.
+        if r.accumulation_risk or (r.prior_dismissal and (r.appearances or 0) >= _MIN_CARD_SAMPLE_GAMES):
             risks.append(r)
     risks.sort(key=lambda r: r.yellow_cards + r.red_cards * 10, reverse=True)
     return risks[:count]
@@ -1296,7 +1310,7 @@ def compute_referee_card_risk_note(
         *[FlaggedPlayer(name=r.name, side="away", prior_dismissal=r.prior_dismissal) for r in (away_card_risks or [])],
     ]
     yellow_cards_per_game = float(referee_stats.yellow_cards_per_game)
-    return RefereeCardRiskNote(referee_name=referee_name, yellow_cards_per_game=yellow_cards_per_game, elevated_card_referee=(yellow_cards_per_game > 2.5), flagged_players=flagged_players)
+    return RefereeCardRiskNote(referee_name=referee_name, yellow_cards_per_game=yellow_cards_per_game, elevated_card_referee=(yellow_cards_per_game > _ELEVATED_REFEREE_YELLOWS_PER_GAME and (referee_stats.referee_matches or 0) >= _MIN_REFEREE_MATCHES), flagged_players=flagged_players)
 
 
 def aerial_win_pct(aerial: SeasonAerialEstimate | None) -> float | None:

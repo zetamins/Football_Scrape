@@ -1,0 +1,31 @@
+search matches 3433, confirm matches 1967, seed 23
+iter  1  champion kept (1/25); best candidate blend[pois r=0.5 hl=4.0 st=2008 | elo k=60 kf=20 h=100 margin w=12] w=0.2 search adj 0.5008 vs champion 0.5010; confirmed 3
+iter  2  champion kept (2/25); best candidate blend[pois r=0.5 hl=4.0 st=2008 | elo k=60 kf=20 h=100 margin w=12] w=0.2 search adj 0.5008 vs champion 0.5010; confirmed 3
+iter  3  champion kept (3/25); best candidate blend[pois r=0.5 hl=4.0 st=2008 | elo k=60 kf=20 h=100 margin w=12] w=0.2 geo search adj 0.5006 vs champion 0.5010; confirmed 3
+iter  4  champion kept (4/25); best candidate blend[pois r=0.5 hl=4.5 st=2008 | elo k=60 kf=20 h=100 margin w=12] w=0.2 T=1.1 dm=1.0 search adj 0.5002 vs champion 0.5010; confirmed 3
+iter  5  champion kept (5/25); best candidate blend[pois r=0.5 hl=4.0 st=2008 | elo k=60 kf=20 h=100 margin w=12] w=0.2 geo T=1.1 dm=1.0 search adj 0.5001 vs champion 0.5010; confirmed 3
+iter  6  champion kept (6/25); best candidate blend[pois r=0.5 hl=4.0 st=2008 | elo k=60 kf=20 h=100 margin w=12] w=0.2 geo T=1.1 dm=1.0 search adj 0.5001 vs champion 0.5010; confirmed 3
+iter  7  champion kept (7/25); best candidate blend[pois r=0.5 hl=4.0 st=2008 | elo k=60 kf=20 h=60 margin w=12] w=0.2 geo T=1.1 dm=1.0 search adj 0.5001 vs champion 0.5010; confirmed 3
+iter  8  champion kept (8/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=100 margin w=12] w=0.2 T=1.1 dm=1.0 search adj 0.4998 vs champion 0.5010; confirmed 3
+iter  9  champion kept (9/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=100 margin w=12] w=0.2 T=1.1 dm=1.0 search adj 0.4998 vs champion 0.5010; confirmed 3
+iter 10  champion kept (10/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=100 margin w=12] w=0.2 T=1.1 dm=1.0 search adj 0.4998 vs champion 0.5010; confirmed 3
+iter 11  champion kept (11/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=100 margin w=12] w=0.2 geo T=1.1 dm=1.0 search adj 0.4997 vs champion 0.5010; confirmed 3
+iter 12  champion kept (12/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=100 margin w=12] w=0.25 geo T=1.1 dm=1. search adj 0.4997 vs champion 0.5010; confirmed 3
+iter 13  champion kept (13/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 tw={'other': 0.5} | elo k=60 kf=20 h=100 margin w=12] w=0. search adj 0.4997 vs champion 0.5010; confirmed 3
+iter 14  champion kept (14/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 tw={'other': 0.5} | elo k=60 kf=20 h=100 margin w=12] w=0. search adj 0.4997 vs champion 0.5010; confirmed 3
+iter 15  champion kept (15/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 16  champion kept (16/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 17  champion kept (17/25); best candidate blend[pois r=0.5 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 geo T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 18  champion kept (18/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 19  champion kept (19/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 20  champion kept (20/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 21  champion kept (21/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 22  champion kept (22/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 23  champion kept (23/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 24  champion kept (24/25); best candidate blend[pois r=0.25 hl=4.5 st=1998 | elo k=60 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+iter 25  champion kept (25/25); best candidate blend[pois r=0.425 hl=4.5 st=1998 | elo k=50 kf=20 h=60 margin w=16] w=0.25 T=1.1 dm=1.0 search adj 0.4996 vs champion 0.5010; confirmed 3
+patience exhausted
+
+Champion: pois r=0.5 hl=4.0 st=2008
+AUDIT (n=2652): champion 0.4963 vs start 0.4963; diff +0.0000 CI [+0.0000,+0.0000]
+results in /home/seerish/football/backend/research/results

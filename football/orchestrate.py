@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from . import insights as ins
 from .calibration import compute_calibration
 from .elo import compute_elo_rating, with_league_rank
+from .national_elo import canonical_name, lookup_national_elo
 from .fetch_log import record_step_failure
 from .form import (
     NOT_STARTED_STATUSES,
@@ -68,6 +69,7 @@ from .sites import sofascore as sofascore_site
 from .team_aliases import same_team
 from .types import (
     CalibrationSummary,
+    EloRating,
     ManagerTenureRecord,
     MatchDetails,
     MatchInfo,
@@ -865,7 +867,34 @@ def _apply_standings_derived_insights(
         own_elo.sample_source = form_source
     if opponent_elo:
         opponent_elo.sample_source = opponent_matches_source
+    own_name, opponent_name = _home_away(own_is_home, merged.home_team, merged.away_team)
+    own_elo, opponent_elo = _national_elo_override(own_elo, opponent_elo, own_name, opponent_name)
     insights_result.home_elo_rating, insights_result.away_elo_rating = _home_away(own_is_home, own_elo, opponent_elo)
+
+
+def _fixture_is_neutral(merged) -> bool | None:
+    """Neutral when the venue's country is neither team's country (same rule
+    sofascore.py/insights use for past meetings); None when any of the three
+    is unknown, which the trained model treats as a normal home fixture."""
+    venue, home, away = merged.venue_country, merged.home_team_country, merged.away_team_country
+    if not (venue and home and away):
+        return None
+    return canonical_name(venue) not in (canonical_name(home), canonical_name(away))
+
+
+def _national_elo_override(own_elo, opponent_elo, own_name, opponent_name):
+    """Both sides national teams in the eloratings.net table -> use those
+    opponent-adjusted ratings instead of the form-only ones (which assume
+    every past opponent was average). Both or neither, so the two ratings
+    are always on the same scale."""
+    own = lookup_national_elo(own_name)
+    opponent = lookup_national_elo(opponent_name)
+    if own is None or opponent is None:
+        return own_elo, opponent_elo
+    return (
+        EloRating(elo=own[0], as_of=own[1], sample_source="eloratings.net"),
+        EloRating(elo=opponent[0], as_of=opponent[1], sample_source="eloratings.net"),
+    )
 
 
 def _compute_squad_leaderboards(profiles) -> None:
@@ -1144,6 +1173,9 @@ async def _compute_prediction_and_trend_insights(
         insights_result.away_squad_strength,
         insights_result.home_xg_estimate,
         insights_result.away_xg_estimate,
+        merged.home_team,
+        merged.away_team,
+        _fixture_is_neutral(merged),
     )
 
     own_rotation = await ins.compute_rotation_info(team_name, merged.base_source, matches_by_source.get(form_source, []) if form_source else [])

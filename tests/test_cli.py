@@ -33,7 +33,7 @@ def test_main_does_not_leak_team_flag_into_team_name(monkeypatch, tmp_path, caps
     monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)
     seen: list[str] = []
 
-    async def fake_run_search(team_name, on_progress):
+    async def fake_run_search(team_name, on_progress, past_predictions=None):
         seen.append(team_name)
         return _fake_result(team_name)
 
@@ -49,7 +49,7 @@ def test_main_equals_form_does_not_leak(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)
     seen: list[str] = []
 
-    async def fake_run_search(team_name, on_progress):
+    async def fake_run_search(team_name, on_progress, past_predictions=None):
         seen.append(team_name)
         return _fake_result(team_name)
 
@@ -94,7 +94,7 @@ def _fake_result(team="Arsenal"):
 
 
 def test_run_one_writes_json_and_markdown_files(monkeypatch, tmp_path, capsys):
-    async def fake_run_search(team_name, on_progress):
+    async def fake_run_search(team_name, on_progress, past_predictions=None):
         on_progress("scraping...")
         return _fake_result(team_name)
 
@@ -122,7 +122,7 @@ def test_run_one_progress_and_report_prints_are_flushed(monkeypatch, tmp_path, c
         seen_flush.append(bool(kwargs.get("flush")))
         return real_print(*args, **kwargs)
 
-    async def fake_run_search(team_name, on_progress):
+    async def fake_run_search(team_name, on_progress, past_predictions=None):
         on_progress("scraping...")
         return _fake_result(team_name)
 
@@ -137,7 +137,7 @@ def test_run_one_progress_and_report_prints_are_flushed(monkeypatch, tmp_path, c
 
 
 def test_run_one_announces_team_when_running_a_batch(monkeypatch, tmp_path, capsys):
-    async def fake_run_search(team_name, on_progress):
+    async def fake_run_search(team_name, on_progress, past_predictions=None):
         return _fake_result(team_name)
 
     monkeypatch.setattr(cli, "run_search", fake_run_search)
@@ -173,7 +173,7 @@ def test_main_continues_batch_after_one_team_fails(monkeypatch, tmp_path, capsys
     monkeypatch.setattr("sys.argv", ["football-search", "Good Team, Bad Team"])
     monkeypatch.setattr(cli, "_OUTPUT_DIR", tmp_path)
 
-    async def fake_run_search(team_name, on_progress):
+    async def fake_run_search(team_name, on_progress, past_predictions=None):
         if team_name == "Bad Team":
             raise RuntimeError("no data found")
         return _fake_result(team_name)

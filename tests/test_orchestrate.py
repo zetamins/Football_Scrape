@@ -2434,3 +2434,38 @@ def test_run_search_arms_and_always_closes_the_sofascore_run_session(monkeypatch
     assert events == ["begin", "close"], "session must be armed before scraping and closed exactly once on the raise path"
     assert sc._run_session_enabled is False
     assert sc._run_page is None
+
+
+def test_national_elo_override_replaces_both_ratings_only_when_both_are_national(monkeypatch):
+    from football import orchestrate
+    from football.types import EloRating
+
+    table = {"Spain": (2281.0, "2026-10-03"), "Croatia": (1950.0, "2026-10-03")}
+    monkeypatch.setattr(orchestrate, "lookup_national_elo", lambda name: table.get(name))
+    own = EloRating(elo=1500.0, as_of="x", sample_source="sofascore")
+    opp = EloRating(elo=1490.0, as_of="x", sample_source="sofascore")
+
+    new_own, new_opp = orchestrate._national_elo_override(own, opp, "Spain", "Croatia")
+    assert (new_own.elo, new_opp.elo) == (2281.0, 1950.0)
+    assert new_own.sample_source == new_opp.sample_source == "eloratings.net"
+
+    # One side not in the table -> keep both form-only ratings (same scale).
+    assert orchestrate._national_elo_override(own, opp, "Spain", "Real Madrid") == (own, opp)
+
+
+def test_fixture_is_neutral_only_when_venue_country_matches_neither_team():
+    from types import SimpleNamespace
+
+    from football.orchestrate import _fixture_is_neutral
+
+    def m(v, h, a):
+        return SimpleNamespace(venue_country=v, home_team_country=h, away_team_country=a)
+
+    assert _fixture_is_neutral(m("United States", "Argentina", "Algeria")) is True
+    assert _fixture_is_neutral(m("Argentina", "Argentina", "Algeria")) is False
+    assert _fixture_is_neutral(m(" algeria ", "Argentina", "Algeria")) is False
+    # Same country, different spellings across sources: not neutral.
+    assert _fixture_is_neutral(m("Ivory Coast", "Somalia", "Côte d'Ivoire")) is False
+    assert _fixture_is_neutral(m("Congo", "Congo Republic", "Cameroon")) is False
+    assert _fixture_is_neutral(m(None, "Argentina", "Algeria")) is None
+    assert _fixture_is_neutral(m("Spain", None, "Algeria")) is None

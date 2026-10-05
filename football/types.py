@@ -1398,6 +1398,9 @@ class ScorelineProbability:
     home_goals: int
     away_goals: int
     probability_pct: float
+    # "home_win" / "draw" / "away_win": the result class this is the best
+    # scoreline of (see prediction._poisson_likely_scorelines).
+    outcome: str | None = None
 
 
 @dataclass
@@ -1485,6 +1488,12 @@ class MatchPrediction:
     market_implied: OutcomeProbabilities | None
     heuristic_blend: OutcomeProbabilities | None
     xg_model: OutcomeProbabilities | None = None
+    # Strength read from total squad market value alone (prediction.
+    # _squad_value_model) -- an independent, weak-but-real signal.
+    squad_value_model: OutcomeProbabilities | None = None
+    # Trained Dixon-Coles-style goal model fitted on the international-results
+    # archive (history_model.py); None when either team isn't in its table.
+    history_model: OutcomeProbabilities | None = None
     # Weighted average of all available methods, with confidence based
     # on agreement. Market-implied gets highest weight (research shows
     # it's the strongest standalone predictor), followed by xg_model,
@@ -1493,13 +1502,24 @@ class MatchPrediction:
     # in-house models agreeing closely cannot read as near-certain when
     # the market check never ran.
     blended: OutcomeProbabilities | None = None
+    # 0-100: calibrated chance the `pick` is right -- the observed hit rate of picks made at this blended
+    # probability in a held-out backtest (prediction._CONFIDENCE_KNOTS). None when there is no blend.
     confidence: float | None = None
+    # Old `confidence`: 100 minus the largest disagreement between methods, scaled by how many ran.
+    # Says how closely the methods agree, NOT how likely the pick is to be right.
+    method_agreement: float | None = None
+    # Most likely outcome of `blended` ("home_win"/"draw"/"away_win") and its
+    # probability -- a real calibrated-ish number, unlike `confidence`
+    # (method agreement only).
+    pick: str | None = None
+    pick_probability_pct: float | None = None
     # Plain-language basis for `confidence`: it measures only how closely
     # the methods that ran agree with each other (and is scaled by how
     # many ran), NOT real-world accuracy (no outcome archive exists to
     # calibrate against) -- and names any method that could not run,
     # e.g. no market odds this far out.
     confidence_basis: str | None = None
+    method_agreement_basis: str | None = None
     # "+"-joined names of whichever of market/heuristic/xg contributed
     # (e.g. "heuristic+xg") -- which methods actually ran for THIS match,
     # not a fixed algorithm name (the three methods are three different,

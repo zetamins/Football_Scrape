@@ -1915,3 +1915,29 @@ def test_streak_stability_str_unknown_without_rotation_data():
     s = StreakStabilityInfo(streak_result="W", streak_count=3, changed_players=None, stable=None)
     result = streak_stability_str(s, "Home")
     assert "unknown (no rotation data)" in result
+
+
+def test_squad_value_model_and_most_likely_outcome_are_printed():
+    p = MatchPrediction(
+        market_implied=_probs(60, 25, 15), heuristic_blend=_probs(55, 25, 20), squad_value_model=_probs(45, 27, 28),
+        blended=_probs(50, 28, 22), pick="home_win", pick_probability_pct=50.0,
+    )
+    text = "\n".join(prediction_str(p, "Home FC", "Away FC"))
+    assert "squad market value only, weak signal): Home FC 45% / Draw 27% / Away FC 28%" in text
+    assert "Most likely outcome: Home FC win (50%)" in text
+
+
+def test_no_squad_value_line_when_model_absent():
+    p = MatchPrediction(market_implied=_probs(60, 25, 15), heuristic_blend=_probs(55, 25, 20))
+    assert "squad market value" not in "\n".join(prediction_str(p, "Home FC", "Away FC"))
+
+
+def test_markdown_shows_calibrated_confidence_and_separate_method_agreement():
+    p = MatchPrediction(
+        market_implied=_probs(60, 25, 15), heuristic_blend=_probs(55, 25, 20), blended=_probs(58, 25, 17),
+        pick="home_win", pick_probability_pct=58.0, confidence=59.2, confidence_basis="calibrated on held-out matches",
+        method_agreement=81.5, method_agreement_basis="agreement between methods",
+    )
+    text = "\n".join(prediction_str(p, "Home FC", "Away FC"))
+    assert "Confidence: 59.2% chance the pick is right (calibrated on held-out matches)" in text
+    assert "Method agreement: 81.5 (agreement between methods)" in text

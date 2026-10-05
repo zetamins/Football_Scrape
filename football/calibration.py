@@ -20,7 +20,7 @@ from typing import Any
 from .team_aliases import same_team
 from .types import CalibrationSummary, MatchInfo, MethodCalibration
 
-_METHODS = ("blended", "market_implied", "heuristic_blend", "xg_model")
+_METHODS = ("blended", "market_implied", "heuristic_blend", "xg_model", "squad_value_model", "history_model")
 _UNIFORM_BRIER = 2 / 3
 _MIN_PROBABILITY = 1e-9
 

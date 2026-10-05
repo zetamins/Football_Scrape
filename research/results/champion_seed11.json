@@ -1,0 +1,32 @@
+{
+ "champion": {
+  "f": "pois",
+  "ridge": 0.5,
+  "hl": 4.0,
+  "start": 2008,
+  "cap": 0,
+  "tw": {
+   "friendly": 1.0,
+   "qualifier": 1.0,
+   "nations_league": 1.0,
+   "major": 1.0,
+   "other": 1.0
+  },
+  "confed": false,
+  "group_ridge": 1.0,
+  "T": 1.0,
+  "dm": 1.0
+ },
+ "description": "pois r=0.5 hl=4.0 st=2008",
+ "promotions": [],
+ "audit": {
+  "n": 2652,
+  "champion_brier": 0.4963056698125285,
+  "start_brier": 0.4963056698125285,
+  "diff": 0.0,
+  "ci": [
+   0.0,
+   0.0
+  ]
+ }
+}

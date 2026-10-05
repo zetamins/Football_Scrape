@@ -1354,7 +1354,7 @@ def test_losing_streak_context_none_only_when_no_streak_data_at_all():
 
 def test_card_risks_flags_accumulation_and_dismissal():
     accumulator = _all_none(SquadMember, name="Yellow Magnet", season_stats=_all_none(SeasonPlayerStats, yellow_cards=5, red_cards=0))
-    dismissed = _all_none(SquadMember, name="Sent Off", season_stats=_all_none(SeasonPlayerStats, yellow_cards=1, red_cards=1))
+    dismissed = _all_none(SquadMember, name="Sent Off", season_stats=_all_none(SeasonPlayerStats, yellow_cards=1, red_cards=1, appearances=8))
     clean = _all_none(SquadMember, name="Clean Sheet Cal", season_stats=_all_none(SeasonPlayerStats, yellow_cards=1, red_cards=0))
     no_stats = _all_none(SquadMember, name="No Data Nate", season_stats=None)
     risks = compute_card_risks([accumulator, dismissed, clean, no_stats])
@@ -1434,7 +1434,7 @@ def test_referee_card_risk_note_elevated_when_high_yellow_rate():
     home_risk = compute_card_risks(
         [_all_none(SquadMember, name="Risky", season_stats=_all_none(SeasonPlayerStats, yellow_cards=5, red_cards=0))]
     )
-    stats = _all_none(RefereeStats, yellow_cards_per_game="3.2")
+    stats = _all_none(RefereeStats, yellow_cards_per_game="5.6", referee_matches=40)
     note = compute_referee_card_risk_note("Strict Ref", stats, home_risk, None)
     assert note.elevated_card_referee is True
     assert len(note.flagged_players) == 1
@@ -1444,7 +1444,7 @@ def test_referee_card_risk_note_none_without_flagged_players():
     # Empty flagged list is a real "checked, nobody at risk" result now --
     # the note still returns so the field is present whenever a referee
     # and stats exist; only a missing referee/stats stays None.
-    stats = _all_none(RefereeStats, yellow_cards_per_game="3.2")
+    stats = _all_none(RefereeStats, yellow_cards_per_game="5.6", referee_matches=40)
     note = compute_referee_card_risk_note("Ref", stats, [], [])
     assert note is not None
     assert note.flagged_players == []
@@ -2979,3 +2979,35 @@ def test_a_real_lineup_with_a_spelling_mismatch_still_blocks_the_competing_proje
     presence = compute_presence(squad=squad, lineup=[_all_none(LineupPlayer, name="Youri Tielemans")], bench=None, injuries=None, suspended=None)
     assert mark_projected_starters(presence, squad) is None
     assert all(p.projected_starter is False for p in presence)
+
+
+# --- card-flag sample guards (backtest regression: Norway/Scotland/Czechia) ---
+
+
+def test_card_discipline_not_elevated_on_tiny_sample():
+    # Norway: 1 red in 2 games = 0.5 red/game, previously "elevated".
+    stats = _all_none(RefereeStats, yellow_cards=4, red_cards=1)
+    assert classify_card_discipline(stats, _standing(played=2)).elevated_risk is False
+
+
+def test_card_discipline_venue_split_not_elevated_on_tiny_sample():
+    from football.insights import card_discipline_from_venue_split
+    from football.types import CardDisciplineVenueSplit
+
+    split = CardDisciplineVenueSplit(
+        at_home_sample_size=1, at_home_yellow_per_game=3.0, at_home_red_per_game=1.0,
+        away_sample_size=2, away_yellow_per_game=3.0, away_red_per_game=0.5, source="fotmob",
+    )
+    assert card_discipline_from_venue_split(split).elevated_risk is False
+
+
+def test_single_appearance_red_card_is_not_a_prior_dismissal_risk():
+    one_app = _all_none(SquadMember, name="One Game", season_stats=_all_none(SeasonPlayerStats, yellow_cards=0, red_cards=1, appearances=1))
+    assert compute_card_risks([one_app]) == []
+
+
+def test_average_referee_is_not_elevated():
+    # Scotland v Switzerland ref: 4.7 yellows/game over 5 matches.
+    assert compute_referee_card_risk_note("Ref", _all_none(RefereeStats, yellow_cards_per_game="4.7", referee_matches=5), [], []).elevated_card_referee is False
+    # Strict but small sample: still not flagged.
+    assert compute_referee_card_risk_note("Ref", _all_none(RefereeStats, yellow_cards_per_game="5.6", referee_matches=3), [], []).elevated_card_referee is False

@@ -1059,22 +1059,26 @@ def rest_label(days: int | None) -> str:
 
 
 def _confidence_lines(p, home_team: str, away_team: str) -> list[str]:
-    """Confidence section of prediction_str (blended / agreement /
-    single-method fallback) -- extracted to keep prediction_str under
-    python:S3776's cognitive-complexity threshold."""
+    """Blended prediction + calibrated confidence + method agreement -- extracted to keep prediction_str
+    under python:S3776's cognitive-complexity threshold."""
     if p.blended is not None:
-        conf = f"{js_number_to_string(p.confidence)}" if p.confidence is not None else "n/a"
-        return [
+        pick_line = []
+        if p.pick:
+            who = {"home_win": f"{home_team} win", "draw": "Draw", "away_win": f"{away_team} win"}[p.pick]
+            pick_line = [f"- Most likely outcome: {who} ({js_number_to_string(p.pick_probability_pct)}%)"]
+        conf = f"{js_number_to_string(p.confidence)}%" if p.confidence is not None else "n/a"
+        lines = [
             f"- Prediction (blended): {home_team} {p.blended.home_win_pct}% / Draw {p.blended.draw_pct}% / {away_team} {p.blended.away_win_pct}%",
-            f"- Confidence: {conf} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})",
+            *pick_line,
+            f"- Confidence: {conf} chance the pick is right ({p.confidence_basis or 'calibrated on held-out matches'})",
         ]
-    if p.confidence is not None:
-        return [f"- Confidence: {js_number_to_string(p.confidence)} ({p.confidence_basis or 'agreement between methods, not real-world accuracy'})"]
+        if p.method_agreement is not None:
+            lines.append(f"- Method agreement: {js_number_to_string(p.method_agreement)} ({p.method_agreement_basis or 'agreement between methods, not real-world accuracy'})")
+        return lines
     if p.model:
-        # Single method: _blend_predictions returns (None, None) under two
-        # methods, so there was previously no confidence line at all --
-        # readers couldn't tell "confident" from "only one estimate ran".
-        return ["- Confidence: n/a (single method only; agreement between methods needs at least two)"]
+        # Single method: _blend_predictions returns (None, None) under two methods, so there is no blend
+        # to calibrate -- readers couldn't tell "confident" from "only one estimate ran".
+        return ["- Confidence: n/a (single method only; a blend of at least two methods is needed)"]
     return []
 
 
@@ -1095,6 +1099,16 @@ def prediction_str(p, home_team: str, away_team: str) -> list[str]:
     if b:
         label = "Elo heuristic, not a trained model" + ("" if m else " -- no market odds available, this is the only estimate")
         out.append(f"- Prediction ({label}): {home_team} {b.home_win_pct}% / Draw {b.draw_pct}% / {away_team} {b.away_win_pct}%")
+    hm = getattr(p, "history_model", None)
+    if hm:
+        out.append(
+            f"- Prediction (trained goal model, 2,678-match out-of-sample Brier 0.496): {home_team} {hm.home_win_pct}% / Draw {hm.draw_pct}% / {away_team} {hm.away_win_pct}%"
+        )
+    sv = getattr(p, "squad_value_model", None)
+    if sv:
+        out.append(
+            f"- Prediction (squad market value only, weak signal): {home_team} {sv.home_win_pct}% / Draw {sv.draw_pct}% / {away_team} {sv.away_win_pct}%"
+        )
     if m and b:
         home_gap = abs(m.home_win_pct - b.home_win_pct)
         away_gap = abs(m.away_win_pct - b.away_win_pct)

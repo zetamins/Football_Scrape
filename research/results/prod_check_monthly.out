@@ -1,0 +1,4 @@
+2018-21 (independent)    n=3435  poisson 0.4993 (acc 0.611)  shipped blend 0.4981 (acc 0.612)  diff -0.0012 [-0.0025,+0.0001]   (240s)
+2022-23 (validation)     n=1967  poisson 0.5139 (acc 0.600)  shipped blend 0.5125 (acc 0.608)  diff -0.0014 [-0.0031,+0.0004]   (155s)
+2024-26 (test)           n=2652  poisson 0.4952 (acc 0.612)  shipped blend 0.4950 (acc 0.606)  diff -0.0002 [-0.0017,+0.0014]   (281s)
+POOLED n=8054: diff -0.0009 [-0.0018,+0.0000]

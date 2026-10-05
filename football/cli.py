@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from .format_markdown import slugify
+from . import prediction_log
 from .orchestrate import run_search
 from .report import build_report_json, build_report_markdown
 
@@ -72,7 +73,7 @@ async def _run_one(team_name: str, *, announce: bool) -> None:
     if announce:
         print(f"\n=== {team_name} ===", flush=True)
     print(flush=True)
-    result = await run_search(team_name, lambda msg: print(msg, flush=True))
+    result = await run_search(team_name, lambda msg: print(msg, flush=True), past_predictions=prediction_log.load(_OUTPUT_DIR / prediction_log.LOG_NAME))
     print(flush=True)
 
     markdown = build_report_markdown(result)
@@ -83,10 +84,14 @@ async def _run_one(team_name: str, *, announce: bool) -> None:
     json_path = _OUTPUT_DIR / f"{base}.json"
     md_path = _OUTPUT_DIR / f"{base}.md"
 
-    json_path.write_text(json.dumps(build_report_json(result), indent=2, default=str), encoding="utf-8")
+    report = build_report_json(result)
+    json_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    logged = prediction_log.append_report(report, _OUTPUT_DIR / prediction_log.LOG_NAME)
     md_path.write_text(markdown, encoding="utf-8")
 
     print(f"Saved:\n  {json_path}\n  {md_path}", flush=True)
+    if logged:
+        print(f"  logged prediction -> {_OUTPUT_DIR / prediction_log.LOG_NAME}", flush=True)
 
 
 async def _main() -> None:

@@ -48,6 +48,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .history_model import predict_grid, predict_outcome
 from .types import (
     BettingOdds,
     EloRating,
@@ -70,7 +71,53 @@ _HOME_ADVANTAGE_ELO_POINTS = 100.0
 # cited ~25% average draw rate across Europe's top leagues (solving
 # d = nu / (2 + nu) = 0.25 for two exactly-equal-strength teams), not a
 # league-specific or empirically-fitted value.
-_DAVIDSON_NU = 0.6667
+_DAVIDSON_NU = 0.75
+
+# Draw uplift applied to the final blend, in percentage points. DISABLED
+# (0): it was added after a 38-match sample where 34% were draws, but the
+# 2,678-match out-of-sample backtest of history_model (2024-2026) shows the
+# true international draw rate is 23.5% and an unadjusted model is already
+# calibrated to it (23.1% predicted). The 38-match excess was variance.
+_DRAW_UPLIFT_PCT = 0.0
+
+# Blend weights. Market odds are the strongest predictor; the Elo heuristic
+# backtested worse than guessing 1/3 each (Brier 0.680 vs 0.667) and pulled
+# the blend below the market alone, so it only gets a token weight when a
+# market exists and its old weight otherwise (it is then the only extra
+# signal besides xg).
+_W_MARKET = 3.0
+_W_XG = 1.5
+_W_HEURISTIC_WITH_MARKET = 0.5
+_W_HEURISTIC_ALONE = 1.0
+# With opponent-adjusted eloratings.net ratings (national_elo.py) the Elo
+# method backtested at market level (Brier 0.574 vs 0.680 for the form-only
+# rating), so it earns real weight.
+_W_HEURISTIC_NATIONAL_ELO = 2.0
+_W_SQUAD_VALUE = 0.75
+# Trained history model: beat a sequential Elo baseline on 2,678 out-of-sample
+# internationals (Brier 0.496 vs 0.511, draw rate calibrated). No historical
+# odds exist to compare it with the market, and on the 38 live fixtures the
+# market alone was best, so it ranks second.
+_W_HISTORY = 2.0
+_W_XG_WITH_HISTORY = 1.0
+_NATIONAL_ELO_SOURCE = "eloratings.net"
+
+# Squad-market-value model: Elo-point gap per unit of ln(value ratio). Chosen
+# by grid search on 38 national-team fixtures (Brier minimum at 100 over
+# 60-300; 0.609 alone vs 0.667 for guessing). Small sample; a weak signal,
+# hence its small blend weight.
+_SQUAD_VALUE_ELO_PER_LN = 100.0
+_SQUAD_VALUE_MAX_ELO_GAP = 400.0
+_METHOD_COUNT = 5
+
+# Calibration of the pick probability -> how often such a pick is actually right: binned reliability, made monotone, measured on 8,054 held-out international
+# matches 2018-2026 with rolling two-monthly refits of the venue-aware Poisson + Dixon-Coles model (the engine's own probabilities; pairs of pick probability %,
+# observed accuracy %). Re-fitted after the venue and simulation fixes; the previous knots came from the old model. Caveat: fitted on the history model alone, so it
+# is an approximation for blends that include the odds or the JSON-only sources.
+_CONFIDENCE_KNOTS = (
+    (33.3, 33.3), (37.3, 36.1), (44.9, 46.4), (52.4, 50.7), (57.5, 61.3),
+    (64.9, 67.1), (74.8, 78.0), (84.7, 86.8), (95.0, 94.6), (100.0, 97.0),
+)
 
 # Rest-day adjustment: direction supported by published fixture-congestion
 # research (see module docstring), magnitude is a modest, capped heuristic
@@ -198,9 +245,23 @@ def _poisson_outcome_probabilities(grid: dict[tuple[int, int], float]) -> Outcom
     )
 
 
-def _poisson_likely_scorelines(grid: dict[tuple[int, int], float], count: int = 3) -> list[ScorelineProbability]:
-    ranked = sorted(grid.items(), key=lambda kv: kv[1], reverse=True)
-    return [ScorelineProbability(home_goals=i, away_goals=j, probability_pct=round(100 * p, 1)) for (i, j), p in ranked[:count]]
+def _poisson_likely_scorelines(grid: dict[tuple[int, int], float]) -> list[ScorelineProbability]:
+    """Most likely scoreline within each result class (home win / draw /
+    away win), ranked by probability. The plain overall top-3 was almost
+    always 1-1/1-0/0-1 whenever both rates sit near 1.3 goals (the modal
+    cell of a Poisson grid), which carried no information: 2 of 31 hits
+    in the backtest. Per-class best scorelines say what a win would most
+    likely look like on each side."""
+    best: dict[str, tuple[tuple[int, int], float]] = {}
+    for (i, j), p in grid.items():
+        outcome = "home_win" if i > j else ("draw" if i == j else "away_win")
+        if outcome not in best or p > best[outcome][1]:
+            best[outcome] = ((i, j), p)
+    ranked = sorted(best.items(), key=lambda kv: kv[1][1], reverse=True)
+    return [
+        ScorelineProbability(home_goals=i, away_goals=j, probability_pct=round(100 * p, 1), outcome=outcome)
+        for outcome, ((i, j), p) in ranked
+    ]
 
 
 def _poisson_goal_markets(grid: dict[tuple[int, int], float]) -> GoalMarketProbabilities:
@@ -292,6 +353,43 @@ class _XgModelResult:
     goal_markets: GoalMarketProbabilities
 
 
+def _history_model_result(home_team: str | None, away_team: str | None, neutral: bool | None) -> _XgModelResult | None:
+    """Trained Dixon-Coles-style model (history_model.py). Same grid-derived
+    outputs as the xG model, from fitted attack/defence strengths instead of
+    the last ten matches."""
+    if not home_team or not away_team:
+        return None
+    predicted = predict_grid(home_team, away_team, bool(neutral))
+    if predicted is None:
+        return None
+    grid, home_rate, away_rate = predicted
+    outcome = _poisson_outcome_probabilities(grid)
+    blended = predict_outcome(home_team, away_team, bool(neutral))
+    if blended is not None:
+        # Poisson + pi-ratings logit (history_model.PI_BLEND_WEIGHT); goals/scorelines stay Poisson.
+        outcome = OutcomeProbabilities(
+            home_win_pct=round(100 * blended[0], 1), draw_pct=round(100 * blended[1], 1), away_win_pct=round(100 * blended[2], 1),
+        )
+    return _XgModelResult(
+        outcome=outcome,
+        home_expected_goals=round(home_rate, 2),
+        away_expected_goals=round(away_rate, 2),
+        likely_scorelines=_poisson_likely_scorelines(grid),
+        goal_markets=_poisson_goal_markets(grid),
+    )
+
+
+def _squad_value_model(home: SquadStrengthInfo | None, away: SquadStrengthInfo | None) -> OutcomeProbabilities | None:
+    """Independent strength read from total squad market value (Transfermarkt-
+    style values already on each profile): ln(value ratio) -> Elo-point gap ->
+    the same Davidson three-outcome formula (home advantage included)."""
+    if not (home and away and home.total_value and away.total_value):
+        return None
+    gap = _SQUAD_VALUE_ELO_PER_LN * math.log(home.total_value / away.total_value)
+    gap = max(-_SQUAD_VALUE_MAX_ELO_GAP, min(_SQUAD_VALUE_MAX_ELO_GAP, gap))
+    return _davidson_probabilities(1500.0 + gap / 2, 1500.0 - gap / 2)
+
+
 def _xg_model_from_estimates(home_xg: SeasonXGEstimate | None, away_xg: SeasonXGEstimate | None) -> _XgModelResult | None:
     """Extracted from compute_match_prediction to keep its own cognitive
     complexity down (python:S3776)."""
@@ -311,6 +409,20 @@ def _xg_model_from_estimates(home_xg: SeasonXGEstimate | None, away_xg: SeasonXG
     )
 
 
+def _apply_draw_uplift(home_pct: float, draw_pct: float, away_pct: float) -> tuple[float, float, float]:
+    """Move _DRAW_UPLIFT_PCT points into the draw share, taken from home and
+    away in proportion to their size, so the three still sum to 100."""
+    decisive = home_pct + away_pct
+    if decisive <= 0:
+        return home_pct, draw_pct, away_pct
+    take = min(_DRAW_UPLIFT_PCT, decisive)
+    return (
+        home_pct - take * home_pct / decisive,
+        draw_pct + take,
+        away_pct - take * away_pct / decisive,
+    )
+
+
 def _blend_predictions(available: list[OutcomeProbabilities], weights: list[float]) -> tuple[OutcomeProbabilities | None, float | None]:
     """Extracted from compute_match_prediction to keep its own cognitive
     complexity down (python:S3776); behavior unchanged.
@@ -325,6 +437,7 @@ def _blend_predictions(available: list[OutcomeProbabilities], weights: list[floa
     home_pct = sum(a.home_win_pct * w for a, w in zip(available, weights)) / total_weight
     draw_pct = sum(a.draw_pct * w for a, w in zip(available, weights)) / total_weight
     away_pct = sum(a.away_win_pct * w for a, w in zip(available, weights)) / total_weight
+    home_pct, draw_pct, away_pct = _apply_draw_uplift(home_pct, draw_pct, away_pct)
     blended = OutcomeProbabilities(
         home_win_pct=round(home_pct, 1),
         draw_pct=round(draw_pct, 1),
@@ -342,11 +455,41 @@ def _blend_predictions(available: list[OutcomeProbabilities], weights: list[floa
         max_spreads.append(max(vals) - min(vals))
     max_disagreement = max(max_spreads)
     agreement = max(0, 100 - max_disagreement)
-    confidence = round(agreement * (len(available) / 3.0), 1)
+    confidence = round(agreement * (len(available) / _METHOD_COUNT), 1)
     return blended, confidence
 
 
-def _prediction_model_name(market_implied, heuristic_blend, xg_result) -> str | None:
+_CONFIDENCE_BASIS = (
+    "Calibrated: how often a pick made at this probability was right in 8,054 held-out international matches "
+    "(2018-2026, history model, refit monthly); an average over matches like this one, not a guarantee"
+)
+
+
+def _calibrated_confidence(pick_probability_pct: float) -> float:
+    """Linear interpolation through _CONFIDENCE_KNOTS: the observed hit rate of a pick made at this
+    probability in the held-out backtest."""
+    knots = _CONFIDENCE_KNOTS
+    if pick_probability_pct <= knots[0][0]:
+        return knots[0][1]
+    for (x0, y0), (x1, y1) in zip(knots, knots[1:]):
+        if pick_probability_pct <= x1:
+            return round(y0 + (y1 - y0) * (pick_probability_pct - x0) / (x1 - x0), 1)
+    return knots[-1][1]
+
+
+def _pick(blended: OutcomeProbabilities | None) -> tuple[str | None, float | None]:
+    """Most likely outcome of the blend and its probability -- the number a
+    reader should act on. `confidence` is this probability mapped to the observed
+    hit rate of such picks (_calibrated_confidence); `method_agreement` is only how
+    closely the methods agree with each other (96 on a fixture whose pick was wrong)."""
+    if blended is None:
+        return None, None
+    options = {"home_win": blended.home_win_pct, "draw": blended.draw_pct, "away_win": blended.away_win_pct}
+    name = max(options, key=options.get)
+    return name, options[name]
+
+
+def _prediction_model_name(market_implied, heuristic_blend, xg_result, squad_value=None, history_model=None) -> str | None:
     """"+"-joined names of whichever methods actually ran for this match
     -- see MatchPrediction.model's own doc comment. Extracted from
     compute_match_prediction to keep its own cognitive complexity down
@@ -358,6 +501,10 @@ def _prediction_model_name(market_implied, heuristic_blend, xg_result) -> str | 
         names.append("heuristic")
     if xg_result is not None:
         names.append("xg")
+    if squad_value is not None:
+        names.append("squadvalue")
+    if history_model is not None:
+        names.append("history")
     return "+".join(names) if names else None
 
 
@@ -365,12 +512,18 @@ def _confidence_basis(method_names: list[str], confidence: float | None, market_
     if confidence is None:
         return None
     basis = (
-        f"Agreement between {len(method_names)} of 3 methods ({', '.join(method_names)}), "
+        f"Agreement between {len(method_names)} of {_METHOD_COUNT} methods ({', '.join(method_names)}), "
         "scaled by methods that ran, not real-world accuracy"
     )
     if not market_available:
         basis += "; no market odds available, so no independent check on the model-based methods"
     return basis
+
+
+def _heuristic_weight(market_present: bool, home_elo: EloRating | None, away_elo: EloRating | None) -> float:
+    if home_elo and away_elo and home_elo.sample_source == _NATIONAL_ELO_SOURCE and away_elo.sample_source == _NATIONAL_ELO_SOURCE:
+        return _W_HEURISTIC_NATIONAL_ELO
+    return _W_HEURISTIC_WITH_MARKET if market_present else _W_HEURISTIC_ALONE
 
 
 def compute_match_prediction(
@@ -383,15 +536,24 @@ def compute_match_prediction(
     away_squad_strength: SquadStrengthInfo | None = None,
     home_xg: SeasonXGEstimate | None = None,
     away_xg: SeasonXGEstimate | None = None,
+    home_team: str | None = None,
+    away_team: str | None = None,
+    neutral: bool | None = None,
 ) -> MatchPrediction | None:
     market_implied = _market_implied_from_odds(betting_odds)
     heuristic_blend = _heuristic_blend_from_elo(
         home_elo, away_elo, home_rest_days, away_rest_days, home_squad_strength, away_squad_strength
     )
     xg_result = _xg_model_from_estimates(home_xg, away_xg)
+    squad_value = _squad_value_model(home_squad_strength, away_squad_strength)
     xg_model = xg_result.outcome if xg_result else None
+    history_result = _history_model_result(home_team, away_team, neutral)
+    history_model = history_result.outcome if history_result else None
+    # Expected goals / scorelines / goal markets: the trained model's grid
+    # when it knows both teams, else the recent-xG grid.
+    grid_result = history_result or xg_result
 
-    if market_implied is None and heuristic_blend is None and xg_model is None:
+    if market_implied is None and heuristic_blend is None and xg_model is None and squad_value is None and history_model is None:
         return None
 
     # Market-implied gets highest weight (strongest standalone predictor
@@ -400,24 +562,34 @@ def compute_match_prediction(
     weights = []
     if market_implied is not None:
         available.append(market_implied)
-        weights.append(3.0)
+        weights.append(_W_MARKET)
     if xg_model is not None:
         available.append(xg_model)
-        weights.append(2.0)
+        weights.append(_W_XG_WITH_HISTORY if history_model is not None else _W_XG)
+    if history_model is not None:
+        available.append(history_model)
+        weights.append(_W_HISTORY)
     if heuristic_blend is not None:
         available.append(heuristic_blend)
-        weights.append(1.0)
-    blended, confidence = _blend_predictions(available, weights)
+        weights.append(_heuristic_weight(market_implied is not None, home_elo, away_elo))
+    if squad_value is not None:
+        available.append(squad_value)
+        weights.append(_W_SQUAD_VALUE)
+    blended, method_agreement = _blend_predictions(available, weights)
+    pick, pick_probability = _pick(blended)
+    confidence = _calibrated_confidence(pick_probability) if pick_probability is not None else None
 
     return MatchPrediction(
         market_implied=market_implied, heuristic_blend=heuristic_blend,
-        xg_model=xg_model, blended=blended, confidence=confidence,
-        model=_prediction_model_name(market_implied, heuristic_blend, xg_result),
-        confidence_basis=_confidence_basis(
-            (_prediction_model_name(market_implied, heuristic_blend, xg_result) or "").split("+"), confidence, market_implied is not None
+        xg_model=xg_model, squad_value_model=squad_value, history_model=history_model, blended=blended, confidence=confidence, method_agreement=method_agreement,
+        pick=pick, pick_probability_pct=pick_probability,
+        model=_prediction_model_name(market_implied, heuristic_blend, xg_result, squad_value, history_model),
+        confidence_basis=_CONFIDENCE_BASIS if confidence is not None else None,
+        method_agreement_basis=_confidence_basis(
+            (_prediction_model_name(market_implied, heuristic_blend, xg_result, squad_value, history_model) or "").split("+"), method_agreement, market_implied is not None
         ),
-        home_expected_goals=(xg_result.home_expected_goals if xg_result else None),
-        away_expected_goals=(xg_result.away_expected_goals if xg_result else None),
-        likely_scorelines=(xg_result.likely_scorelines if xg_result else None),
-        goal_markets=(xg_result.goal_markets if xg_result else None),
+        home_expected_goals=(grid_result.home_expected_goals if grid_result else None),
+        away_expected_goals=(grid_result.away_expected_goals if grid_result else None),
+        likely_scorelines=(grid_result.likely_scorelines if grid_result else None),
+        goal_markets=(grid_result.goal_markets if grid_result else None),
     )
