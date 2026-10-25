@@ -341,7 +341,28 @@ async def _fetch_json(page: Page, url: str) -> Any:
     if isinstance(data, dict) and isinstance(data.get("error"), dict) and data["error"].get("code") in _BLOCK_ERROR_CODES:
         _block_reason = f"HTTP {data['error']['code']} {data['error'].get('reason', 'blocked')}"
         record_failure(url, f"{_block_reason} -- remaining Sofascore requests skipped this run")
+    _save_raw(url, data)
     return data
+
+
+def _save_raw(url: str, data: Any) -> None:
+    """Opt-in raw capture: with FOOTBALL_RAW_DIR set, every Sofascore JSON response is saved there as
+    <api path>.json, so the fields the parser does not keep can be inspected offline (no extra request).
+    Off by default; a write failure never affects the run."""
+    import os
+    import re as _re
+    from pathlib import Path
+
+    folder = os.environ.get("FOOTBALL_RAW_DIR")
+    if not folder:
+        return
+    try:
+        name = _re.sub(r"[^A-Za-z0-9._-]+", "_", url.split("/api/v1/", 1)[-1]).strip("_")[:180] or "root"
+        out = Path(folder)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - capture is a debugging aid, never a reason to fail a scrape
+        pass
 
 
 async def _fetch_json_optional(page: Page, url: str) -> Any | None:
@@ -657,7 +678,21 @@ def _extract_lineup_player(p: dict[str, Any], substitute: bool) -> LineupPlayer:
         shirt_number=(int(p["shirtNumber"]) if p.get("shirtNumber") is not None else None),
         age=_age_from_timestamp(p["player"].get("dateOfBirthTimestamp")),
         player_id=p["player"].get("id"),
+        errors_lead_to_shot=_error_stat(s, ("errorLeadToAShot", "errorLeadToShot")),
+        errors_lead_to_goal=_error_stat(s, ("errorLeadToAGoal", "errorLeadToGoal")),
     )
+
+
+def _error_stat(s: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+    """An error count from a player's match statistics: the first key present, else 0 when the player has
+    statistics at all (Sofascore leaves out a stat the player did not record), else None (no statistics:
+    unknown, not zero). The key names are read as Sofascore's player-statistics names, with the variants
+    seen in its payloads accepted."""
+    for k in keys:
+        v = s.get(k)
+        if isinstance(v, (int, float)):
+            return int(v)
+    return 0 if s.get("minutesPlayed") else None
 
 
 def _extract_lineup(side: dict[str, Any] | None) -> list[LineupPlayer] | None:

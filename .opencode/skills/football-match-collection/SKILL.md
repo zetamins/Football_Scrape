@@ -1,0 +1,27 @@
+---
+name: football-match-collection
+description: Entry point for analysing ONE scraped football match report with a collection of specialist skills (team news, tactical matchup, underlying stats, context and motivation, media scout) and one decider. Every step is saved to a markdown file, so a crash or timeout loses nothing and the same command resumes. Use when asked to analyse or predict a match with the full collection.
+---
+
+# Football match collection
+
+One command runs the whole pipeline and saves every step to disk:
+
+`python3 scripts/run_collection.py <report.json> <run_dir> [--no-media]`
+
+(add `--review` to have two independent reviewers (different free models) check the finished answer and the decider fix what is real; add `--no-media` for any match that is already played: the media headlines would contain the result; `--model`, `--runner`, `--retries` and `--timeout` are optional; `--dry-run` only writes the evidence files.)
+
+1. **Prepare (no model):** writes `<run_dir>/evidence/{team-news,tactical,stats,context,advocate,home,away,draw,goals,underdog,state,chaos,decider}.md`, the slices of the facts sheet (`home`, `away`, `draw` and `goals` are the counts and cross-links computed for each advocate's own case). Specialists never see the bookmaker odds. No slice ever has odds: the skill is market-independent.
+2. **Specialists (one short note each, `<run_dir>/notes/<name>.md`):** `football-team-news`, `football-tactical-matchup`, `football-underlying-stats`, `football-context-motivation`, and `football-media-scout` (unplayed matches only). Each reads its evidence file, writes the note FIRST, and checks it with `note_check.py`.
+3. **Council (seven advocates, `<run_dir>/advocates/home.md`, `away.md`, `draw.md`, `goals.md`, `underdog.md`, `state.md` and `chaos.md`; the underdog advocate studies the favourite's defensive errors and what follows an underdog goal; the state advocate reads how the game swings (leads, comebacks, back-three exposure); there is no market advocate):** `football-home-advocate`, `football-away-advocate`, `football-draw-advocate` and `football-goals-advocate`, `football-underdog-advocate`, `football-gamestate-advocate` (how the game swings: who leads, who comes back, defence and shape under pressure), `football-chaos-advocate` (what the forecast cannot see: errors, keepers, set pieces and penalties, cards; never an expected-goals move) each argue the strongest HONEST case for their own side (the draw advocate for a level finish) from the notes and the sheet slice (no bookmaker odds), blind to each other, each checked by `advocate_check.py`. `--no-advocates` skips them.
+4. **Decider (`football-match-lite` in collection mode, the chair of the council):** reads `evidence/decider.md`, the notes and the advocate briefs (up to seven), writes `<run_dir>/decision.md` (xG, accepted and rejected changes, calculator output, bet) and then the short `<run_dir>/answer.md`, checked by `check.py`.
+
+Every step is skipped when its file already exists and passes its check, and a step that ends without its file (a silent death or a timeout) is retried, told which files exist. `<run_dir>/status.md` logs what happened. Nothing is saved except these files: the pipeline never logs predictions.
+
+To run a step by hand, open the matching skill and give it the run dir. The specialists give no probabilities; the decider owns the numbers and the bet.
+
+**Review stage (`--review`):** after the answer passes the checker, a review pack is built and two different reviewer models read it (`<run_dir>/review/verdict-1.txt`, `verdict-2.txt`; the first line must be `VERDICT: PASS` or `VERDICT: FIX`). If either asks for a fix, the decider checks every numbered error against the evidence and the notes, corrects the real ones in `answer.md`, records the rest in `review/rejected.md` and lists each in `review/fixed.md`. A reviewer that dies or hits a provider error is retried; a verdict on an older answer is discarded; nothing finished is redone. A reviewer is one more opinion, never proof.
+
+**Market-independent, always (since 2026-10-25; `--independent` is accepted and does nothing, `--market-anchor` is refused):** the runner blinds the report (`blind.py`) before anything is prepared and keeps the original beside the run folder as `<run>.odds.json` (no agent reads it). Once the answer passes it runs `value.py`, which writes `value.md`: the INDEPENDENT block (final pick, with the upset rule on our own underdog; goals bet; the independent data model; `Stake decision`, a flat 1 unit on the final pick) and, after it, a MARKET SCOREBOARD that is reference only and changes nothing. The final pick, the stake and the scoreboard line are stamped once at the end of `answer.md`.
+
+**Audit.** With the `claude` runner every step's full stream (messages and tool calls; thinking text comes back empty) is kept in `<run_dir>/logs/` (set `FOOTBALL_CAPTURE=0` to turn it off), and after the run `audit.md` lists rule breaks: a script's source read, a script run with the agent's own numbers, another run's files, an advocate reading another advocate's brief. Two scripts in `football-match-lite/scripts/` check the data: `verify_sheet.py <report.json> <run_dir>` rebuilds the main figures from the JSON and compares them with the sheet; `ground_check.py <run_dir>` lists numbers in notes and answers that are in no evidence file (it cannot tell whether a number is used the right way round).

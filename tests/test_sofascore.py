@@ -241,6 +241,15 @@ def test_extract_lineup_player_carries_sofascore_player_id():
     assert p.player_id == 884732
 
 
+def test_extract_lineup_player_reads_errors_leading_to_a_shot_and_a_goal():
+    p = _extract_lineup_player(_raw_player(statistics={"minutesPlayed": 90, "errorLeadToAGoal": 1, "errorLeadToAShot": 2}), substitute=False)
+    assert (p.errors_lead_to_goal, p.errors_lead_to_shot) == (1, 2)
+    played = _extract_lineup_player(_raw_player(statistics={"minutesPlayed": 90, "rating": 6.9}), substitute=False)
+    assert (played.errors_lead_to_goal, played.errors_lead_to_shot) == (0, 0)      # Sofascore leaves out a stat the player did not record
+    unused = _extract_lineup_player(_raw_player(statistics={}), substitute=True)
+    assert (unused.errors_lead_to_goal, unused.errors_lead_to_shot) == (None, None)  # no statistics: unknown, not zero
+
+
 def test_extract_lineup_player_id_none_without_one():
     p = _extract_lineup_player(_raw_player(), substitute=False)
     assert p.player_id is None
@@ -1459,3 +1468,18 @@ class _FakeBrowserCM_With:
 
     async def __aexit__(self, *_exc):
         return False
+
+
+def test_save_raw_writes_each_response_only_when_the_capture_folder_is_set(tmp_path, monkeypatch):
+    import json
+
+    from football.sites import sofascore as so
+
+    monkeypatch.delenv("FOOTBALL_RAW_DIR", raising=False)
+    so._save_raw("https://www.sofascore.com/api/v1/event/1/lineups", {"a": 1})
+    assert not any(tmp_path.iterdir())                                                   # off by default
+    monkeypatch.setenv("FOOTBALL_RAW_DIR", str(tmp_path / "raw"))
+    so._save_raw("https://www.sofascore.com/api/v1/event/16363892/lineups", {"home": {"players": []}})
+    assert json.loads((tmp_path / "raw" / "event_16363892_lineups.json").read_text()) == {"home": {"players": []}}
+    monkeypatch.setenv("FOOTBALL_RAW_DIR", "/proc/forbidden/raw")
+    so._save_raw("https://www.sofascore.com/api/v1/event/1", {"x": 1})                  # a failed write never raises

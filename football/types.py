@@ -84,6 +84,11 @@ class LineupPlayer:
     # Sofascore only, derived from dateOfBirthTimestamp at extraction time
     # (age as of the match, not stored as a birth date).
     age: int | None = None
+    # Sofascore only: errors that led to an opponent's shot / goal in this
+    # match. 0 when the player has match statistics (Sofascore omits a stat
+    # the player did not record), None when the source gives no statistics.
+    errors_lead_to_shot: int | None = None
+    errors_lead_to_goal: int | None = None
     # Sofascore's own stable player id (player.id in its payload) -- lets a
     # consumer track the same player across matches/seasons by id rather
     # than by name string (a name alone breaks on diacritics, nicknames, or
@@ -765,6 +770,11 @@ class PlayerUsagePattern:
     # full-back (e.g. Archie Gray) counts as a wide back start.
     wide_back_starts: int = 0
     central_back_starts: int = 0
+    # Errors leading to an opponent's shot / goal, summed over the
+    # appearances whose source reports them (Sofascore); None when none did.
+    total_errors_lead_to_shot: int | None = None
+    total_errors_lead_to_goal: int | None = None
+    error_stat_appearances: int = 0
 
 
 @dataclass
@@ -840,6 +850,25 @@ class FormResult:
     ht_scoreline: str | None
     xg_for: float | None
     xg_against: float | None
+    # The opponent's clubelo.com rating on the day the report was made (one
+    # ranking page covers every listed club); None for national teams or a
+    # club ClubElo does not list. Lets the sheet weigh form by opposition.
+    opponent_club_elo: float | None = None
+    # Who scored the match's first goal, from this team's side: "for",
+    # "against", or "none" for a goalless game; None when the details had no
+    # usable goal timeline (not enriched, or the first goal was an own goal,
+    # whose side label differs between sources). Lets the sheet show how a
+    # team does after conceding FIRST, not just after conceding at all.
+    first_goal: Literal["for", "against", "none"] | None = None
+    # Goals scored by players who came off the bench, and goals from the
+    # 76th minute on, for and against, from the same goal timeline (own
+    # goals left out). The sub counts are None when the timeline has no
+    # named substitutions for that side; the late counts are None without
+    # a timeline. Bench impact and late-game pattern for the sheet.
+    sub_goals_for: int | None = None
+    sub_goals_against: int | None = None
+    late_goals_for: int | None = None
+    late_goals_against: int | None = None
 
 
 @dataclass
@@ -1561,6 +1590,20 @@ class ClubStrengthRating:
 
 
 @dataclass
+class ClubEloRating:
+    """clubelo.com's long-run rating for one club (one page fetch). Unlike
+    EloRating (computed from the team's own recent form) this is calibrated
+    against every club's results back decades, so two ClubElo values are
+    directly comparable. golo is ClubElo's goal-based companion rating."""
+    elo: float
+    as_of: str | None = None
+    golo: float | None = None
+    best: float | None = None
+    best_date: str | None = None
+    change_90d: float | None = None        # elo now minus elo about 90 days earlier, from the page's own history chart
+
+
+@dataclass
 class ResilienceInfo:
     non_win_sample_size: int
     draw_share_pct: float
@@ -1790,6 +1833,9 @@ class MatchInsights:
     # How PresenceEntry.projected_starter was chosen; None when no
     # projection was made (a real lineup is out, or no usage history).
     projected_xi_basis: str | None = None
+    # clubelo.com long-run ratings (football/sites/clubelo.py); None for national teams or a club it does not list.
+    home_club_elo: ClubEloRating | None = None
+    away_club_elo: ClubEloRating | None = None
     # Set when home_squad_strength/away_squad_strength's market values came
     # from two DIFFERENT sources (e.g. one team's own Sofascore search
     # failed, so its squad fell back to Fotmob) -- each source runs its own

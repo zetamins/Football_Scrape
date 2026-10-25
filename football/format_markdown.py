@@ -723,6 +723,12 @@ def club_strength_str(s: ClubStrengthRating, label: str) -> str:
     )
 
 
+def club_elo_str(e, label: str) -> str:
+    bits = [f"as of {e.as_of}" if e.as_of else None, f"Golo {e.golo}" if e.golo is not None else None,
+            f"{'+' if e.change_90d >= 0 else ''}{e.change_90d} over 90 days" if e.change_90d is not None else None]
+    return f"{label} ClubElo (long-run, comparable between clubs): {js_number_to_string(e.elo)} ({', '.join(b for b in bits if b)})"
+
+
 def zone_str(z: StandingsZoneInfo, label: str) -> str:
     if z.points_from_boundary is not None:
         in_mix = " -- in the mix" if z.in_the_mix else ""
@@ -1187,6 +1193,10 @@ def _append_insights_ratings_part1(insights: MatchInsights, home_team: str, away
         lines.append(f"- {club_strength_str(insights.home_club_strength, home_team)}")
     if insights.away_club_strength:
         lines.append(f"- {club_strength_str(insights.away_club_strength, away_team)}")
+    if insights.home_club_elo:
+        lines.append(f"- {club_elo_str(insights.home_club_elo, home_team)}")
+    if insights.away_club_elo:
+        lines.append(f"- {club_elo_str(insights.away_club_elo, away_team)}")
     if insights.home_standings_zone:
         lines.append(f"- {zone_str(insights.home_standings_zone, home_team)}")
     if insights.away_standings_zone:

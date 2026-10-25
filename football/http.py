@@ -41,6 +41,10 @@ def new_client() -> httpx.AsyncClient:
     """Shared client factory -- use this instead of constructing
     httpx.AsyncClient directly, so the http2=True fix above (and any
     future one like it) applies everywhere, not just here."""
+    from . import replay                                    # FOOTBALL_RECORD / FOOTBALL_REPLAY: record or replay every response (no-op otherwise)
+    transport = replay.http_transport()
+    if transport is not None:
+        return httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True, transport=transport)
     return httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True, http2=True)
 
 

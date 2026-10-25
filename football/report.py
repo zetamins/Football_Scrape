@@ -348,6 +348,10 @@ _DATA_WINDOWS = {
         "statsultra 480-club strength table matched by team name -- national teams can't match a club row, so "
         "both sides are null together; per-side best-effort even for clubs (uncovered league -> null)"
     ),
+    "insights.*_club_elo": (
+        "clubelo.com per-club page (long-run Elo, comparable between any two clubs) -- national teams and clubs "
+        "ClubElo does not list are null; per-side best-effort"
+    ),
     "insights.*_fullback_exposure": (
         "from that side's squad per-player defensive stats (chances created vs own-team median, ground-duel "
         "rate); null = no squad or fewer than 2 defenders with the needed stats (baseline not computable), "

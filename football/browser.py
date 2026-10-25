@@ -200,6 +200,11 @@ def launch_browser() -> AsyncIterator[Any]:
     Chromium via Playwright everywhere except Android, WebView-backed on
     Android. Callers (sofascore.py/squawka.py/worldfootball.py) don't
     branch on platform themselves; this is the one place that does."""
+    from . import replay                                    # FOOTBALL_RECORD / FOOTBALL_REPLAY (desktop only; no-op otherwise)
+    if not _is_android():
+        wrapped = replay.wrap_browser_cm(_launch_playwright_browser)
+        if wrapped is not None:
+            return wrapped
     if _is_android():
         return _launch_webview_browser()
     return _launch_playwright_browser()

@@ -53,6 +53,7 @@ from .merge import (
 )
 from .prediction import compute_match_prediction
 from .sites import (
+    clubelo,
     footballdata,
     fotmob,
     goal,
@@ -68,6 +69,7 @@ from .sites import (
 from .sites import sofascore as sofascore_site
 from .team_aliases import same_team
 from .types import (
+    ClubEloRating,
     CalibrationSummary,
     EloRating,
     ManagerTenureRecord,
@@ -1272,6 +1274,52 @@ async def _get_club_strength_ratings_safe(merged) -> dict:
         return {"home": None, "away": None}
 
 
+async def _get_club_elo_ratings_safe(merged) -> dict:
+    """Long-run clubelo.com ratings, best-effort like the StatsUltra table."""
+    try:
+        return await clubelo.get_club_elo_ratings(merged.home_team, merged.away_team)
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("club Elo (ClubElo)", err)
+        return {"home": None, "away": None}
+
+
+async def _apply_opponent_club_elo_safe(merged, team_name, opponent_name, form, opponent_form, insights_result) -> None:
+    """Rates every opponent in both form tables from one clubelo.com front-page
+    fetch, so the sheet can tell form against strong sides from form against
+    weak ones. Clubs only (skipped when neither side has a ClubElo rating);
+    best-effort like the per-club ratings. A name ClubElo lists twice is
+    settled by the team's own country (its domestic opponents), else unrated."""
+    # Both club pages can redirect (so neither side is rated yet): still fetch for clubs, skip only national sides.
+    if insights_result.home_club_elo is None and insights_result.away_club_elo is None and (
+            lookup_national_elo(merged.home_team) is not None or lookup_national_elo(merged.away_team) is not None):
+        return
+    # clubelo.com serves today's ratings only: for a match already played they include its result, so leave the rows unrated.
+    if merged.kickoff_utc and datetime.fromisoformat(merged.kickoff_utc.replace("Z", _UTC_OFFSET_SUFFIX)) < datetime.now(UTC):
+        return
+    try:
+        ranking = await clubelo.get_ranking()
+    except Exception as err:  # noqa: BLE001
+        record_step_failure("opponent club Elo (ClubElo front page)", err)
+        return
+    # A club page ClubElo redirects to its front page (seen live for "Sparta Rotterdam": every spelling 302s to /)
+    # leaves that side unrated; the front page just fetched lists it, so fill the rating from there.
+    for side, name in (("home", merged.home_team), ("away", merged.away_team)):
+        if getattr(insights_result, f"{side}_club_elo") is None and ranking:
+            hit = clubelo.match_ranked_club(name, ranking)
+            if hit:
+                from datetime import date as _date
+                setattr(insights_result, f"{side}_club_elo", ClubEloRating(elo=hit[1], as_of=_date.today().isoformat(), golo=None, best=None, best_date=None, change_90d=None))
+    for name, summary in ((team_name, form), (opponent_name, opponent_form)):
+        if summary is None or not ranking:
+            continue
+        own = clubelo.match_ranked_club(name, ranking)
+        country = own[0] if own else None
+        for lst in (summary.last5_overall, summary.last10_overall, summary.last20_overall, summary.last5_home, summary.last5_away):
+            for r in lst:
+                hit = clubelo.match_ranked_club(r.opponent, ranking, prefer_country=country)
+                r.opponent_club_elo = hit[1] if hit else None
+
+
 async def _get_upcoming_match_odds_safe(merged):
     """Extracted from _compute_match_context to keep its own cognitive
     complexity down (python:S3776); behavior unchanged. Same single
@@ -1470,6 +1518,9 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     strength_ratings = await _get_club_strength_ratings_safe(merged)
     insights_result.home_club_strength = strength_ratings["home"]
     insights_result.away_club_strength = strength_ratings["away"]
+    club_elo = await _get_club_elo_ratings_safe(merged)
+    insights_result.home_club_elo = club_elo["home"]
+    insights_result.away_club_elo = club_elo["away"]
 
     merged.home_manager = await _enrich_manager_tenure(merged.home_manager, merged.home_team)
     merged.away_manager = await _enrich_manager_tenure(merged.away_manager, merged.away_team)
@@ -1507,6 +1558,7 @@ async def _compute_match_context(team_name, merged, merged_profile, form, form_s
     # Fotmob-xG fallback runs here -- after both form summaries exist
     # (see _apply_xg_form_fallbacks for the full rationale).
     _apply_xg_form_fallbacks(form, opponent_form, own_xg_estimate, opponent_xg_estimate, insights_result, own_is_home)
+    await _apply_opponent_club_elo_safe(merged, team_name, opponent_name, form, opponent_form, insights_result)
 
     on_progress(_step_message(7, "Computing squad strength and availability..."))
     await _enrich_squads_with_defensive_stats(merged_profile, opponent_profile, team_name, opponent_name, form, opponent_form)

@@ -165,8 +165,17 @@ async ({ nonce, competitionId, statLabel }) => {
 
 async def _fetch_stat_values(page: Page, nonce: str, competition_id: str, stat_label: str) -> dict[str, float]:
     result = await page.evaluate(_FETCH_STAT_JS, {"nonce": nonce, "competitionId": competition_id, "statLabel": stat_label})
+    items = (result or {}).get("items") if isinstance(result, dict) else None
+    # Squawka's WordPress endpoint wraps an upstream API call: a good answer is http_status 200 with empty curl_message and
+    # api_message (observed live 2026-10-12, 20 of 20 stats); a stat with no data still returns its items with null values.
+    envelope_bad = isinstance(result, dict) and (result.get("http_status") not in (None, 200) or bool(result.get("curl_message")))
+    if envelope_bad or not isinstance(items, list):
+        # An error payload (expired nonce, rate limit, a gateway page) has no "items" list. A real empty stat answers
+        # {"items": []}. Treating the error as "no data" silently dropped single stats (blocked shots, passes attempted)
+        # from some runs while the others filled, so raise and let the caller retry that one stat.
+        raise RuntimeError(f"Squawka stat {stat_label!r}: bad response (http_status {(result or {}).get('http_status') if isinstance(result, dict) else None}, curl {(result or {}).get('curl_message') if isinstance(result, dict) else ''!r}, items {type(items).__name__})")
     values: dict[str, float] = {}
-    for item in (result or {}).get("items", []):
+    for item in items:
         groups = item.get("statistic_groups") or []
         value = groups[0].get("statistics", [{}])[0].get("value") if groups else None
         if isinstance(value, (int, float)) and not isinstance(value, bool):
@@ -260,7 +269,11 @@ async def get_squawka_defensive_stats(team_name: str, competition_candidates: li
         target_team_variants = set(known_aliases_for(team_name))
         by_stat: dict[str, dict[str, float]] = {}
         for _, label in _STAT_NAMES:
-            by_stat[label] = await _fetch_stat_values(page, nonce, competition_id, label)
+            try:
+                by_stat[label] = await retry_with_backoff(lambda label=label: _fetch_stat_values(page, nonce, competition_id, label), attempts=3)
+            except Exception as err:  # noqa: BLE001 - one stat failing must not drop the others
+                record_failure(f"https://www.squawka.com/en/wp-json/vcsw/v2/statistics?stat={label}", err)
+                by_stat[label] = {}
             await asyncio.sleep(0.4)
 
         player_keys: set[str] = set()

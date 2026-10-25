@@ -75,8 +75,9 @@ def _weather_payload(date: str, hourly: list[dict]) -> dict:
 
 
 def test_fetch_kickoff_weather_matches_local_kickoff_hour_when_offset_known(monkeypatch):
-    kickoff = _kickoff_in(0)
-    kickoff_dt = datetime.fromisoformat(kickoff)
+    # On the hour: at 23:55 the nearest slot is rightly 0000, not 2300.
+    kickoff_dt = datetime.fromisoformat(_kickoff_in(0)).replace(minute=0, second=0, microsecond=0)
+    kickoff = kickoff_dt.isoformat()
     target_date = kickoff_dt.date().isoformat()
     expected_slot_hour = f"{kickoff_dt.hour:02d}00"
 

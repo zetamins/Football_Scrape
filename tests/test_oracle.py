@@ -1511,9 +1511,9 @@ def test_goals_bets_need_60_percent_and_a_double_chance_replaces_a_weak_1x2_pick
     r = O.recommend("A", "B", [0.62, 0.20, 0.18], m50)                      # a clear 1X2 pick wins; the goals picks are not eligible
     assert r["market"] == "1X2" and r["selection"] == "A to win" and r["reason"] == "" and r["not_recommended"] == []
     r2 = O.recommend("A", "B", [0.35, 0.30, 0.35], m50)                      # no outcome reaches 60%: the better double chance, not a 55% goals bet
-    assert r2["market"] == "Double chance" and r2["selection"] == "Either side to win (no draw)" and r2["probability_pct"] == 70.0
+    assert r2["market"] == "Double chance" and r2["selection"] == "A or draw" and r2["probability_pct"] == 65.0         # never 'either side to win': a level match must cover the draw
     assert "no single outcome reaches 60%" in r2["reason"] and r2["not_recommended"][0]["selection"] == "Both teams to score: No"   # the 55% goals bet it would have picked before
-    assert r2["observed_hit_pct"] == 73.2
+    assert r2["observed_hit_pct"] == 64.8
     r3 = O.recommend("A", "B", [0.45, 0.30, 0.25], {"over_2_5": 0.3, "btts": 0.4})      # Under 70% is eligible and beats the 45% pick; the double chance 1X (75%) wins the contest
     assert r3["market"] == "Double chance" and r3["selection"] == "A or draw" and r3["probability_pct"] == 75.0
     r4 = O.recommend("A", "B", [0.62, 0.20, 0.18], {"over_2_5": 0.3, "btts": 0.4})      # a 62% 1X2 pick: double chance is not eligible (pick >= 60%), Under 70% is
@@ -1881,3 +1881,54 @@ def test_table_shows_the_latest_report_of_a_fixture_once():
     table = O.format_table([a, a, {**a, "home": "Other", "away": "Team"}])
     rows = [l for l in table.splitlines() if l.startswith("| ") and not l.startswith("| #") and "---" not in l]
     assert len(rows) == 2 and "1 older report(s) of the same fixture hidden" in table
+
+
+def test_seed_files_are_found_from_the_environment_the_shared_folder_or_the_vendored_copy(tmp_path, monkeypatch):
+    from football import data_dir as DD
+    shared, vendored, env = tmp_path / "shared", tmp_path / "vendored", tmp_path / "env"
+    for d in (shared, vendored, env):
+        d.mkdir()
+    monkeypatch.setattr(DD, "data_dir", lambda: shared)
+    monkeypatch.setattr(DD, "_PACKAGE_ROOT", vendored / "football")
+    monkeypatch.delenv("FOOTBALL_DATA_DIR", raising=False)
+    assert DD.seed_path("x.json") == shared / "x.json"                       # nothing exists: the shared path, where a first training run writes
+    (vendored / "data").mkdir()
+    (vendored / "data" / "x.json").write_text("{}")
+    assert DD.seed_path("x.json") == vendored / "data" / "x.json"                      # a checkout of the backend alone still finds the vendored copy
+    (shared / "x.json").write_text("{}")
+    assert DD.seed_path("x.json") == shared / "x.json"                        # the shared folder (where retraining writes) wins over the vendored copy
+    (env / "x.json").write_text("{}")
+    monkeypatch.setenv("FOOTBALL_DATA_DIR", str(env))
+    assert DD.seed_path("x.json") == env / "x.json"                           # the environment variable wins over both
+
+
+def test_the_vendored_seed_files_are_present_and_load_as_json():
+    import json
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent / "data"
+    for name in ("history-model.json", "national-elo.json"):
+        assert json.loads((root / name).read_text(encoding="utf-8")), name
+
+
+def test_weak_model_answers_quote_no_hit_rate_because_the_tables_are_for_national_teams():
+    from football.oracle import draft as DR, audit_answer as AA
+    rep = _report(odds=False)
+    rep["match"]["home_team"], rep["match"]["away_team"] = "Unknownville FC", "Nowhere United"       # teams the trained model does not know
+    full = O.predict(rep, panel="none")
+    assert full["prediction"]["recommendation"]["weak_model"]
+    text = DR.compose_answer(rep, {}, free_text=False)
+    assert "no calibrated chance" in text and "no validated hit rate" in text and "held-out matches" not in text.split("\n")[2] and "won about" not in text
+    res = AA.audit_answer(rep, text)
+    assert res["clean"] and res["warnings"] == [], res["warnings"]
+
+
+def test_the_recommended_double_chance_always_covers_the_draw():
+    import random
+    rng = random.Random(4)
+    for _ in range(800):
+        x = [rng.random() + 0.02 for _ in range(3)]
+        p = [v / sum(x) for v in x]
+        r = O.recommend("A", "B", p, {"over_2_5": rng.random(), "btts": rng.random()})
+        assert "Either side" not in r["selection"] and not any("Either side" in a["selection"] for a in r["alternatives"] if a["market"] == "Double chance" and a["selection"] == r["selection"])
+        if r["market"] == "Double chance":
+            assert r["selection"] in ("A or draw", "draw or B")

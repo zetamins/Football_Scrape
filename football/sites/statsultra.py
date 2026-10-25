@@ -33,6 +33,7 @@ from ..team_name_match import normalize_for_match as _normalize
 from ..types import ClubStrengthRating
 
 _ROWS_SCRIPT_ID_MARKER = 'id="st-strength-rows"'
+_DATA_SCRIPT_ID_MARKER = 'id="su-data"'      # the site's newer layout: {"clubs": [[slug, name, abbr, colour, colour, "", league, overall, attack, defense, rank, ..., strength_change, history, ...]]}
 
 
 @dataclass
@@ -43,6 +44,33 @@ class _StrengthRow:
     defense: float
     rank: int | None
     strength_change: float | None
+
+
+def _extract_script_json(html: str, marker: str) -> str | None:
+    id_pos = html.find(marker)
+    if id_pos == -1:
+        return None
+    tag_end = html.find(">", id_pos)
+    content_end = html.find("</script>", tag_end) if tag_end != -1 else -1
+    return html[tag_end + 1 : content_end] if content_end != -1 else None
+
+
+def _parse_new_layout(html: str) -> list["_StrengthRow"]:
+    """The `su-data` layout: each club row is [slug, name, abbr, colour, colour, "", league index, overall, attack, defense, rank, ..., strength change at [15], history, ...] (read off the live payload: Barcelona rank 1, Bayern 2, Arsenal 3)."""
+    raw = _extract_script_json(html, _DATA_SCRIPT_ID_MARKER)
+    if raw is None:
+        return []
+    try:
+        clubs = json.loads(raw).get("clubs", [])
+    except (json.JSONDecodeError, AttributeError):
+        return []
+    rows = []
+    for r in clubs:
+        if not isinstance(r, list) or len(r) < 16 or not all(isinstance(r[i], (int, float)) for i in (7, 8, 9, 10)):
+            continue
+        change = r[15] if isinstance(r[15], (int, float)) else None
+        rows.append(_StrengthRow(name=r[1], overall=r[7], attack=r[8], defense=r[9], rank=r[10], strength_change=change))
+    return rows
 
 
 def _extract_rows_script_json(html: str) -> str | None:
@@ -77,7 +105,7 @@ def _parse_rows(html: str) -> list[_StrengthRow]:
     handles either spelling."""
     raw = _extract_rows_script_json(html)
     if raw is None:
-        return []
+        return _parse_new_layout(html)               # the site moved the table to <script id="su-data">: read that layout instead
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:

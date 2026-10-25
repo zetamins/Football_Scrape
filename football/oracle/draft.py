@@ -39,7 +39,8 @@ def plain_words(home: str, away: str, p: dict) -> str:
              else "This looks like a toss-up: the sides are level and a draw is about as likely as either win." if d.get("toss_up")       # the draw lens' own definition
              else f"No side is a clear favourite ({fav} {fp:.0f}% to win).")
     risk = f"A draw is a real risk ({p['draw_pct']:.0f}%)." if d["alert"] != "none" else f"A draw is {p['draw_pct']:.0f}% likely."
-    bet = f"Best bet: {rec['selection']} ({rec['probability_pct']:.0f}% chance, {rec['strength']}); bets of this kind at this level won about {rec['observed_hit_pct']:.0f} in 100 in past matches."
+    track = ("no validated hit rate exists for these teams." if rec["weak_model"] else f"bets of this kind at this level won about {rec['observed_hit_pct']:.0f} in 100 in past matches.")
+    bet = f"Best bet: {rec['selection']} ({rec['probability_pct']:.0f}% chance, {rec['strength']}); {track}"
     care = f" Be careful: {rec['cautions'][0]}." if rec["cautions"] else ""
     weak = "Weak data: the trained model does not know these teams, so treat everything here as a rough lean. " if rec["weak_model"] else ""
     return f"{weak}{first} {risk} {bet}{care}"
@@ -192,9 +193,9 @@ def _draft_lines(report: dict, opinion: dict | None, use_odds: bool, fill: dict 
     def slot(key: str, hint: str) -> str:
         return fill[key] if key in fill else f"{PLACEHOLDER}: {hint}]"
     lines = [
-        f"**{home} {p['home_win_pct']}% / Draw {p['draw_pct']}% / {away} {p['away_win_pct']}%**  - most likely 1X2: {pick} ({p['pick_probability_pct']}%); calibrated chance the pick is right {p['confidence_pct']}% (observed hit rate of such picks in held-out matches, not a guarantee)",
+        f"**{home} {p['home_win_pct']}% / Draw {p['draw_pct']}% / {away} {p['away_win_pct']}%**  - most likely 1X2: {pick} ({p['pick_probability_pct']}%); " + (f"calibrated chance the pick is right {p['confidence_pct']}% (observed hit rate of such picks in held-out matches, not a guarantee)" if not p["recommendation"]["weak_model"] else "no calibrated chance: the trained model does not know these teams and the held-out tables are for national teams, so the percentages are the raw model's, not a validated hit rate"),
         f"In plain words: {plain_words(home, away, p)}",
-        f"Recommended bet: {rec['selection']} - {rec['probability_pct']}% ({rec['market']}); strength {rec['strength']}; bets of this kind at this probability hit {rec['observed_hit_pct']}% in held-out matches; next best: "
+        f"Recommended bet: {rec['selection']} - {rec['probability_pct']}% ({rec['market']}); strength {rec['strength']}; " + (f"bets of this kind at this probability hit {rec['observed_hit_pct']}% in held-out matches" if not rec["weak_model"] else "no validated hit rate for these teams (the held-out tables are for national teams)") + "; next best: "
         + ", ".join(f"{a['selection']} {a['probability_pct']}%" for a in rec["alternatives"][:2]) + (" (weak model: a lean)" if rec["weak_model"] else "")
         + (f". Why this market: {rec['reason']}" if rec["reason"] else "")
         + (f". Not recommended: {rec['not_recommended'][0]['selection']} {rec['not_recommended'][0]['probability_pct']}% (goals bets need 60%, below that they are coin flips)" if rec["not_recommended"] else "")

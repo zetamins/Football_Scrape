@@ -6,7 +6,7 @@ src/search.ts.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from ._jsmath import js_round, js_round_to
 from .elo import is_friendly_competition
@@ -755,6 +755,9 @@ class _UsageAccumulator:
         self.rating_sum = 0.0
         self.wide_back_starts = 0
         self.central_back_starts = 0
+        self.errors_shot = 0
+        self.errors_goal = 0
+        self.error_stat_appearances = 0
 
 
 def _tally_player_stats(entry: _UsageAccumulator, p: LineupPlayer) -> None:
@@ -768,6 +771,10 @@ def _tally_player_stats(entry: _UsageAccumulator, p: LineupPlayer) -> None:
     entry.total_interceptions += p.interceptions or 0
     entry.total_fouls += p.fouls or 0
     entry.total_key_passes += p.key_passes or 0
+    if p.errors_lead_to_shot is not None or p.errors_lead_to_goal is not None:      # only appearances whose source reports errors (Sofascore)
+        entry.error_stat_appearances += 1
+        entry.errors_shot += p.errors_lead_to_shot or 0
+        entry.errors_goal += p.errors_lead_to_goal or 0
     if p.rating is not None:
         entry.rating_sum += p.rating
         entry.appearances_with_stats += 1
@@ -917,8 +924,55 @@ def _build_enriched_result(result: FormResult, details: MatchDetails) -> tuple[F
         opponent=result.opponent, competition=result.competition, date=result.date, result=result.result,
         scoreline=result.scoreline, venue=result.venue, margin=result.margin,
         neutral_venue=neutral_venue, ht_scoreline=ht_scoreline, xg_for=xg_for, xg_against=xg_against,
+        first_goal=_first_goal(result, details),
+        **_bench_and_late_goals(result, details),
     )
     return enriched_result, neutral_venue, xg_for, xg_against
+
+
+LATE_GOAL_MINUTE = 76
+
+
+def _bench_and_late_goals(result: FormResult, details: MatchDetails) -> dict[str, int | None]:
+    """sub_goals_for/against (scored by a player who came on earlier for
+    that side) and late_goals_for/against (minute 76 on), from the team's
+    side; own goals are left out because their side label differs between
+    sources. None where the timeline can't tell (see FormResult)."""
+    events = details.event_timeline or []
+    none = {"sub_goals_for": None, "sub_goals_against": None, "late_goals_for": None, "late_goals_against": None}
+    if not events:
+        return none if result.scoreline.replace(" ", "") != "0-0" else {k: 0 for k in none}
+    opp = "away" if result.venue == "home" else "home"
+    goals = [e for e in events if str(e.type).lower() == "goal" and e.team in ("home", "away") and "own" not in str(e.detail or "").lower()]
+    came_on = {}
+    for e in events:
+        if str(e.type).lower() == "substitution" and e.player and e.team in ("home", "away"):
+            came_on.setdefault(e.team, {})[e.player] = min(e.minute, came_on.get(e.team, {}).get(e.player, e.minute))
+    out = dict(none)
+    out["late_goals_for"] = sum(1 for e in goals if e.team == result.venue and e.minute >= LATE_GOAL_MINUTE)
+    out["late_goals_against"] = sum(1 for e in goals if e.team == opp and e.minute >= LATE_GOAL_MINUTE)
+    for side, key in ((result.venue, "sub_goals_for"), (opp, "sub_goals_against")):
+        if came_on.get(side):
+            out[key] = sum(1 for e in goals if e.team == side and e.player in came_on[side] and came_on[side][e.player] <= e.minute)
+    return out
+
+
+def _first_goal(result: FormResult, details: MatchDetails) -> Literal["for", "against", "none"] | None:
+    """Who opened the scoring, from the team's side, read from the goal
+    events of the details already fetched (no extra request). None when it
+    can't be told: no timeline, the earliest goal is an own goal (its side
+    label is the scorer's in some sources and the beneficiary's in others),
+    or two goals by different sides share the earliest minute."""
+    if result.scoreline.replace(" ", "") == "0-0":
+        return "none"
+    goals = [e for e in (details.event_timeline or []) if str(e.type).lower() == "goal" and e.team in ("home", "away")]
+    if not goals:
+        return None
+    first_min = min(e.minute for e in goals)
+    earliest = [e for e in goals if e.minute == first_min]
+    if len({e.team for e in earliest}) != 1 or any("own" in str(e.detail or "").lower() for e in earliest):
+        return None
+    return "for" if earliest[0].team == result.venue else "against"
 
 
 def _accumulate_stat_totals(
@@ -1358,6 +1412,9 @@ def _finalize_usage(usage_by_player: dict[str, _UsageAccumulator]) -> dict[str, 
             xg_per_90=_per90(entry.total_xg, entry.total_minutes), xa_per_90=_per90(entry.total_xa, entry.total_minutes),
             key_passes_per_90=_per90(entry.total_key_passes, entry.total_minutes),
             wide_back_starts=entry.wide_back_starts, central_back_starts=entry.central_back_starts,
+            total_errors_lead_to_shot=entry.errors_shot if entry.error_stat_appearances else None,
+            total_errors_lead_to_goal=entry.errors_goal if entry.error_stat_appearances else None,
+            error_stat_appearances=entry.error_stat_appearances,
         )
     return finalized_usage
 

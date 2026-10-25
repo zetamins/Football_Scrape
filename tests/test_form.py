@@ -1043,6 +1043,22 @@ def test_per90_none_without_minutes():
     assert _per90(5, 0) is None
 
 
+def test_usage_sums_player_errors_only_over_appearances_that_report_them():
+    from football.form import _finalize_usage, _tally_usage
+    from football.merge import normalize_team_name
+
+    usage: dict = {}
+    _tally_usage(usage, [_lineup_player(name="Defender", errors_lead_to_goal=1, errors_lead_to_shot=1)], [])
+    _tally_usage(usage, [_lineup_player(name="Defender", errors_lead_to_goal=0, errors_lead_to_shot=1)], [])
+    _tally_usage(usage, [_lineup_player(name="Defender")], [])                         # a match from a source with no player statistics
+    _tally_usage(usage, [_lineup_player(name="Other")], [])
+    done = _finalize_usage(usage)
+    d = done[normalize_team_name("Defender")]
+    assert (d.total_errors_lead_to_goal, d.total_errors_lead_to_shot, d.error_stat_appearances, d.starts) == (1, 2, 2, 3)
+    o = done[normalize_team_name("Other")]
+    assert o.total_errors_lead_to_goal is None and o.error_stat_appearances == 0
+
+
 def test_finalize_usage_computes_averages_and_per90_rates():
     from football.form import _finalize_usage, _UsageAccumulator
 
@@ -1351,3 +1367,43 @@ def test_outcome_rates_always_add_up_to_exactly_100():
     for w in range(0, 11):
         for d in range(0, 11 - w):
             assert sum(_outcome_rates(results(w, d, 10 - w - d))) == 100
+
+
+def test_first_goal_reads_who_opened_the_scoring_from_the_goal_timeline():
+    from types import SimpleNamespace
+    from football.form import _first_goal
+    from football.types import TimelineEvent
+
+    def row(venue, scoreline):
+        return FormResult(opponent="X", competition="L", date="2026-10-01", result="D", scoreline=scoreline, venue=venue,
+                          margin=0, neutral_venue=None, ht_scoreline=None, xg_for=None, xg_against=None)
+
+    def det(*events):
+        return SimpleNamespace(event_timeline=[TimelineEvent(minute=m, type=t, detail=dt, player=None, team=s) for m, t, dt, s in events])
+
+    # Sofascore lists incidents newest first; the earliest goal decides, cards are ignored
+    late_then_early = det((89, "goal", "regular", "home"), (30, "card", "yellow", "home"), (44, "goal", "regular", "away"))
+    assert _first_goal(row("home", "1-1"), late_then_early) == "against"         # Alavés 1-1 Málaga: Málaga 44', Alavés 89'
+    assert _first_goal(row("away", "1-1"), late_then_early) == "for"
+    assert _first_goal(row("home", "0-0"), det()) == "none"
+    assert _first_goal(row("home", "1-0"), det()) is None                         # no timeline
+    assert _first_goal(row("home", "1-0"), det((10, "goal", "ownGoal", "home"))) is None   # own-goal side labels differ by source
+    assert _first_goal(row("home", "1-1"), det((10, "goal", "regular", "home"), (10, "goal", "regular", "away"))) is None
+    assert _first_goal(row("home", "1-0"), det((12, "Goal", None, "home"))) == "for"         # Fotmob-style capitalised type
+
+
+def test_bench_and_late_goals_from_the_goal_timeline():
+    from types import SimpleNamespace
+    from football.form import _bench_and_late_goals
+    from football.types import TimelineEvent
+
+    row = FormResult(opponent="Málaga", competition="LaLiga", date="2026-10-23", result="D", scoreline="1-1", venue="home",
+                     margin=0, neutral_venue=None, ht_scoreline=None, xg_for=None, xg_against=None)
+    ev = lambda m, t, dt, p, s: TimelineEvent(minute=m, type=t, detail=dt, player=p, team=s)
+    # Alavés 1-1 Málaga: Niño 44' for Málaga, Mañas (on at 73') 89' for Alavés
+    details = SimpleNamespace(event_timeline=[ev(89, "goal", "regular", "Aitor Mañas", "home"), ev(73, "substitution", None, "Aitor Mañas", "home"),
+                                              ev(66, "substitution", None, "Salinas", "away"), ev(44, "goal", "regular", "Adrián Niño", "away")])
+    assert _bench_and_late_goals(row, details) == {"sub_goals_for": 1, "sub_goals_against": 0, "late_goals_for": 1, "late_goals_against": 0}
+    no_subs = SimpleNamespace(event_timeline=[ev(89, "goal", "regular", "A", "home"), ev(80, "goal", "ownGoal", "B", "away")])
+    assert _bench_and_late_goals(row, no_subs) == {"sub_goals_for": None, "sub_goals_against": None, "late_goals_for": 1, "late_goals_against": 0}
+    assert _bench_and_late_goals(row, SimpleNamespace(event_timeline=None))["late_goals_for"] is None

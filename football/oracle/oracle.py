@@ -86,7 +86,7 @@ def recommend(home: str, away: str, final: list[float], markets: dict, weak_mode
     names = {0: f"{home} to win", 1: "Draw", 2: f"{away} to win"}
     top = ("1X2", names[one], final[one])
     goals = [("Over 2.5", "Over 2.5 goals", over), ("Under 2.5", "Under 2.5 goals", 1 - over), ("BTTS Yes", "Both teams to score: Yes", btts), ("BTTS No", "Both teams to score: No", 1 - btts)]
-    dcs = [("Double chance", f"{home} or draw", final[0] + final[1]), ("Double chance", f"draw or {away}", final[1] + final[2]), ("Double chance", "Either side to win (no draw)", final[0] + final[2])]
+    dcs = [("Double chance", f"{home} or draw", final[0] + final[1]), ("Double chance", f"draw or {away}", final[1] + final[2])]       # 'either side to win' is never recommended: it loses on exactly the draws that keep failing (held-out hit rate unchanged, draws among misses 860 -> 511)
     best_dc = max(dcs, key=lambda c: c[2])
     eligible = [top] + [g for g in goals if 100 * g[2] >= GOALS_BET_MIN_PCT] + ([best_dc] if 100 * top[2] < DOUBLE_CHANCE_BELOW_PCT else [])
     market, selection, p = max(eligible, key=lambda c: c[2])

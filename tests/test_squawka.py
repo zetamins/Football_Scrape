@@ -1,3 +1,4 @@
+import pytest
 import asyncio
 
 from football.sites import squawka
@@ -103,16 +104,17 @@ def test_fetch_stat_values_skips_items_without_numeric_value():
     assert values == {}
 
 
-def test_fetch_stat_values_empty_without_items():
+def test_fetch_stat_values_raises_without_items():
+    # an error payload is not "no data": the caller retries that stat and records the failure (tests/test_squawka_stat_retry.py)
     page = _FakePage({})
-    values = asyncio.run(_fetch_stat_values(page, "nonce", "comp1", "Tackles Made"))
-    assert values == {}
+    with pytest.raises(RuntimeError):
+        asyncio.run(_fetch_stat_values(page, "nonce", "comp1", "Tackles Made"))
 
 
-def test_fetch_stat_values_empty_when_result_is_none():
+def test_fetch_stat_values_raises_when_result_is_none():
     page = _FakePage(None)
-    values = asyncio.run(_fetch_stat_values(page, "nonce", "comp1", "Tackles Made"))
-    assert values == {}
+    with pytest.raises(RuntimeError):
+        asyncio.run(_fetch_stat_values(page, "nonce", "comp1", "Tackles Made"))
 
 
 # --- _load_page_context (async) -----------------------------------------------------------

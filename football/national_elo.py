@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
-from .data_dir import data_dir
+from .data_dir import data_dir, seed_path
 
 _SOURCE = "eloratings.net"
 _BASE_URL = "https://www.eloratings.net"
@@ -60,7 +60,7 @@ def canonical_name(name: str) -> str:
 
 
 def _cache_path() -> Path:
-    return data_dir() / "national-elo.json"
+    return seed_path("national-elo.json")
 
 
 @lru_cache(maxsize=1)

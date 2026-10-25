@@ -1,0 +1,568 @@
+You are the REVIEWER, not the author. You did not write this answer. Read the ANSWER against the SHEET (the report's facts) and report every error. Do not rewrite the answer and do not run other tools.
+
+Rules to apply:
+- Facts from the report must be exact: numbers, counts, names, dates, scorelines, who played at home or away in a past match, which side a statistic belongs to. A less negative xG or goal difference is BETTER. Expected goals are not "an edge".
+- The CALCULATOR OUTPUT block is the author's own calc.py run: the answer's probabilities, scorelines and own odds must equal it; the expected goals themselves and any estimate such as 'this player is worth 0.2 xG' are judgements and must be labelled as estimates, never called 'confirmed' or 'the report shows'.
+- Opinion and own knowledge must be kept apart from facts and labelled; never accept an invented competition fact (a round, other teams' points, a result the sheet does not show).
+- A claim about what the bookmaker or the market "has not adjusted for", "ignores" or "underweights" is a claim about the market, not about the match: it needs evidence the market lacks, or it is an error.
+- A number called lucky or unsustainable for one side must be treated the same for the other side. Per-game figures, not totals, when sample sizes differ.
+- Check the internal consistency: the same fact must not appear twice with different values; a result must not be called a win and a draw; the best bet, its probability and its confidence must agree with the rest of the answer (HIGH confidence needs about 70% and a named edge); both cases must be argued fairly.
+- Check venues and orientation of past matches against the sheet's result rows ("home"/"away" there is that team's venue) and the recent meetings (home team first).
+- Analyst judgement is allowed and wanted (who looks stronger, how a side is likely to play, what a matchup implies) as long as it reads as the analyst's own judgement or is tied to a number; flag only claims presented as REPORT facts that the sheet does not show, invented specifics (named tactics, players' roles or injuries, results, competition facts) and judgements that contradict the sheet.
+
+Method (do not skip): go through the SENTENCE TABLE row by row, S1, S2, ... and for each row compare the sentence with its EVIDENCE lines; if the sheet has no support for a factual claim, mark it. Only after the last row, write the reply.
+
+Reply in exactly this form:
+VERDICT: PASS   (only if you found nothing)
+or
+VERDICT: FIX
+1. "<exact quote>" -> problem -> the correct fact from the sheet (quote the line)
+2. ...
+Keep it under 300 words and list only wrong rows.
+
+=== SHEET ===
+
+# Switzerland (home label) v Slovenia (away label)
+competition: UEFA Nations League, League B, Gr. 1; kickoff 2026-10-03T18:45:00.000Z; status notstarted
+venue country: Switzerland (home team's country Switzerland, away team's Slovenia); neutral flag None
+HOME EDGE: the home side gets the edge only when the venue is in ITS country; a venue in a third country is neutral; in the away team's country the edge goes to the away team.
+lineups confirmed: False
+
+## Switzerland (home)
+last results (newest first, this team's goals first):
+  2026-09-29 W 3-0 v Scotland (away, UEFA Nations League, League B,, xG 1.5-0.1)
+  2026-09-26 W 3-0 v North Macedonia (away, UEFA Nations League, League B,, xG 2.48-0.06)
+  2026-07-12 L 1-3 v Argentina (away, FIFA World Cup, Knockout, xG 0.47-1.94)
+  2026-07-07 W 4-3 v Colombia (home, FIFA World Cup, Knockout, xG 0.39-1.09)
+  2026-07-03 W 2-0 v Algeria (home, FIFA World Cup, Knockout, xG 2.45-0.74)
+  2026-06-24 W 2-1 v Canada (home, FIFA World Cup, Group B)
+  2026-06-18 W 4-1 v Bosnia & Herzegovina (home, FIFA World Cup, Group B)
+  2026-06-13 D 1-1 v Qatar (away, FIFA World Cup, Group B)
+  2025-11-18 D 1-1 v Kosovo (away, World Cup Qual. UEFA B)
+  2025-11-15 W 4-1 v Sweden (home, World Cup Qual. UEFA B)
+xG per game: for 1.71, against 0.80 over 8 games
+Elo: 1596.3 (source sofascore; 'eloratings.net' is a proper national-team rating, anything else is form-only)
+squad market value: total 299100000, attack 25300000, midfield 165800000, defence 57000000, goalkeeper 51000000
+table: position 1/4, 6 pts from 2 played, GD +6
+rotation vs previous match: {'changed_players': 1, 'starting_xi_size': 11, 'last_match_date': '2026-09-29T18:45:00.000Z', 'previous_match_date': '2026-09-26T18:45:00.000Z', 'last_formation': '4-2-3-1', 'previous_formation': '4-2-3-1', 'formation_changed': False, 'last_defender_count': 4, 'previous_defender_count': 4, 'result_before_last': 'W', 'preceding_result': 'W'}
+missing players (role and value shown when the report knows them):
+  - Aurèle Amenda: Calf Injury, back 2026-10-20; role UNKNOWN, value unknown; NOT in the squad list: starter status unknown, never call him a key player
+  - Denis Zakaria: Groin Injury, back 2026-10-10; role UNKNOWN, value unknown; NOT in the squad list: starter status unknown, never call him a key player
+  - Rubén Vargas: Knee Injury, back 2026-10-20; role UNKNOWN, value unknown; NOT in the squad list: starter status unknown, never call him a key player
+
+## Slovenia (away)
+last results (newest first, this team's goals first):
+  2026-09-29 W 2-0 v North Macedonia (home, UEFA Nations League, League B,, xG 1.97-0.68)
+  2026-09-26 D 0-0 v Scotland (home, UEFA Nations League, League B,, xG 0.47-2.16)
+  2025-11-18 D 1-1 v Sweden (away, World Cup Qual. UEFA B, xG 2.17-1.01)
+  2025-11-15 L 0-2 v Kosovo (home, World Cup Qual. UEFA B, xG 0.29-0.94)
+  2025-10-13 D 0-0 v Switzerland (home, World Cup Qual. UEFA B, xG 0.35-0.46)
+  2025-10-10 D 0-0 v Kosovo (away, World Cup Qual. UEFA B)
+  2025-09-08 L 0-3 v Switzerland (away, World Cup Qual. UEFA B)
+  2025-09-05 D 2-2 v Sweden (home, World Cup Qual. UEFA B)
+  2025-03-23 W 1-0 v Slovakia (home, UEFA Nations League, Promotion)
+  2025-03-20 D 0-0 v Slovakia (away, UEFA Nations League, Promotion)
+xG per game: for 1.34, against 0.65 over 4 games
+Elo: 1486.9 (source sofascore; 'eloratings.net' is a proper national-team rating, anything else is form-only)
+squad market value: total 183380000, attack 104200000, midfield 26365000, defence 34265000, goalkeeper 18550000
+table: position 2/4, 4 pts from 2 played, GD +2
+rotation vs previous match: {'changed_players': 3, 'starting_xi_size': 11, 'last_match_date': '2026-09-29T18:45:00.000Z', 'previous_match_date': '2026-09-26T13:00:00.000Z', 'last_formation': '5-4-1', 'previous_formation': '5-4-1', 'formation_changed': False, 'last_defender_count': 5, 'previous_defender_count': 5, 'result_before_last': 'D', 'preceding_result': 'D'}
+missing players (role and value shown when the report knows them):
+  - Benjamin Šeško: Shin Injury, back 2026-10-20; role F, value 78000000
+
+BOOKMAKER ODDS (a benchmark only, never an input to your estimate; margin removed): home 70.4% / draw 19.7% / away 9.9%
+head to head (weak evidence): {'home_wins': 4, 'away_wins': 1, 'draws': 1, 'sample_size': 6}
+
+# KEY METRICS (quote these: worked out from the report's own totals, with sample sizes; both sides side by side)
+| metric | Switzerland (home) | Slovenia (away) |
+|---|---|---|
+| xG for per game | 1.71 (8 games) | 1.34 (4 games) |
+| xG against per game | 0.80 (8 games) | 0.65 (4 games) |
+| goals scored per game (same games) | 2.50 | 0.75 |
+| goals conceded per game (same games) | 1.12 | 0.75 |
+| goals minus xG for, per game (finishing luck) | 0.79 | -0.59 |
+| goals conceded minus xG against, per game (defensive luck: negative = lucky) | 0.32 | 0.10 |
+| shots for / against per game | 14.8 / 8.9 (10 games) | 12.6 / 12.4 (8 games) |
+| shots on target for / against per game | 6.3 / 3.1 | 4.1 / 4.2 |
+| big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) |
+| big chances missed (own) / missed by opponents per game | 1.40 / 1.20 | 1.25 / 1.25 |
+| touches in the opposition box for / against per game | 26.2 / 17.0 (5 games) | 18.4 / 20.2 (5 games) |
+| crosses for / against per game | 3.4 / 2.6 | 3.2 / 3.8 |
+| aerial duels won % | 49% (110 of 224) | 50% (92 of 184) |
+| pass accuracy % / long-ball share % | 88.7% / 4.6% | 82.8% / 6.1% |
+| goalkeeper save % (a rate far from about 72% rarely lasts) | 68.6% (24 saves from 35 shots on target) | 74.3% (26 saves from 35 shots on target) |
+| corners for / against per game | 4.9 / 4.0 (8 games) | 4.8 / 4.3 (6 games) |
+| yellow / red cards per game | 0.0 / 0.0 | 2.0 / 0.0 |
+| points per game on short rest / long rest | 1.5 (8 games) / 1.81 (21 games) | 1.8 (10 games) / 1.16 (19 games) |
+| points per game v high-possession opponents / others | 1.5 (2 games) / 2.33 (6 games) | 0.75 (4 games) / 2.0 (2 games) |
+| clean sheets in the last N matches | 7 of 20 | 9 of 20 |
+| bench value / starting XI value | 65200000 / 218700000 (bench is 30% of the XI) | 18155000 / 78145000 (bench is 23% of the XI) |
+| last results: goals for / against per game (up to 6, shootout rows skipped) | 2.50 / 1.17 (6 games) | 0.50 / 0.50 (6 games) |
+| last results: points per game (up to 6) | 2.50 (6 games; newest first WWLWWW) | 1.17 (6 games; newest first WDDLDD) |
+Compare per-game figures, not totals, when the sample sizes differ; keep the two teams' numbers on their own side.
+
+# ROLE-BY-ROLE PROFILE (read each side's identity from its statistics, then player by player)
+| indicator | Switzerland (home) | Slovenia (away) |
+|---|---|---|
+| identity (rule: defence-first / attack-led / open / struggling / balanced) | attack-led | balanced |
+| attack | attacking (creates 1.4+ xG a game) | moderate attack |
+| defence | solid (concedes under 1.2 xG a game) | solid (concedes under 1.2 xG a game) |
+| passing style | possession-based short passing | direct / counter |
+| midfield | dominates the middle (final-third entries x1.21 of the opponents') | loses the middle (final-third entries x0.75) |
+| goalkeeper | average goalkeeper workload | average goalkeeper workload |
+ATTACK xG for / non-penalty xG / shots in the box / big chances / box touches / xA, per game:
+  Switzerland: 1.71 / 2.25 / 8.40 / 2.80 / 26.20 / 0.87
+  Slovenia: 1.34 / 0.49 / 7.00 / 2.12 / 18.40 / 0.37
+DEFENCE xG against / shots against / tackles / interceptions / clearances / blocks / recoveries, per game:
+  Switzerland: 0.8 / 8.9 / 13.0 / 10.4 / 21.8 / 3.0 / 50.8
+  Slovenia: 0.6 / 12.4 / 13.2 / 10.4 / 28.8 / 4.4 / 45.6
+MIDFIELD possession % / passes / pass accuracy % / long-ball % / final-third entries for-against / field tilt %:
+  Switzerland: 55.0 / 585.0 / 88.7 / 4.6 / 61.8 / 51.0 / 54.8
+  Slovenia: 42.4 / 435.1 / 82.8 / 6.1 / 45.2 / 60.0 / 43.0
+GOALKEEPER saves / shots on target faced per game, save %:
+  Switzerland: 2.4 / 3.5 / 68.6
+  Slovenia: 3.2 / 4.4 / 74.3
+
+## Switzerland: the players by role (recent window; per 90 minutes; minimum 90 minutes)
+  attackers: Zeki Amdouni (age 25) 237 min: xG 0.64/90, goals 3 vs xG 1.69, shots 5.7/90, rating 7.42 strong form
+  midfielders: Remo Freuler (age 34) 505 min: key passes 0.7/90, xA 0.11/90, tackles 1.4/90, rating 7.16; Dan Ndoye (age 25) 423 min: key passes 1.7/90, xA 0.12/90, tackles 1.5/90, rating 7.40 strong form; Fabian Rieder (age 24) 310 min: key passes 1.2/90, xA 0.09/90, tackles 1.2/90, rating 6.40 WEAK form: likely to underperform; Ardon Jashari (age 24) 229 min: key passes 1.2/90, xA 0.11/90, tackles 0.4/90, rating 6.55 WEAK form: likely to underperform; Johan Manzambi (age 20) 197 min: key passes 1.4/90, xA 0.10/90, tackles 0.5/90, rating 7.27 strong form
+  defenders: Manuel Akanji (age 31) 510 min: tackles+interceptions 2.3/90, rating 7.30 strong form; Nico Elvedi (age 30) 510 min: tackles+interceptions 1.8/90, rating 7.60 strong form; Ricardo Rodríguez (age 34) 375 min: tackles+interceptions 1.9/90, rating 7.14; Zachary Athekame (age 21) 180 min: tackles+interceptions 3.0/90, rating 7.20 strong form
+  goalkeeper: Gregor Kobel (age 28) 510 min, rating 7.36 strong form
+
+## Slovenia: the players by role (recent window; per 90 minutes; minimum 90 minutes)
+  attackers: Andraž Šporar (age 32) 229 min: xG 0.15/90, goals 0 vs xG 0.38, shots 0.8/90, rating 6.83; Žan Vipotnik (age 24) 183 min: xG 0.38/90, goals 0 vs xG 0.77, shots 3.0/90, rating 6.88; Benjamin Šeško (age 23) 90 min: xG 0.00/90, goals 0 vs xG 0.00, shots 1.0/90, rating 6.80
+  midfielders: Adam Gnezda Čerin (age 27) 345 min: key passes 0.0/90, xA 0.01/90, tackles 2.3/90, rating 6.78; Timi Max Elšnik (age 28) 341 min: key passes 0.5/90, xA 0.02/90, tackles 1.1/90, rating 6.94; Danijel Šturm (age 27) 340 min: key passes 1.6/90, xA 0.24/90, tackles 0.5/90, rating 6.60; Tomi Horvat (age 27) 173 min: key passes 1.6/90, xA 0.00/90, tackles 2.1/90, rating 6.83; Aljoša Matko (age 26) 109 min: key passes 0.0/90, xA 0.00/90, tackles 0.8/90, rating 7.00
+  defenders: Jaka Bijol (age 27) 450 min: tackles+interceptions 3.8/90, rating 7.46 strong form; Žan Karničnik (age 32) 450 min: tackles+interceptions 3.6/90, rating 7.06; Vanja Drkušić (age 26) 419 min: tackles+interceptions 3.0/90, rating 7.14; Erik Janža (age 33) 403 min: tackles+interceptions 2.7/90, rating 6.96; David Brekalo (age 27) 344 min: tackles+interceptions 1.3/90, rating 6.90
+  goalkeeper: Jan Oblak (age 33) 360 min, rating 7.68 strong form
+
+How to read it: attackers are judged on xG per 90 and shots (goals far above xG are finishing luck); defenders on tackles, interceptions, clearances and the shots and xG their team concedes; the midfield must dominate the passing and the final-third entries to control a match; a player whose recent match ratings are weak (under 6.6 over 180+ minutes) will most likely underperform again, so discount him and the part of the team he carries; strong ratings (7.2+) are a real edge unless the minutes are few; a goalkeeper who faces many shots on target is protecting a weak defence (many saves are a symptom of the defence, not proof of a great keeper); a team that creates easily shows high shots in the box, box touches and big chances.
+
+# HEAD TO HEAD: HISTORY, MANAGERS, TACTICS (weak evidence alone; use it to explain, not to override, the numbers)
+History (all meetings the source records): Switzerland wins 4, draws 1, Slovenia wins 1 from 6 meetings; streaks: ["No losses (home): 3","Less than 4.5 cards (both): 5/6"]
+Manager of Switzerland: Murat Yakin (Switzerland, age 52), in charge since 2021-08-09; record at the club W30 D23 L14 (44.78% wins); v Slovenia: W1 D1 L0 in 2 games
+Manager of Slovenia: Bostjan Cesar (Slovenia, age None), in charge since ?; v Switzerland: W0 D0 L0 in 0 games
+Manager duel (the two managers' sides against each other): not published
+Expected formations: Switzerland 4-2-3-1, Slovenia 5-4-1
+Shape v shape: Switzerland 4-2-3-1 against Slovenia 5-4-1
+  Midfield bodies: 5 v 4 -> Switzerland outnumber them by 1 in the middle
+  Switzerland's back line (4) v Slovenia's front line (1): 3 spare defender(s), the front line has little room to run at
+  Slovenia's back line (5) v Switzerland's front line (1): 4 spare defender(s), the front line has little room to run at
+  Back-five or wing-back shape: Switzerland no, Slovenia yes (a back five usually gives up the ball, concedes width high up the pitch and counters; a back four with two holders keeps more of the ball)
+  Which shape is more dominant: Switzerland (more bodies in midfield and no fewer in attack)
+  2025-10-13 Slovenia 0-0 Switzerland (World Cup Qual. UEFA B): formations 5-4-1 v 4-3-3; xG 0.35-0.46; possession None-None; referee None
+  2025-09-08 Switzerland 3-0 Slovenia (World Cup Qual. UEFA B): formations 4-4-1-1 v 4-4-2; xG 1.19-0.81; possession None-None; referee None
+  2015-09-05 Switzerland 3-2 Slovenia (EURO Qualification grp. ): formations None v None; xG None-None; possession None-None; referee None
+How to read it: did the same formations meet before and who controlled it (possession, xG)? Does a manager have a pattern against this opponent (never lost, never won)? A new manager or a changed formation makes old meetings less relevant; a 2-3 meeting history is a hint, not a trend. Say which side's tactics beat the other's last time and whether anything has changed since.
+
+# FORM WINDOWS: last 5 against last 10, and form inside the head to head (newest result first)
+Switzerland: last 5 WWLWW (5 games, 2.40 points a game, goals 2.6-1.2 per game, xG 1.46-0.79 per game (5 with xG))
+Switzerland: last 10 WWLWWWWDDW (10 games, 2.30 points a game, goals 2.5-1.1 per game, xG 1.46-0.79 per game (5 with xG)); last 5 v the 5 before: +0.20 points a game (steady)
+Slovenia: last 5 WDDLD (5 games, 1.20 points a game, goals 0.6-0.6 per game, xG 1.05-1.05 per game (5 with xG))
+Slovenia: last 10 WDDLDDLDWD (10 games, 1.20 points a game, goals 0.6-0.8 per game, xG 1.05-1.05 per game (5 with xG)); last 5 v the 5 before: +0.00 points a game (steady)
+Switzerland in the head to head: D 0-0, W 3-0, W 3-2 (a hint only: few games, different squads)
+Slovenia in the head to head: D 0-0, L 0-3, L 2-3 (a hint only: few games, different squads)
+How to read it: last 5 against last 10 shows whether form is rising or fading; recent form counts for more than old, but check the quality of the opponents behind each result and whether the head-to-head pattern matches the current form or contradicts it.
+
+# HOME GROUND: HOW HOSTILE IS IT FOR THE VISITORS (descriptive, small samples; judge it, do not add a fixed bonus)
+Venue: Swissporarena, Lucerne (Switzerland); capacity 16800; round/type competitive
+Switzerland at home: no games; away from home: no games
+Slovenia away from home: no games; at home: 1.25 points a game in 4 games
+Switzerland overall win rate at home 73% (sample 11), away 27% (sample 11)
+Slovenia overall win rate at home 25% (sample 4), away 11% (sample 9)
+Trip for the visitors: 549 km, 2.6 h, time-zone shift 0.0 h; the home side travels 0 km
+Past meetings at this ground: none listed
+How to read it: a loud ground matters when the home side's home record is clearly better than its away record, the visitors travel badly, the trip is long, the crowd is large or the tie has a derby or title edge; it matters little on a neutral ground or when both sides have thin home/away samples. Say how hostile it is and which player types it hurts (young or inexperienced visitors, a goalkeeper under crosses, referee pressure on tight calls).
+
+# PLAYER RATINGS COMPARED (minutes-weighted average match rating over the recent window, regulars with 90+ minutes)
+| line | Switzerland (home) | Slovenia (away) | edge |
+|---|---|---|---|
+| goalkeeper | 7.36 | 7.44 | level |
+| defenders | 7.35 | 7.10 | Switzerland +0.25 |
+| midfielders | 6.94 | 6.80 | level |
+| attackers | 7.42 | 6.84 | Switzerland +0.58 |
+Switzerland: best rated Nico Elvedi 7.60, Zeki Amdouni 7.42, Dan Ndoye 7.40; weak form (under 6.6, likely to underperform): Fabian Rieder 6.40, Djibril Sow 6.53, Ardon Jashari 6.55
+Slovenia: best rated Jan Oblak 7.68, Jaka Bijol 7.46, Vanja Drkušić 7.14; weak form (under 6.6, likely to underperform): none
+How to read it: a line rated clearly higher than the opposing line has been playing better against its own opposition (not this opponent: opposition quality differs); a ratings gap on the same line as a stats gap (xG, tackles, passing) is a stronger signal than either alone; ratings can be inflated by a few easy games.
+
+# FLANKS (the report has NO left / right / centre split: use the width evidence below plus your own football knowledge of the named players, and label the knowledge as unverified)
+Switzerland: crosses 3.4 for / 2.6 against per game; dribbles 7.4 / 8.6; shots outside the box 6.6 / 4.2; touches in the box 26.2 / 17.0; formation 4-2-3-1 (back four: full-backs)
+  Switzerland outfield regulars to place on a flank (left back, right back, left or right wing, centre): Manuel Akanji (D, 510 min, rating 7.3, KP 0.4/90, wide-back starts 0, centre-back starts 5); Nico Elvedi (D, 510 min, rating 7.6, KP 0.9/90, wide-back starts 0, centre-back starts 5); Ricardo Rodríguez (D, 375 min, rating 7.14, KP 1.0/90, wide-back starts 5, centre-back starts 0); Zachary Athekame (D, 180 min, rating 7.2, KP 3.0/90, wide-back starts 2, centre-back starts 0); Remo Freuler (M, 505 min, rating 7.16, KP 0.7/90, wide-back starts 0, centre-back starts 0); Dan Ndoye (M, 423 min, rating 7.4, KP 1.7/90, wide-back starts 0, centre-back starts 0); Fabian Rieder (M, 310 min, rating 6.4, KP 1.2/90, wide-back starts 0, centre-back starts 0); Ardon Jashari (M, 229 min, rating 6.55, KP 1.2/90, wide-back starts 0, centre-back starts 0); Zeki Amdouni (F, 237 min, rating 7.42, KP 2.3/90, wide-back starts 0, centre-back starts 0)
+Slovenia: crosses 3.2 for / 3.8 against per game; dribbles 3.8 / 9.0; shots outside the box 2.4 / 3.0; touches in the box 18.4 / 20.2; formation 5-4-1 (back five: wing-backs provide the width)
+  Slovenia outfield regulars to place on a flank (left back, right back, left or right wing, centre): Jaka Bijol (D, 450 min, rating 7.46, KP 0.0/90, wide-back starts 0, centre-back starts 5); Žan Karničnik (D, 450 min, rating 7.06, KP 1.0/90, wide-back starts 4, centre-back starts 0); Vanja Drkušić (D, 419 min, rating 7.14, KP 0.0/90, wide-back starts 0, centre-back starts 5); Erik Janža (D, 403 min, rating 6.96, KP 1.1/90, wide-back starts 4, centre-back starts 0); Adam Gnezda Čerin (M, 345 min, rating 6.78, KP 0.0/90, wide-back starts 0, centre-back starts 0); Timi Max Elšnik (M, 341 min, rating 6.94, KP 0.5/90, wide-back starts 0, centre-back starts 0); Danijel Šturm (M, 340 min, rating 6.6, KP 1.6/90, wide-back starts 0, centre-back starts 0); Tomi Horvat (M, 173 min, rating 6.83, KP 1.6/90, wide-back starts 0, centre-back starts 0); Andraž Šporar (F, 229 min, rating 6.83, KP 1.6/90, wide-back starts 0, centre-back starts 0)
+Goals in the past meetings (who scored, to place the route): none listed / goalless
+How to read it: place each side's wide players on left and right from your knowledge, then compare the MIRROR pairs for both sides: side A's right-wing attack meets side B's LEFT-back; side A's left-wing attack meets side B's RIGHT-back; then the centre. A side strong on a flank against an opponent weak on the opposite defensive flank has a route to exploit; do it for both sides with the same depth (symmetry), say what the evidence for each flank is, and mark it unverified where it is only your knowledge.
+
+# PSYCHOLOGY: HOW EACH SIDE REACTS WHEN LOSING, LEADING AND AFTER DEFEAT (small samples: a tendency to weigh, not a law)
+Switzerland: current streak 2W; losing-run context {"streak_count":0,"xg_delta":null,"potential_turnaround":null}; streak stability {"streak_result":"W","streak_count":2,"changed_players":1,"stable":true}
+  after a defeat (next-match results, newest first): WWDLL = 1.40 points a game (sample 5)
+  trailing at half time in 2 of 5 games with half-time scores: got something in 2, won 2; leading at half time in 2: dropped points in 1
+  half split (20 games): first half 16-7, second half 24-18 (a slow starter or a side that fades shows here)
+  resilience: {"non_win_sample_size":10,"draw_share_pct":50}; errors leading to a goal for/against 0/1; stakes: {"position":1,"total_teams":4,"zone":"top-of-table","points_from_boundary":0,"in_the_mix":true}
+Slovenia: current streak 1W; losing-run context {"streak_count":0,"xg_delta":null,"potential_turnaround":null}; streak stability {"streak_result":"W","streak_count":1,"changed_players":3,"stable":null}
+  after a defeat (next-match results, newest first): DDDWD = 1.40 points a game (sample 5)
+  trailing at half time in 1 of 5 games with half-time scores: got something in 0, won 0; leading at half time in 0: dropped points in 0
+  half split (20 games): first half 4-11, second half 11-11 (a slow starter or a side that fades shows here)
+  resilience: {"non_win_sample_size":16,"draw_share_pct":69}; errors leading to a goal for/against 0/1; stakes: {"position":2,"total_teams":4,"zone":"midtable","points_from_boundary":2,"in_the_mix":true}
+How to read it: a side on a losing run usually tries to bounce back (more intensity, a changed XI), but only if the cause is luck (xG better than results) rather than quality, and it is fragile if a goal conceded early snowballs (trailing at half time and rarely rescued). A side that rescues points from behind and wins after defeats has a resilient mentality; a side that drops points from leading positions fades under pressure. Stakes change it (a side with nothing to play for, one in a relegation fight, one needing a win). Compare both sides the same way and say what it does to the draw and to the underdog's chance.
+
+# GAPS BETWEEN MATCHES, FATIGUE AND UNDERPERFORMING (same reading for both sides)
+Switzerland: days between its last matches (newest first) [3, 76, 5, 4, 9, 6]; 4 days since the last match; matches in the last 7/14 days 2/2
+  on short rest (4 days or fewer after the previous match): 2.33 points a game in 3 games; on longer rest: 2.17 points a game in 6 games
+  results against chances, last 5 games with xG: scored +1.14 goals a game against its xG, conceded +0.41 against xG against  <-- OVERPERFORMING in attack (finishing above chances: expect regression)  <-- conceding MORE than the chances allowed (weak keeper or bad luck)
+  report's own short/long rest record: {"short_rest_ppg":1.5,"short_rest_sample_size":8,"long_rest_ppg":1.81,"long_rest_sample_size":21}
+Slovenia: days between its last matches (newest first) [3, 312, 3, 33, 3, 32]; 4 days since the last match; matches in the last 7/14 days 2/2
+  on short rest (4 days or fewer after the previous match): 1.60 points a game in 5 games; on longer rest: 0.75 points a game in 4 games
+  results against chances, last 5 games with xG: scored -0.45 goals a game against its xG, conceded -0.45 against xG against  <-- UNDERPERFORMING in attack (finishing below chances: some regression upwards likely, unless the shooters are poor)  <-- conceding LESS than the chances allowed (keeper hot or lucky)
+  report's own short/long rest record: {"short_rest_ppg":1.8,"short_rest_sample_size":10,"long_rest_ppg":1.16,"long_rest_sample_size":19}
+Switzerland: matches after this one: North Macedonia on 2026-10-06 (3 days after the previous match); Slovenia on 2026-11-13 (38 days after the previous match); changed 1 of 11 starters last match  <-- the next match comes within 4 days: rotation risk if it matters more
+Slovenia: matches after this one: Scotland on 2026-10-06 (3 days after the previous match); Switzerland on 2026-11-13 (38 days after the previous match); changed 3 of 11 starters last match  <-- the next match comes within 4 days: rotation risk if it matters more
+Rotation logic: a manager benches or rests regulars when the NEXT match matters more than this one (a cup tie, a title or relegation decider, a knockout leg, a derby) especially with a short gap and a squad that has played heavy minutes, or when this match has little at stake (qualified, eliminated, a friendly). Judge from the report's stakes, the standings zone and the next fixtures above which match is the priority for EACH side; if you know a next fixture is crucial (labelled unverified), estimate how many starters change and which positions (usually the older, heavily used regulars and the goalkeeper only rarely), then discount that side's strength and say so. Never assume the full XI plays when rotation is plausible.
+How to read it: short gaps, three matches in 7 days and the same regulars playing every minute lead to tired legs, rotation and a drop late in matches; a side with a bad short-rest record is exposed; a side underperforming its chances may be due a rebound, but a side underperforming for a reason (poor finishers, an unfit striker) is not. Compare both sides' rest before this match and say who has the fresher legs.
+
+# BIG TEAM v SMALL TEAM: COMPLACENCY AND UPSET RISK (the favourite often plays below its level against a side it expects to beat)
+Elo: Switzerland 1596, Slovenia 1487; gap 109 in favour of Switzerland (moderate gap)
+Factors that raise the upset risk: Switzerland's next match (North Macedonia) follows within 3 days: eyes on it; Switzerland played 2 matches in the last 7 days; Slovenia lines up with a back five (a low block: harder to break down, dangerous on the counter); Slovenia has something to play for (standings zone midtable)
+Switzerland: players who make the difference and are rarely rested: Zeki Amdouni (F, rating 7.42, xG+xA 0.67/90); Dan Ndoye (M, rating 7.4, xG+xA 0.43/90); Johan Manzambi (M, rating 7.27, xG+xA 0.21/90); Nico Elvedi (D, rating 7.6, tackles+interceptions 1.8/90); Zachary Athekame (D, rating 7.2, tackles+interceptions 3.0/90)
+Switzerland: depth if the manager rotates (the 10 outfield regulars against the next 7 by minutes), market value per player 17.6m regulars against 6.7m reserves (reserves are worth 38% of the regulars), rating 7.08 regulars against 6.62 reserves
+Slovenia: players who make the difference and are rarely rested: Žan Vipotnik (F, rating 6.88, xG+xA 0.51/90); Jaka Bijol (D, rating 7.46, tackles+interceptions 3.8/90); Jan Oblak (G, rating 7.68, first-choice goalkeeper); Žan Karničnik (D, rating 7.06, tackles+interceptions 3.6/90); Danijel Šturm (M, rating 6.6, xG+xA 0.33/90)
+Slovenia: depth if the manager rotates (the 10 outfield regulars against the next 7 by minutes), market value per player 6.4m regulars against 12.8m reserves (reserves are worth 199% of the regulars), rating 6.96 regulars against 6.92 reserves
+Rotation against a weak opponent: a manager facing a side he expects to beat often rests regulars and gives reserves a game, so the XI that starts is weaker than the one the season numbers describe (the reserves have fewer minutes together, lower ratings, lower market value). Managers rarely rest the players who make the difference (the key players listed above: high rating, good xG and xA, a defender who wins the ball, the goalkeeper), so rotation falls first on the lower-impact regulars and the older, heavily used ones: estimate how many are rested (more if this match is the 'easy' one between harder fixtures, or the gap to the next match is short), keep the key players in the XI unless injured or suspended, apply the depth drop above only to the positions likely to change, and cut the favourite's goals and win chance by that, not by the full-strength numbers. Do it for both sides: a weak side usually plays its best XI.
+How to read it: big teams underestimate small and weak teams: slow starts, rotation, low intensity, over-possession without penetration, and the small side's low block, set pieces and counters keep it in the game and raise the draw and the upset chance. Weigh it from the factors above and from the favourite's own record against weaker sides (how many of its recent wins against weak opposition were narrow or late, how many draws). It lowers the favourite's win probability and raises the draw; it does not turn the underdog into the favourite. Do the symmetric check: is the underdog's low block and counter actually backed by numbers (xG against, set-piece xG, big chances on the break)?
+
+# ABSENCES AND REPLACEMENTS (for each missing player: who steps in, and is he a weak replacement?)
+  Switzerland: Aurèle Amenda (Calf Injury) is not in the squad data: role, importance and replacement unknown; judge from your own knowledge (unverified)
+  Switzerland: Denis Zakaria (Groin Injury) is not in the squad data: role, importance and replacement unknown; judge from your own knowledge (unverified)
+  Switzerland: Rubén Vargas (Knee Injury) is not in the squad data: role, importance and replacement unknown; judge from your own knowledge (unverified)
+  Slovenia: Benjamin Šeško (F, Shin Injury (out); 90 min, starts 1, rating 6.8, value 78.0m; a fringe player): little lost, the replacement is the existing squad
+How to read it: a missing regular matters only as far as his replacement is worse: a comparable replacement (similar rating and value, regular minutes) means little lost; a weak or unproven one means a real hole, especially for the goalkeeper, a ball-winning defender or the main scorer. Each side's advocate must argue this both ways: what is lost without him, who steps in, and whether the team's pattern (shape, set pieces, the key link) survives the change. Treat unknown roles and replacements as unknown, not as a weakness.
+
+# PHYSIOLOGY (players and teams: freshness, load, age, returns, travel, conditions)
+conditions at kickoff: Clear, 23.0°C; temp 23.0 C (feels like 23.0), humidity 24.0%, wind 6.0 km/h, rain chance 0.0%, precipitation 0.0 mm; weather matched to the kickoff hour: True; kickoff 19:00 local (approximate, from the venue's longitude); stadium capacity 16800
+travel: home side 0 km / 0.0 h, time-zone shift 0.0; away side 549 km / 2.6 h, time-zone shift 0.0
+
+## Switzerland (home)
+  schedule: 4 days since the last match; 2 matches in the last 7 days, 2 in the last 14; rest before this match 4 days; fatigue flag {"multi_competition":true,"competitions":["UEFA Nations League","FIFA World Cup","World Cup Qual. UEFA B"],"avg_gap_days":40.0,"flagged":false}
+  rest performance (points per game on short and long rest): {"short_rest_ppg":1.5,"short_rest_sample_size":8,"long_rest_ppg":1.81,"long_rest_sample_size":21}
+  predicted XI ages: mean 27.4; oldest Remo Freuler 34 (M), youngest Johan Manzambi 20; goalkeeper age 28
+  squad average age 26.6; experience comparison {"own_average_age":26.6,"opponent_average_age":27.2,"more_experienced":"even"}
+  minutes load of the busiest players (recent window): Manuel Akanji (D, age 31) 510 min in 5 matches, 5 starts; Nico Elvedi (D, age 30) 510 min in 5 matches, 5 starts; Gregor Kobel (G, age 28) 510 min in 5 matches, 5 starts; Remo Freuler (M, age 34) 505 min in 5 matches, 5 starts; Dan Ndoye (M, age 25) 423 min in 5 matches, 5 starts; Ricardo Rodríguez (D, age 34) 375 min in 5 matches, 5 starts; Fabian Rieder (M, age 24) 310 min in 5 matches, 3 starts
+  injury and suspension returns: Aurèle Amenda: Calf Injury, expected back 2026-10-20 (AFTER this match); Denis Zakaria: Groin Injury, expected back 2026-10-10 (AFTER this match); Rubén Vargas: Knee Injury, expected back 2026-10-20 (AFTER this match)
+
+## Slovenia (away)
+  schedule: 4 days since the last match; 2 matches in the last 7 days, 2 in the last 14; rest before this match 4 days; fatigue flag {"multi_competition":true,"competitions":["UEFA Nations League","World Cup Qual. UEFA B","Euro"],"avg_gap_days":57.0,"flagged":false}
+  rest performance (points per game on short and long rest): {"short_rest_ppg":1.8,"short_rest_sample_size":10,"long_rest_ppg":1.16,"long_rest_sample_size":19}
+  predicted XI ages: mean 27.9; oldest Erik Janža 33 (D), youngest Tjaš Begić 23; goalkeeper age 33
+  squad average age 27.2; experience comparison {"own_average_age":26.6,"opponent_average_age":27.2,"more_experienced":"even"}
+  minutes load of the busiest players (recent window): Jaka Bijol (D, age 27) 450 min in 5 matches, 5 starts; Žan Karničnik (D, age 32) 450 min in 5 matches, 5 starts; Vanja Drkušić (D, age 26) 419 min in 5 matches, 5 starts; Erik Janža (D, age 33) 403 min in 5 matches, 5 starts; Jan Oblak (G, age 33) 360 min in 4 matches, 4 starts; Adam Gnezda Čerin (M, age 27) 345 min in 4 matches, 4 starts; David Brekalo (D, age 27) 344 min in 5 matches, 4 starts
+  injury and suspension returns: Benjamin Šeško: Shin Injury, expected back 2026-10-20 (AFTER this match)
+
+How to read it: matches in 7 days and minutes piled on the same players mean fatigue and rotation; a player back only days before the match is unlikely to play 90 minutes; an old spine tires late and a young one is volatile; heat, humidity and long travel across time zones slow the tempo and favour the side with the deeper bench; wind and rain favour direct play and set pieces.
+
+# DEEP DATA (look here for what the results hide; numbers are the report's own, sample sizes included)
+shared: match_type="competitive"; rest_comparison={"own_rest_days":4,"opponent_rest_days":4,"more_rested":"even"}; experience_comparison={"own_average_age":26.6,"opponent_average_age":27.2,"more_experienced":"even"}; experience_h2h={"more_experienced":"even","h2h_leader":"own","aligned":null}; travel_info={"venue_country":"Switzerland","home_team_country":"Switzerland","away_team_country":"Slovenia","home_traveling":false,"away_traveling":true,"home_travel_distance_km":0,"away_travel_distance_km":549,"home_timezone_diff_hours":0.0,"away_timezone_diff_hours":0.0,"home_travel_time_hours":0.0,"away_travel_time_hours":2.6}
+
+## Switzerland (home) underlying numbers
+  standings_zone: {"position":1,"total_teams":4,"zone":"top-of-table","points_from_boundary":0,"in_the_mix":true}
+  card_discipline: {"yellow_per_game":0.0,"red_per_game":0.0,"elevated_risk":false}
+  card_discipline_venue_split: {"at_home_sample_size":6,"at_home_yellow_per_game":1.33,"at_home_red_per_game":0.0,"away_sample_size":4,"away_yellow_per_game":0.25,"away_red_per_game":0.25}
+  xg_estimate: {"sample_size":8,"xg_for":13.66,"xg_against":6.42,"actual_goals_for":20,"actual_goals_against":9}
+  shots_estimate: {"sample_size":10,"shots_for":148,"shots_against":89,"shots_on_target_for":63,"shots_on_target_against":31}
+  aerial_estimate: {"sample_size":10,"aerial_duels_won_for":110,"aerial_duels_won_against":114}
+  big_chances_estimate: {"sample_size":10,"big_chances_created_for":28,"big_chances_created_against":15,"big_chances_missed_for":14,"big_chances_missed_against":12}
+  passing_style: {"sample_size":10,"total_passes_for":5850,"accurate_passes_for":5191,"pass_accuracy_pct":88.7,"accurate_long_balls_for":239,"long_ball_share_pct":4.6}
+  fouls_estimate: {"sample_size":10,"fouls_committed_for":127,"fouls_committed_against":139}
+  goalkeeping_estimate: {"sample_size":10,"saves_for":24,"shots_on_target_faced":35,"save_pct":68.6,"goals_conceded":11,"unreconciled_shots_on_target":0}
+  set_piece_threat: {"corners_per_game":4.88,"opponent_aerial_win_pct":50.0,"elevated":false}
+  direct_play_exposure: {"long_ball_share_pct":4.6,"opponent_aerial_win_pct":50.0,"elevated":false}
+  rotation: {"changed_players":1,"starting_xi_size":11,"last_match_date":"2026-09-29T18:45:00.000Z","previous_match_date":"2026-09-26T18:45:00.000Z","last_formation":"4-2-3-1","previous_formation":"4-2-3-1","formation_changed":false,"last_defender_count":4,"previous_defender_count":4,"result_before_last":"W","preceding_result":"W"}
+  resilience: {"non_win_sample_size":10,"draw_share_pct":50}
+  rest_performance: {"short_rest_ppg":1.5,"short_rest_sample_size":8,"long_rest_ppg":1.81,"long_rest_sample_size":21}
+  fatigue_flag: {"multi_competition":true,"competitions":["UEFA Nations League","FIFA World Cup","World Cup Qual. UEFA B"],"avg_gap_days":40.0,"flagged":false}
+  advantage: {"home_win_rate_pct":73,"away_win_rate_pct":27,"gap_pct":46,"strength":"strong","home_sample_size":11,"away_sample_size":11}
+  streak_stability: {"streak_result":"W","streak_count":2,"changed_players":1,"stable":true}
+  losing_streak_context: {"streak_count":0,"xg_delta":null,"potential_turnaround":null}
+  duel_vulnerabilities: [{"name":"Ricardo Rodríguez","ground_duel_success_pct":46.43}]
+  possession_matchup: {"high_opponent_possession_ppg":1.5,"high_opponent_possession_sample_size":2,"other_ppg":2.33,"other_sample_size":6}
+  corners_estimate: {"sample_size":8,"corners_for":39,"corners_against":32}
+  defensive_errors_estimate: {"sample_size":3,"defensive_errors_for":6,"defensive_errors_against":4}
+  fullback_exposure: [{"name":"Ricardo Rodríguez","chances_created":7,"ground_duel_success_pct":46.43}]
+  standings_impact: {"current_position":1,"current_points":6,"scenarios":[{"outcome":"win","new_points":9,"new_position":1},{"outcome":"draw","new_points":7,"new_position":1},{"outcome":"loss","new_points":6,"new_position":2}]}
+  advanced_stats: {"sample_size":5,"unavailable_stats":null,"touches_in_box_for":131,"touches_in_box_against":85,"crosses_for":17,"crosses_against":13,"dribbles_for":37,"dribbles_against":43,"through_balls_for":5,"through_balls_against":1,"final_third_entries_for":309,"final_third_entries_against":255,"recoveries_for":254,"recoveries_against":230,"errors_lead_to_shot_for":3,"errors_lead_to_shot_against":3,"errors_lead_to_goal_for":0,"...
+  bench_info: {"bench_size":9,"bench_total_market_value":65200000,"starting_total_market_value":218700000}
+  profile.recent_form_leaders: [{"name":"Zeki Amdouni","goals":3,"assists":1,"xg":1.69,"xa":0.08,"avg_rating":7.42,"goals_per90":1.14,"assists_per90":0.38,"key_passes":6,"sample_size":5,"window":"last_20"},{"name":"Dan Ndoye","goals":2,"assists":2,"xg":1.44,"xa":0.57,"avg_rating":7.4,"goals_per90":0.43,"assists_per90":0.43,"key_passes":8,"sample_size":5,"window":"last_20"},{"name":"Ricardo Rodríguez","goals"...
+  profile.top_scorers: [{"name":"Zeki Amdouni","goals":3,"assists":1,"appearances":2,"rating":8.75,"window":"season_to_date"},{"name":"Remo Freuler","goals":1,"assists":0,"appearances":2,"rating":7.7,"window":"season_to_date"},{"name":"Ricardo Rodríguez","goals":1,"assists":0,"appearances":2,"rating":7.45,"window":"season_to_date"}]
+  profile.top_assists: [{"name":"Dan Ndoye","goals":0,"assists":2,"appearances":2,"rating":7.35,"window":"season_to_date"},{"name":"Zeki Amdouni","goals":3,"assists":1,"appearances":2,"rating":8.75,"window":"season_to_date"},{"name":"Zachary Athekame","goals":0,"assists":1,"appearances":2,"rating":7.2,"window":"season_to_date"}]
+  profile.top_defenders: [{"name":"Manuel Akanji","tackles_made":9,"interceptions":6},{"name":"Ricardo Rodríguez","tackles_made":11,"interceptions":4},{"name":"Nico Elvedi","tackles_made":4,"interceptions":5}]
+  manager: {"name":"Murat Yakin","country":"Switzerland","appointed_date":"2021-08-09T00:00:00.000Z","previous_manager":null,"recent_appointment":false,"record_at_club":{"played":67,"wins":30,"draws":23,"losses"...; formation 4-2-3-1; manager record v this club: {"manager_name":"Murat Yakin","opponent_club":"Slovenia","sample_size":2,"wins":1,"draws":1,"losses":0}
+  season stats: {"goals_scored":6,"goals_conceded":0,"clean_sheets":2,"yellow_cards":0,"red_cards":0,"average_ball_possession":55.0,"clean_sheets_recent_check":7,"clean_sheets_recent_check_sample_size":20,"clean_sheets_recent_check_source":"sofascore","clean_sheets_source_aggregate":null,"possession_venue_split_check":55.0,"possession_venue_split_check_source":"sofascore","average_ball_possess...
+  suspended: []; lineup predicted: [{"name":"Gregor Kobel","position":"G","substitute":false,"shirt_number":1,"age":28},{"name":"Ricardo Rodríguez","position":"D","substitute":false,"shirt_number":13,"age":34},{"name":"Nico Elvedi","position":"D","substitute":false,"shirt_number":4,"age":30},{"name":"Manuel Akanji","position":"D","su...
+
+## Slovenia (away) underlying numbers
+  standings_zone: {"position":2,"total_teams":4,"zone":"midtable","points_from_boundary":2,"in_the_mix":true}
+  card_discipline: {"yellow_per_game":2.0,"red_per_game":0.0,"elevated_risk":false}
+  card_discipline_venue_split: {"at_home_sample_size":3,"at_home_yellow_per_game":0.67,"at_home_red_per_game":0.33,"away_sample_size":5,"away_yellow_per_game":1.4,"away_red_per_game":0.0}
+  xg_estimate: {"sample_size":4,"xg_for":5.37,"xg_against":2.58,"actual_goals_for":3,"actual_goals_against":3}
+  shots_estimate: {"sample_size":8,"shots_for":101,"shots_against":99,"shots_on_target_for":33,"shots_on_target_against":34}
+  aerial_estimate: {"sample_size":8,"aerial_duels_won_for":92,"aerial_duels_won_against":92}
+  big_chances_estimate: {"sample_size":8,"big_chances_created_for":17,"big_chances_created_against":12,"big_chances_missed_for":10,"big_chances_missed_against":10}
+  passing_style: {"sample_size":8,"total_passes_for":3481,"accurate_passes_for":2881,"pass_accuracy_pct":82.8,"accurate_long_balls_for":177,"long_ball_share_pct":6.1}
+  fouls_estimate: {"sample_size":8,"fouls_committed_for":96,"fouls_committed_against":73}
+  goalkeeping_estimate: {"sample_size":8,"saves_for":26,"shots_on_target_faced":35,"save_pct":74.3,"goals_conceded":9,"unreconciled_shots_on_target":0}
+  set_piece_threat: {"corners_per_game":4.83,"opponent_aerial_win_pct":49.1,"elevated":false}
+  direct_play_exposure: {"long_ball_share_pct":6.1,"opponent_aerial_win_pct":49.1,"elevated":false}
+  rotation: {"changed_players":3,"starting_xi_size":11,"last_match_date":"2026-09-29T18:45:00.000Z","previous_match_date":"2026-09-26T13:00:00.000Z","last_formation":"5-4-1","previous_formation":"5-4-1","formation_changed":false,"last_defender_count":5,"previous_defender_count":5,"result_before_last":"D","preceding_result":"D"}
+  resilience: {"non_win_sample_size":16,"draw_share_pct":69}
+  rest_performance: {"short_rest_ppg":1.8,"short_rest_sample_size":10,"long_rest_ppg":1.16,"long_rest_sample_size":19}
+  fatigue_flag: {"multi_competition":true,"competitions":["UEFA Nations League","World Cup Qual. UEFA B","Euro"],"avg_gap_days":57.0,"flagged":false}
+  advantage: {"home_win_rate_pct":25,"away_win_rate_pct":11,"gap_pct":14,"strength":"slight","home_sample_size":4,"away_sample_size":9}
+  streak_stability: {"streak_result":"W","streak_count":1,"changed_players":3,"stable":null}
+  losing_streak_context: {"streak_count":0,"xg_delta":null,"potential_turnaround":null}
+  possession_matchup: {"high_opponent_possession_ppg":0.75,"high_opponent_possession_sample_size":4,"other_ppg":2.0,"other_sample_size":2}
+  corners_estimate: {"sample_size":6,"corners_for":29,"corners_against":26}
+  standings_impact: {"current_position":2,"current_points":4,"scenarios":[{"outcome":"win","new_points":7,"new_position":1},{"outcome":"draw","new_points":5,"new_position":2},{"outcome":"loss","new_points":4,"new_position":2}]}
+  advanced_stats: {"sample_size":5,"unavailable_stats":null,"touches_in_box_for":92,"touches_in_box_against":101,"crosses_for":16,"crosses_against":19,"dribbles_for":19,"dribbles_against":45,"through_balls_for":1,"through_balls_against":2,"final_third_entries_for":226,"final_third_entries_against":300,"recoveries_for":228,"recoveries_against":238,"errors_lead_to_shot_for":5,"errors_lead_to_shot_against":5,"errors_lead_to_goal_for":0,"...
+  bench_info: {"bench_size":9,"bench_total_market_value":18155000,"starting_total_market_value":78145000}
+  profile.recent_form_leaders: [{"name":"Andraž Šporar","goals":0,"assists":1,"xg":0.38,"xa":0.0,"avg_rating":6.83,"goals_per90":0.0,"assists_per90":0.39,"key_passes":4,"sample_size":4,"window":"last_20"},{"name":"Tjaš Begić","goals":0,"assists":1,"xg":0.0,"xa":0.11,"avg_rating":6.8,"goals_per90":0.0,"assists_per90":1.27,"key_passes":2,"sample_size":2,"window":"last_20"},{"name":"Timi Max Elšnik","goals":1,"...
+  profile.top_scorers: [{"name":"Sandi Lovrić","goals":1,"assists":0,"appearances":2,"rating":7.5,"window":"season_to_date"},{"name":"Aljoša Matko","goals":1,"assists":0,"appearances":2,"rating":7,"window":"season_to_date"}]
+  profile.top_assists: [{"name":"Tjaš Begić","goals":0,"assists":1,"appearances":1,"rating":6.8,"window":"season_to_date"},{"name":"Danijel Šturm","goals":0,"assists":1,"appearances":2,"rating":6.9,"window":"season_to_date"}]
+  profile.key_injuries: [{"name":"Benjamin Šeško","role":"F","injury":"Shin Injury (out)","age":23,"market_value":78000000,"season_stats":null,"defensive_stats":null,"recent_usage":null,"shirt_number":30,"stat_window_note":null}]
+  manager: {"name":"Bostjan Cesar","country":"Slovenia","appointed_date":null,"previous_manager":null,"recent_appointment":null,"record_at_club":null,"age":null}; formation 5-4-1; manager record v this club: {"manager_name":"Bostjan Cesar","opponent_club":"Switzerland","sample_size":0,"wins":0,"draws":0,"losses":0}
+  season stats: {"goals_scored":2,"goals_conceded":0,"clean_sheets":2,"yellow_cards":4,"red_cards":0,"average_ball_possession":43.5,"clean_sheets_recent_check":9,"clean_sheets_recent_check_sample_size":20,"clean_sheets_recent_check_source":"sofascore","clean_sheets_source_aggregate":null,"possession_venue_split_check":42.4,"possession_venue_split_check_source":"sofascore","average_ball_possess...
+  suspended: []; lineup predicted: [{"name":"Jan Oblak","position":"G","substitute":false,"shirt_number":1,"age":33},{"name":"Žan Karničnik","position":"D","substitute":false,"shirt_number":2,"age":32},{"name":"David Brekalo","position":"D","substitute":false,"shirt_number":23,"age":27},{"name":"Jaka Bijol","position":"D","substitute...
+
+## Match context
+  venue_name: "Swissporarena"
+  venue_city: "Lucerne"
+  weather: "Clear, 23.0°C"
+  weather_detail: {"temp_c":23.0,"humidity_pct":24.0,"wind_speed_kmph":6.0,"precip_mm":0.0,"chance_of_rain_pct":0.0,"wind_gust_kmph":6.0,"cloud_cover_pct":3.0,"feels_like_c":23.0,"kickoff_hour_matched":true}
+  round: 3
+  season: "UEFA Nations League 26/27"
+  head_to_head_streaks: ["No losses (home): 3","Less than 4.5 cards (both): 5/6"]
+  note: "lineup predicted, not yet confirmed; match statistics not available yet (match hasn't started)"
+  additional_notes: [{"note":"referee/attendance/weather/match-stats not available on SoccerDesk"},{"note":"referee not populated by Goal.com for any match checked; lineups include a `confirmed` flag not surfaced here"}]
+  recent meetings: 2025-10-13 Slovenia 0-0 Switzerland (World Cup Qual. UEFA B); 2025-09-08 Switzerland 3-0 Slovenia (World Cup Qual. UEFA B); 2015-09-05 Switzerland 3-2 Slovenia (EURO Qualification grp)
+  standings table: [{"team_name":"Switzerland","position":1,"points":6,"played":2,"wins":2,"draws":0,"losses":0,"goals_for":6,"goals_against":0,"goal_difference":6,"form":"DDLWW"},{"team_name":"Slovenia","position":2,"points":4,"played":2,"wins":1,"draws":1,"losses":0,"goals_for":2,"goals_against":0,"goal_difference":2,"form":"DDWDW"},{"team_name":"Scotland","position":3,"points":1,"played":2,"wins":0,"draws":1,"losses":1,"goals_for":0,"goals_against":3,"goal_difference":-3,"form":null},{"team_name":"North Macedonia","position":4,"points":0,"played":2,"wins":0,"draws":0,"losses":2,"goals_for":0,"goals_against":5,"goal_difference":-5,"form":null}]
+  source conflicts (the scrapers disagree): [{"field":"venue_name","kept":"Swissporarena","kept_source":"sofascore","alternatives":[{"from_source":"fotmob","value":"thermoplan arena"}],"resolution":"sofascore kept; at least one alternative appears to be a different fixture (resolved to an unrelated place) -- reported, not overridden"},{"field":"venue_city","kept":"Lucerne","kept_source":"sofascore","alternatives":[{"from_source":"fotmob","v...
+
+Other sections of the JSON you may open: team, generatedAt, sources, venueDetails, dataCompleteness, dataWindows, calibration; match.* and teamProfile.* hold more (squad with minutes, bench, transfers).
+
+
+=== CALCULATOR OUTPUT (the author's own calc.py run) ===
+
+The author's chosen expected goals: 1.7 - 0.75 (a judgement, not a sheet figure).
+calc.py results for them: home 59.6% / draw 24.8% / away 15.7%; over 2.5 45.5%; both teams to score 44.5%.
+likeliest scores: 1-0 (14.1%), 2-0 (12.5%), 1-1 (11.6%), 2-1 (9.4%); drawn scores: 0-0 9.2%, 1-1 11.6%, 2-2 3.5%, 3-3 0.5%
+own fair odds: home 1.68, draw 4.04, away 6.39; logged bet: (read from the answer); calc.py's suggestion: Switzerland to win (59.6%).
+These come from the author's own calc.py run: they are not report facts, but the percentages, scorelines and odds in the answer must equal them. Expected goals and any estimate of a player's value to the team are judgements and must be labelled as such, never called 'confirmed'.
+
+=== ANSWER ===
+
+**Switzerland 59.6% / Draw 24.8% / Slovenia 15.7%** (my probabilities; expected goals 1.70-0.75)
+
+**Symmetric table**
+
+| lens | Switzerland | Slovenia | favours (and by how much) |
+|---|---|---|---|
+| luck vs performance | +0.79 above xG (2.50 v 1.71, 8 games) | -0.59 below xG (0.75 v 1.34, 4 games) | Slovenia: Switzerland's heat cools |
+| attack | 1.71 xG, 14.8 shots, 2.80 big chances | 1.34 xG, 12.6 shots, 2.12 big chances | Switzerland over Slovenia (+0.68 big chances) |
+| defence | 0.80 xGA, 8.9 shots against, Kobel saves 68.6% | 0.65 xGA, 12.4 shots against, Oblak saves 74.3% | level: Slovenia's structure v Switzerland's ratings |
+| style | 55.0% possession, 88.7% passing, 61.8 entries | 42.4% possession, 82.8% passing, 45.2 entries, 5-4-1 | Switzerland over Slovenia (territory) |
+| opposition quality | beaten Colombia and Algeria in knockouts; 3-0 v Scotland | Sweden, Kosovo, Slovakia, Scotland only | Switzerland over Slovenia (stronger foes) |
+| stakes | 1st of 4, 6 pts from 2, GD +6 | 2nd of 4, 4 pts from 2, GD +2 | neither: Switzerland, Slovenia both in the mix |
+| schedule and fatigue | 4 days rest, 2 in 7; short rest 1.5 ppg | 4 days rest, 2 in 7; short rest 1.8 ppg | Slovenia over Switzerland (+0.3) |
+| physiology and load | Akanji, Elvedi, Kobel 510 min; Freuler 34 | Bijol, Karničnik 450 min; Janža 33, Oblak 33 | level, but Switzerland's spine older than Slovenia's |
+| personnel | Amenda, Zakaria, Vargas out, roles UNKNOWN; bench 30% | Šeško out (78m, report says fringe); bench 23% | level: Switzerland unknown, Slovenia small loss |
+| environment | 0 km travel, Lucerne, 23C, humidity 24% | 549 km, 2.6 h, no time-zone shift | Switzerland over Slovenia (small) |
+
+**Flank map** (my own placement knowledge, unverified)
+
+| flank | Switzerland attack / defence | Slovenia attack / defence | mirror pair |
+|---|---|---|---|
+| left | Manzambi 7.27, LB Rodríguez 7.14 | WB Karničnik 3.6 tackles, Šturm xA 0.24 | Slovenia's Šturm v Switzerland's Rodríguez, 34 |
+| centre | Amdouni 0.64 xG/90, Freuler 7.16 | Bijol 7.46, Drkušić 7.14, Oblak 7.68 | Switzerland v Slovenia's wall and keeper |
+| right | Ndoye 7.40, Athekame 3.0 tackles | Janža 6.96, Slovenia xA 0.37 | Switzerland's Ndoye v Slovenia's Janža: main route |
+
+**Data links:** Switzerland's 2.80 big chances + Slovenia's 1.50 conceded + Oblak's 74.3% saves => volume turns into few goals. Slovenia's first half 4-11 + Switzerland's 16-7 => Slovenia trails early, block opens late. Switzerland +0.79 above xG (8) + Slovenia -0.59 (4) => both attacks regress, total near 2.45.
+
+**Case for Switzerland:** Switzerland lead the group with 6 points from 2 after Switzerland 3-0 Scotland (away, 29 Sep, xG 1.5-0.1). Switzerland hold 55.0% possession and 61.8 final-third entries against 45.2 allowed, creating 2.80 big chances while Slovenia concede 1.50. Swiss attackers rated 7.42 v 6.84, defenders 7.35 v 7.10. Elo 1596 v 1487 and squad value 299.1m / 183.4m = 1.63 agree, and Yakin is unbeaten in two against Slovenia (W1 D1). Switzerland must break a 5-4-1 with a keeper rated 7.68 and cool finishing running +0.79 above xG (Switzerland 4-3 Colombia, home, 7 Jul, xG 0.39-1.09).
+
+**Case for Slovenia:** Slovenia sit 2nd with 4 points from 2, unbeaten in this group: Slovenia 2-0 North Macedonia (home, 29 Sep, xG 1.97-0.68) and Slovenia 0-0 Scotland (home, 26 Sep, xG 0.47-2.16). Slovenia allow 0.65 xG and 0.75 goals a game, keep 9 clean sheets in 20, and 69% of Slovenia's non-wins end level (16 games). Oblak saves 74.3% and Bijol wins 3.8 tackles+interceptions. Slovenia's counter runs through Šturm (1.6 key passes, xA 0.24) at Swiss left-back Rodríguez, 34. Set pieces matter because Switzerland win only 49% of aerial duels (110 of 224). Slovenia must overcome 42.4% possession and -0.59 finishing.
+
+**My view:** Switzerland win the attack, style, opposition and environment lenses; the chance profile matches the ratings gap (2.80 v 1.50 big chances, attackers 7.42 v 6.84), so Switzerland are better by about 0.95 goals (1.70 v 0.75). Counted: rebound against Switzerland (+0.79 over 8 games cools; Slovenia's -0.59 rebounds weakly, Šporar 0.15 xG/90); rest to Slovenia (1.8 v 1.5 short-rest ppg); head to head to Switzerland (4 wins from 6; Switzerland 3-0 Slovenia, home, 8 Sep 2025, xG 1.19-0.81); the opponent's weakness is narrow (Slovenia concede 1.50 big chances).
+
+**Expected goals adjustment:** xG anchor home (1.71 + 0.65)/2 = 1.18, away (1.34 + 0.80)/2 = 1.07. Home: 1.18 x 1.22 (venue) = 1.44, +0.26 for 2.80 big chances against 1.50 conceded and 61.8 v 45.2 entries = 1.70. Away: 1.07 x 0.82 = 0.88, -0.13 for a 0.75-goals attack with Šporar 0.15 xG/90 and Vipotnik 0.38 (both 0 goals) = 0.75; Šeško's share is 0.00 xG/90, capped at 0.
+
+**Own odds:** home 1.68, draw 4.04, away 6.39. Bookmaker: 1.42 / 5.08 / 10.10 (70.4% / 19.7% / 9.9%). Where I differ and why: 10.8 points below the market on Switzerland, which prices the 109 Elo gap, the 1.63x squad value and two Swiss 3-0s; I cut it for finishing regression (+0.79 over 8 games), a 5-4-1 with Oblak saving 74.3% and the 0-0 last meeting. I am 5.1 up on the draw and 5.8 up on Slovenia, whose non-wins are 69% draws. Samples of 8 and 4 games are thin.
+
+**Best bet:** Switzerland to win (59.6%), confidence medium. Why this bet: my most likely single outcome, matching my expected score, backed by 88.7% passing and 2.80 big chances against 1.50 conceded. What would change my mind: Switzerland resting two of Amdouni, Ndoye, Elvedi or Kobel, or Slovenia leaving the back five. Runner-up: the draw.
+
+**Draw risk:** 24.8% against the 23-25% base. Up: 69% of Slovenia's non-wins end level (16 games), 50% of Switzerland's (10), the 5-4-1 block, the 0-0 last meeting, total expected goals 2.45. Down: the 109 Elo gap and 2.80 Swiss big chances. The bet clears 50%, so no draw cover.
+
+**Underlying evidence:** Switzerland create 2.80 big chances against the 1.50 Slovenia concede; possession 55.0% v 42.4%; Kobel 68.6% saves below par, Oblak 74.3% above; short-rest points 1.5 for Switzerland (8 games) v 1.8 for Slovenia (10); Slovenia 2.0 yellows a game, Switzerland 0.0.
+
+**From the report:** head to head 4-1-1 from 6 meetings; formations 4-2-3-1 v 5-4-1; rotation last match 1 of 11 (Switzerland) and 3 of 11 (Slovenia); both next matches 3 days after.
+
+**Own knowledge (unverified):** flank placements; Šeško is Slovenia's first-choice striker, conflicting with the report's fringe label.
+
+**Risks and data gaps:** lineups unconfirmed; Amenda, Zakaria and Vargas have UNKNOWN roles and unknown replacements, so no adjustment was made; Šeško's importance is disputed between report and own knowledge; samples are 8 Swiss xG games and 4 Slovenian; no venue split or bookmaker goal prices in the report.
+
+=== SENTENCE TABLE (tick every row) ===
+
+S1. "Switzerland 59.6% / Draw 24.8% / Slovenia 15.7%** (my probabilities"
+    EVIDENCE: calc.py results for them: home 59.6% / draw 24.8% / away 15.7%; over 2.5 45.5%; both teams to score 44.5%. || own fair odds: home 1.68, draw 4.04, away 6.39; logged bet: (read from the answer); calc.py's suggestion: Switzerland to win (59.6%).
+S2. "expected goals 1.70-0.75)"
+    EVIDENCE: | goals scored per game (same games) | 2.50 | 0.75 | || | goals conceded per game (same games) | 1.12 | 0.75 |
+S3. "lens | Switzerland | Slovenia | favours (and by how much)"
+    EVIDENCE: # Switzerland (home label) v Slovenia (away label) || venue country: Switzerland (home team's country Switzerland, away team's Slovenia); neutral flag None
+S4. "luck vs performance | +0.79 above xG (2.50 v 1.71, 8 games) | -0.59 below xG (0.75 v 1.34, 4 games) | Slovenia: Switzerland's heat cools"
+    EVIDENCE: | xG for per game | 1.71 (8 games) | 1.34 (4 games) | || | goals scored per game (same games) | 2.50 | 0.75 |
+S5. "attack | 1.71 xG, 14.8 shots, 2.80 big chances | 1.34 xG, 12.6 shots, 2.12 big chances | Switzerland over Slovenia (+0.68 big chances)"
+    EVIDENCE: Switzerland: 1.71 / 2.25 / 8.40 / 2.80 / 26.20 / 0.87 || Slovenia: 1.34 / 0.49 / 7.00 / 2.12 / 18.40 / 0.37
+S6. "defence | 0.80 xGA, 8.9 shots against, Kobel saves 68.6% | 0.65 xGA, 12.4 shots against, Oblak saves 74.3% | level: Slovenia's structure v Switzerland's ratings"
+    EVIDENCE: | xG against per game | 0.80 (8 games) | 0.65 (4 games) | || | shots for / against per game | 14.8 / 8.9 (10 games) | 12.6 / 12.4 (8 games) |
+S7. "style | 55.0% possession, 88.7% passing, 61.8 entries | 42.4% possession, 82.8% passing, 45.2 entries, 5-4-1 | Switzerland over Slovenia (territory)"
+    EVIDENCE: Switzerland: 55.0 / 585.0 / 88.7 / 4.6 / 61.8 / 51.0 / 54.8 || Slovenia: 42.4 / 435.1 / 82.8 / 6.1 / 45.2 / 60.0 / 43.0
+S8. "opposition quality | beaten Colombia and Algeria in knockouts"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S9. "3-0 v Scotland | Sweden, Kosovo, Slovakia, Scotland only | Switzerland over Slovenia (stronger foes)"
+    EVIDENCE: Slovenia: matches after this one: Scotland on 2026-10-06 (3 days after the previous match); Switzerland on 2026-11-13 (38 days after the previous match); changed 3 of 11  || standings table: [{"team_name":"Switzerland","position":1,"points":6,"played":2,"wins":2,"draws":0,"losses":0,"goals_for":6,"goals_against":0,"goal_difference":6,"form":"
+S10. "stakes | 1st of 4, 6 pts from 2, GD +6 | 2nd of 4, 4 pts from 2, GD +2 | neither: Switzerland, Slovenia both in the mix"
+    EVIDENCE: # Switzerland (home label) v Slovenia (away label) || venue country: Switzerland (home team's country Switzerland, away team's Slovenia); neutral flag None
+S11. "schedule and fatigue | 4 days rest, 2 in 7"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S12. "short rest 1.5 ppg | 4 days rest, 2 in 7"
+    EVIDENCE: 2026-09-29 W 3-0 v Scotland (away, UEFA Nations League, League B,, xG 1.5-0.1) || | points per game on short rest / long rest | 1.5 (8 games) / 1.81 (21 games) | 1.8 (10 games) / 1.16 (19 games) |
+S13. "short rest 1.8 ppg | Slovenia over Switzerland (+0.3)"
+    EVIDENCE: Switzerland: players who make the difference and are rarely rested: Zeki Amdouni (F, rating 7.42, xG+xA 0.67/90); Dan Ndoye (M, rating 7.4, xG+xA 0.43/90); Johan Manzambi || # Switzerland (home label) v Slovenia (away label)
+S14. "physiology and load | Akanji, Elvedi, Kobel 510 min"
+    EVIDENCE: minutes load of the busiest players (recent window): Manuel Akanji (D, age 31) 510 min in 5 matches, 5 starts; Nico Elvedi (D, age 30) 510 min in 5 matches, 5 starts; Gre || defenders: Manuel Akanji (age 31) 510 min: tackles+interceptions 2.3/90, rating 7.30 strong form; Nico Elvedi (age 30) 510 min: tackles+interceptions 1.8/90, rating 7.60 
+S15. "Freuler 34 | Bijol, Karničnik 450 min"
+    EVIDENCE: defenders: Jaka Bijol (age 27) 450 min: tackles+interceptions 3.8/90, rating 7.46 strong form; Žan Karničnik (age 32) 450 min: tackles+interceptions 3.6/90, rating 7.06;  || Slovenia outfield regulars to place on a flank (left back, right back, left or right wing, centre): Jaka Bijol (D, 450 min, rating 7.46, KP 0.0/90, wide-back starts 0, ce
+S16. "Janža 33, Oblak 33 | level, but Switzerland's spine older than Slovenia's"
+    EVIDENCE: minutes load of the busiest players (recent window): Jaka Bijol (D, age 27) 450 min in 5 matches, 5 starts; Žan Karničnik (D, age 32) 450 min in 5 matches, 5 starts; Vanj || defenders: Jaka Bijol (age 27) 450 min: tackles+interceptions 3.8/90, rating 7.46 strong form; Žan Karničnik (age 32) 450 min: tackles+interceptions 3.6/90, rating 7.06; 
+S17. "personnel | Amenda, Zakaria, Vargas out, roles UNKNOWN"
+    EVIDENCE: injury and suspension returns: Aurèle Amenda: Calf Injury, expected back 2026-10-20 (AFTER this match); Denis Zakaria: Groin Injury, expected back 2026-10-10 (AFTER this  || - Aurèle Amenda: Calf Injury, back 2026-10-20; role UNKNOWN, value unknown; NOT in the squad list: starter status unknown, never call him a key player
+S18. "bench 30% | Šeško out (78m, report says fringe)"
+    EVIDENCE: | bench value / starting XI value | 65200000 / 218700000 (bench is 30% of the XI) | 18155000 / 78145000 (bench is 23% of the XI) | || defenders: Manuel Akanji (age 31) 510 min: tackles+interceptions 2.3/90, rating 7.30 strong form; Nico Elvedi (age 30) 510 min: tackles+interceptions 1.8/90, rating 7.60 
+S19. "bench 23% | level: Switzerland unknown, Slovenia small loss"
+    EVIDENCE: manager: {"name":"Murat Yakin","country":"Switzerland","appointed_date":"2021-08-09T00:00:00.000Z","previous_manager":null,"recent_appointment":false,"record_at_club":{"p || # Switzerland (home label) v Slovenia (away label)
+S20. "environment | 0 km travel, Lucerne, 23C, humidity 24% | 549 km, 2.6 h, no time-zone shift | Switzerland over Slovenia (small)"
+    EVIDENCE: shared: match_type="competitive"; rest_comparison={"own_rest_days":4,"opponent_rest_days":4,"more_rested":"even"}; experience_comparison={"own_average_age":26.6,"opponent || attackers: Andraž Šporar (age 32) 229 min: xG 0.15/90, goals 0 vs xG 0.38, shots 0.8/90, rating 6.83; Žan Vipotnik (age 24) 183 min: xG 0.38/90, goals 0 vs xG 0.77, shots
+S21. "Flank map** (my own placement knowledge, unverified)"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S22. "flank | Switzerland attack / defence | Slovenia attack / defence | mirror pair"
+    EVIDENCE: # Switzerland (home label) v Slovenia (away label) || venue country: Switzerland (home team's country Switzerland, away team's Slovenia); neutral flag None
+S23. "left | Manzambi 7.27, LB Rodríguez 7.14 | WB Karničnik 3.6 tackles, Šturm xA 0.24 | Slovenia's Šturm v Switzerland's Rodríguez, 34"
+    EVIDENCE: midfielders: Remo Freuler (age 34) 505 min: key passes 0.7/90, xA 0.11/90, tackles 1.4/90, rating 7.16; Dan Ndoye (age 25) 423 min: key passes 1.7/90, xA 0.12/90, tackles || defenders: Manuel Akanji (age 31) 510 min: tackles+interceptions 2.3/90, rating 7.30 strong form; Nico Elvedi (age 30) 510 min: tackles+interceptions 1.8/90, rating 7.60 
+S24. "centre | Amdouni 0.64 xG/90, Freuler 7.16 | Bijol 7.46, Drkušić 7.14, Oblak 7.68 | Switzerland v Slovenia's wall and keeper"
+    EVIDENCE: Slovenia: best rated Jan Oblak 7.68, Jaka Bijol 7.46, Vanja Drkušić 7.14; weak form (under 6.6, likely to underperform): none || Switzerland outfield regulars to place on a flank (left back, right back, left or right wing, centre): Manuel Akanji (D, 510 min, rating 7.3, KP 0.4/90, wide-back starts 
+S25. "right | Ndoye 7.40, Athekame 3.0 tackles | Janža 6.96, Slovenia xA 0.37 | Switzerland's Ndoye v Slovenia's Janža: main route"
+    EVIDENCE: defenders: Jaka Bijol (age 27) 450 min: tackles+interceptions 3.8/90, rating 7.46 strong form; Žan Karničnik (age 32) 450 min: tackles+interceptions 3.6/90, rating 7.06;  || Switzerland outfield regulars to place on a flank (left back, right back, left or right wing, centre): Manuel Akanji (D, 510 min, rating 7.3, KP 0.4/90, wide-back starts 
+S26. "Data links:** Switzerland's 2.80 big chances + Slovenia's 1.50 conceded + Oblak's 74.3% saves => volume turns into few goals"
+    EVIDENCE: | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) | || | goalkeeper save % (a rate far from about 72% rarely lasts) | 68.6% (24 saves from 35 shots on target) | 74.3% (26 saves from 35 shots on target) |
+S27. "Slovenia's first half 4-11 + Switzerland's 16-7 => Slovenia trails early, block opens late"
+    EVIDENCE: Switzerland's back line (4) v Slovenia's front line (1): 3 spare defender(s), the front line has little room to run at || Slovenia's back line (5) v Switzerland's front line (1): 4 spare defender(s), the front line has little room to run at
+S28. "Switzerland +0.79 above xG (8) + Slovenia -0.59 (4) => both attacks regress, total near 2.45."
+    EVIDENCE: | goals minus xG for, per game (finishing luck) | 0.79 | -0.59 | || Switzerland: last 5 WWLWW (5 games, 2.40 points a game, goals 2.6-1.2 per game, xG 1.46-0.79 per game (5 with xG))
+S29. "Case for Switzerland:** Switzerland lead the group with 6 points from 2 after Switzerland 3-0 Scotland (away, 29 Sep, xG 1.5-0.1)"
+    EVIDENCE: 2026-09-29 W 3-0 v Scotland (away, UEFA Nations League, League B,, xG 1.5-0.1) || 2026-09-29 W 2-0 v North Macedonia (home, UEFA Nations League, League B,, xG 1.97-0.68)
+S30. "Switzerland hold 55.0% possession and 61.8 final-third entries against 45.2 allowed, creating 2.80 big chances while Slovenia concede 1.50"
+    EVIDENCE: Switzerland: 55.0 / 585.0 / 88.7 / 4.6 / 61.8 / 51.0 / 54.8 || | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) |
+S31. "Swiss attackers rated 7.42 v 6.84, defenders 7.35 v 7.10"
+    EVIDENCE: | defenders | 7.35 | 7.10 | Switzerland +0.25 | || | attackers | 7.42 | 6.84 | Switzerland +0.58 |
+S32. "Elo 1596 v 1487 and squad value 299.1m / 183.4m = 1.63 agree, and Yakin is unbeaten in two against Slovenia (W1 D1)"
+    EVIDENCE: Elo: Switzerland 1596, Slovenia 1487; gap 109 in favour of Switzerland (moderate gap) || Manager of Switzerland: Murat Yakin (Switzerland, age 52), in charge since 2021-08-09; record at the club W30 D23 L14 (44.78% wins); v Slovenia: W1 D1 L0 in 2 games
+S33. "Switzerland must break a 5-4-1 with a keeper rated 7.68 and cool finishing running +0.79 above xG (Switzerland 4-3 Colombia, home, 7 Jul, xG 0.39-1.09)."
+    EVIDENCE: 2026-07-07 W 4-3 v Colombia (home, FIFA World Cup, Knockout, xG 0.39-1.09) || Switzerland: last 5 WWLWW (5 games, 2.40 points a game, goals 2.6-1.2 per game, xG 1.46-0.79 per game (5 with xG))
+S34. "Case for Slovenia:** Slovenia sit 2nd with 4 points from 2, unbeaten in this group: Slovenia 2-0 North Macedonia (home, 29 Sep, xG 1.97-0.68) and Slovenia 0-0 Scotland (home, 26 Sep, xG 0.47-2.16)"
+    EVIDENCE: 2026-09-29 W 2-0 v North Macedonia (home, UEFA Nations League, League B,, xG 1.97-0.68) || 2026-09-26 D 0-0 v Scotland (home, UEFA Nations League, League B,, xG 0.47-2.16)
+S35. "Slovenia allow 0.65 xG and 0.75 goals a game, keep 9 clean sheets in 20, and 69% of Slovenia's non-wins end level (16 games)"
+    EVIDENCE: half split (20 games): first half 16-7, second half 24-18 (a slow starter or a side that fades shows here) || resilience: {"non_win_sample_size":16,"draw_share_pct":69}; errors leading to a goal for/against 0/1; stakes: {"position":2,"total_teams":4,"zone":"midtable","points_from
+S36. "Oblak saves 74.3% and Bijol wins 3.8 tackles+interceptions"
+    EVIDENCE: Slovenia: players who make the difference and are rarely rested: Žan Vipotnik (F, rating 6.88, xG+xA 0.51/90); Jaka Bijol (D, rating 7.46, tackles+interceptions 3.8/90);  || defenders: Jaka Bijol (age 27) 450 min: tackles+interceptions 3.8/90, rating 7.46 strong form; Žan Karničnik (age 32) 450 min: tackles+interceptions 3.6/90, rating 7.06; 
+S37. "Slovenia's counter runs through Šturm (1.6 key passes, xA 0.24) at Swiss left-back Rodríguez, 34"
+    EVIDENCE: midfielders: Adam Gnezda Čerin (age 27) 345 min: key passes 0.0/90, xA 0.01/90, tackles 2.3/90, rating 6.78; Timi Max Elšnik (age 28) 341 min: key passes 0.5/90, xA 0.02/ || defenders: Manuel Akanji (age 31) 510 min: tackles+interceptions 2.3/90, rating 7.30 strong form; Nico Elvedi (age 30) 510 min: tackles+interceptions 1.8/90, rating 7.60 
+S38. "Set pieces matter because Switzerland win only 49% of aerial duels (110 of 224)"
+    EVIDENCE: | aerial duels won % | 49% (110 of 224) | 50% (92 of 184) | || aerial_estimate: {"sample_size":10,"aerial_duels_won_for":110,"aerial_duels_won_against":114}
+S39. "Slovenia must overcome 42.4% possession and -0.59 finishing."
+    EVIDENCE: Slovenia: 42.4 / 435.1 / 82.8 / 6.1 / 45.2 / 60.0 / 43.0 || | goals minus xG for, per game (finishing luck) | 0.79 | -0.59 |
+S40. "My view:** Switzerland win the attack, style, opposition and environment lenses"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S41. "the chance profile matches the ratings gap (2.80 v 1.50 big chances, attackers 7.42 v 6.84), so Switzerland are better by about 0.95 goals (1.70 v 0.75)"
+    EVIDENCE: | attackers | 7.42 | 6.84 | Switzerland +0.58 | || | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) |
+S42. "Counted: rebound against Switzerland (+0.79 over 8 games cools"
+    EVIDENCE: Switzerland: last 5 WWLWW (5 games, 2.40 points a game, goals 2.6-1.2 per game, xG 1.46-0.79 per game (5 with xG)) || Switzerland: last 10 WWLWWWWDDW (10 games, 2.30 points a game, goals 2.5-1.1 per game, xG 1.46-0.79 per game (5 with xG)); last 5 v the 5 before: +0.20 points a game (ste
+S43. "Slovenia's -0.59 rebounds weakly, Šporar 0.15 xG/90)"
+    EVIDENCE: attackers: Andraž Šporar (age 32) 229 min: xG 0.15/90, goals 0 vs xG 0.38, shots 0.8/90, rating 6.83; Žan Vipotnik (age 24) 183 min: xG 0.38/90, goals 0 vs xG 0.77, shots || | goals minus xG for, per game (finishing luck) | 0.79 | -0.59 |
+S44. "rest to Slovenia (1.8 v 1.5 short-rest ppg)"
+    EVIDENCE: | points per game on short rest / long rest | 1.5 (8 games) / 1.81 (21 games) | 1.8 (10 games) / 1.16 (19 games) | || 2026-09-29 W 3-0 v Scotland (away, UEFA Nations League, League B,, xG 1.5-0.1)
+S45. "head to head to Switzerland (4 wins from 6"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S46. "Switzerland 3-0 Slovenia, home, 8 Sep 2025, xG 1.19-0.81)"
+    EVIDENCE: 2025-09-08 Switzerland 3-0 Slovenia (World Cup Qual. UEFA B): formations 4-4-1-1 v 4-4-2; xG 1.19-0.81; possession None-None; referee None || 2025-10-13 Slovenia 0-0 Switzerland (World Cup Qual. UEFA B): formations 5-4-1 v 4-3-3; xG 0.35-0.46; possession None-None; referee None
+S47. "the opponent's weakness is narrow (Slovenia concede 1.50 big chances)."
+    EVIDENCE: | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) |
+S48. "Expected goals adjustment:** xG anchor home (1.71 + 0.65)/2 = 1.18, away (1.34 + 0.80)/2 = 1.07"
+    EVIDENCE: xG per game: for 1.71, against 0.80 over 8 games || xG per game: for 1.34, against 0.65 over 4 games
+S49. "Home: 1.18 x 1.22 (venue) = 1.44, +0.26 for 2.80 big chances against 1.50 conceded and 61.8 v 45.2 entries = 1.70"
+    EVIDENCE: | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) | || Switzerland: 1.71 / 2.25 / 8.40 / 2.80 / 26.20 / 0.87
+S50. "Away: 1.07 x 0.82 = 0.88, -0.13 for a 0.75-goals attack with Šporar 0.15 xG/90 and Vipotnik 0.38 (both 0 goals) = 0.75"
+    EVIDENCE: attackers: Andraž Šporar (age 32) 229 min: xG 0.15/90, goals 0 vs xG 0.38, shots 0.8/90, rating 6.83; Žan Vipotnik (age 24) 183 min: xG 0.38/90, goals 0 vs xG 0.77, shots || Slovenia: players who make the difference and are rarely rested: Žan Vipotnik (F, rating 6.88, xG+xA 0.51/90); Jaka Bijol (D, rating 7.46, tackles+interceptions 3.8/90); 
+S51. "Šeško's share is 0.00 xG/90, capped at 0."
+    EVIDENCE: attackers: Andraž Šporar (age 32) 229 min: xG 0.15/90, goals 0 vs xG 0.38, shots 0.8/90, rating 6.83; Žan Vipotnik (age 24) 183 min: xG 0.38/90, goals 0 vs xG 0.77, shots || midfielders: Adam Gnezda Čerin (age 27) 345 min: key passes 0.0/90, xA 0.01/90, tackles 2.3/90, rating 6.78; Timi Max Elšnik (age 28) 341 min: key passes 0.5/90, xA 0.02/
+S52. "Own odds:** home 1.68, draw 4.04, away 6.39"
+    EVIDENCE: own fair odds: home 1.68, draw 4.04, away 6.39; logged bet: (read from the answer); calc.py's suggestion: Switzerland to win (59.6%).
+S53. "Bookmaker: 1.42 / 5.08 / 10.10 (70.4% / 19.7% / 9.9%)"
+    EVIDENCE: BOOKMAKER ODDS (a benchmark only, never an input to your estimate; margin removed): home 70.4% / draw 19.7% / away 9.9%
+S54. "Where I differ and why: 10.8 points below the market on Switzerland, which prices the 109 Elo gap, the 1.63x squad value and two Swiss 3-0s"
+    EVIDENCE: Elo: Switzerland 1596, Slovenia 1487; gap 109 in favour of Switzerland (moderate gap) || midfielders: Adam Gnezda Čerin (age 27) 345 min: key passes 0.0/90, xA 0.01/90, tackles 2.3/90, rating 6.78; Timi Max Elšnik (age 28) 341 min: key passes 0.5/90, xA 0.02/
+S55. "I cut it for finishing regression (+0.79 over 8 games), a 5-4-1 with Oblak saving 74.3% and the 0-0 last meeting"
+    EVIDENCE: | goals minus xG for, per game (finishing luck) | 0.79 | -0.59 | || | goalkeeper save % (a rate far from about 72% rarely lasts) | 68.6% (24 saves from 35 shots on target) | 74.3% (26 saves from 35 shots on target) |
+S56. "I am 5.1 up on the draw and 5.8 up on Slovenia, whose non-wins are 69% draws"
+    EVIDENCE: resilience: {"non_win_sample_size":16,"draw_share_pct":69}; errors leading to a goal for/against 0/1; stakes: {"position":2,"total_teams":4,"zone":"midtable","points_from || resilience: {"non_win_sample_size":16,"draw_share_pct":69}
+S57. "Samples of 8 and 4 games are thin."
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S58. "Best bet:** Switzerland to win (59.6%), confidence medium"
+    EVIDENCE: own fair odds: home 1.68, draw 4.04, away 6.39; logged bet: (read from the answer); calc.py's suggestion: Switzerland to win (59.6%). || calc.py results for them: home 59.6% / draw 24.8% / away 15.7%; over 2.5 45.5%; both teams to score 44.5%.
+S59. "Why this bet: my most likely single outcome, matching my expected score, backed by 88.7% passing and 2.80 big chances against 1.50 conceded"
+    EVIDENCE: | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) | || | pass accuracy % / long-ball share % | 88.7% / 4.6% | 82.8% / 6.1% |
+S60. "What would change my mind: Switzerland resting two of Amdouni, Ndoye, Elvedi or Kobel, or Slovenia leaving the back five"
+    EVIDENCE: Switzerland: best rated Nico Elvedi 7.60, Zeki Amdouni 7.42, Dan Ndoye 7.40; weak form (under 6.6, likely to underperform): Fabian Rieder 6.40, Djibril Sow 6.53, Ardon Ja || Switzerland outfield regulars to place on a flank (left back, right back, left or right wing, centre): Manuel Akanji (D, 510 min, rating 7.3, KP 0.4/90, wide-back starts 
+S61. "Draw risk:** 24.8% against the 23-25% base"
+    EVIDENCE: 2025-03-23 W 1-0 v Slovakia (home, UEFA Nations League, Promotion) || | bench value / starting XI value | 65200000 / 218700000 (bench is 30% of the XI) | 18155000 / 78145000 (bench is 23% of the XI) |
+S62. "Up: 69% of Slovenia's non-wins end level (16 games), 50% of Switzerland's (10), the 5-4-1 block, the 0-0 last meeting, total expected goals 2.45"
+    EVIDENCE: resilience: {"non_win_sample_size":10,"draw_share_pct":50}; errors leading to a goal for/against 0/1; stakes: {"position":1,"total_teams":4,"zone":"top-of-table","points_ || resilience: {"non_win_sample_size":16,"draw_share_pct":69}; errors leading to a goal for/against 0/1; stakes: {"position":2,"total_teams":4,"zone":"midtable","points_from
+S63. "Down: the 109 Elo gap and 2.80 Swiss big chances"
+    EVIDENCE: | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) | || Switzerland: 1.71 / 2.25 / 8.40 / 2.80 / 26.20 / 0.87
+S64. "The bet clears 50%, so no draw cover."
+    EVIDENCE: | aerial duels won % | 49% (110 of 224) | 50% (92 of 184) | || resilience: {"non_win_sample_size":10,"draw_share_pct":50}; errors leading to a goal for/against 0/1; stakes: {"position":1,"total_teams":4,"zone":"top-of-table","points_
+S65. "Underlying evidence:** Switzerland create 2.80 big chances against the 1.50 Slovenia concede"
+    EVIDENCE: | big chances created / conceded per game | 2.80 / 1.50 (10 games) | 2.12 / 1.50 (8 games) | || Switzerland: 1.71 / 2.25 / 8.40 / 2.80 / 26.20 / 0.87
+S66. "Kobel 68.6% saves below par, Oblak 74.3% above"
+    EVIDENCE: | goalkeeper save % (a rate far from about 72% rarely lasts) | 68.6% (24 saves from 35 shots on target) | 74.3% (26 saves from 35 shots on target) | || Switzerland: 2.4 / 3.5 / 68.6
+S67. "short-rest points 1.5 for Switzerland (8 games) v 1.8 for Slovenia (10)"
+    EVIDENCE: | points per game on short rest / long rest | 1.5 (8 games) / 1.81 (21 games) | 1.8 (10 games) / 1.16 (19 games) | || 2025-10-13 Slovenia 0-0 Switzerland (World Cup Qual. UEFA B): formations 5-4-1 v 4-3-3; xG 0.35-0.46; possession None-None; referee None
+S68. "Slovenia 2.0 yellows a game, Switzerland 0.0."
+    EVIDENCE: | yellow / red cards per game | 0.0 / 0.0 | 2.0 / 0.0 | || shared: match_type="competitive"; rest_comparison={"own_rest_days":4,"opponent_rest_days":4,"more_rested":"even"}; experience_comparison={"own_average_age":26.6,"opponent
+S69. "From the report:** head to head 4-1-1 from 6 meetings"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S70. "formations 4-2-3-1 v 5-4-1"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S71. "rotation last match 1 of 11 (Switzerland) and 3 of 11 (Slovenia)"
+    EVIDENCE: Switzerland: matches after this one: North Macedonia on 2026-10-06 (3 days after the previous match); Slovenia on 2026-11-13 (38 days after the previous match); changed 1 || Slovenia: matches after this one: Scotland on 2026-10-06 (3 days after the previous match); Switzerland on 2026-11-13 (38 days after the previous match); changed 3 of 11 
+S72. "both next matches 3 days after."
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S73. "Own knowledge (unverified):** flank placements"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S74. "Šeško is Slovenia's first-choice striker, conflicting with the report's fringe label."
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S75. "Risks and data gaps:** lineups unconfirmed"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S76. "Amenda, Zakaria and Vargas have UNKNOWN roles and unknown replacements, so no adjustment was made"
+    EVIDENCE: injury and suspension returns: Aurèle Amenda: Calf Injury, expected back 2026-10-20 (AFTER this match); Denis Zakaria: Groin Injury, expected back 2026-10-10 (AFTER this  || - Aurèle Amenda: Calf Injury, back 2026-10-20; role UNKNOWN, value unknown; NOT in the squad list: starter status unknown, never call him a key player
+S77. "Šeško's importance is disputed between report and own knowledge"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S78. "samples are 8 Swiss xG games and 4 Slovenian"
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)
+S79. "no venue split or bookmaker goal prices in the report."
+    EVIDENCE: NO MATCHING SHEET LINE (check that this is opinion or derived, and labelled)

@@ -129,3 +129,13 @@ def test_get_club_strength_ratings_none_for_unmatched_side(monkeypatch):
     result = asyncio.run(get_club_strength_ratings("Arsenal", "Some Unrelated Club"))
     assert result["home"] is not None
     assert result["away"] is None
+
+
+def test_parse_rows_reads_the_new_su_data_layout_and_still_reads_the_old_one():
+    arsenal = ["arsenal", "Arsenal", "ARS", "#EF0107", "#FFFFFF", "", 0, 89.2, 87.0, 91.1, 3, 9, 1, 1, 0, -0.4, [896, 893], "#EF0107", "#EF0107"]
+    lille = ["lille", "Lille", "LIL", "#E01E13", "#FFFFFF", "", 0, 73.8, 73.4, 74.2, 44, 40, 1, 1, 0, -0.4, [700, 701], "#E01E13", "#E01E13"]
+    html = '<script type="application/json" id="su-data">' + json.dumps({"analytics": {"site": "7"}, "clubs": [arsenal, lille, ["junk"]]}) + "</script>"
+    rows = _parse_rows(html)
+    assert [(r.name, r.overall, r.attack, r.defense, r.rank, r.strength_change) for r in rows] == [("Arsenal", 89.2, 87.0, 91.1, 3, -0.4), ("Lille", 73.8, 73.4, 74.2, 44, -0.4)]
+    assert _parse_rows('<script type="application/json" id="su-data">not json</script>') == [] and _parse_rows("<html></html>") == []
+    assert _find_rating(rows, "Arsenal").overall == 89.2

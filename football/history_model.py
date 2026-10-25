@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from .data_dir import data_dir
+from .data_dir import data_dir, seed_path
 from .national_elo import _normalize, _NAME_ALIASES
 
 MAX_GOALS = 10
@@ -70,7 +70,7 @@ ELO_HOME_ADV = 100.0
 
 
 def _model_path() -> Path:
-    return data_dir() / "history-model.json"
+    return seed_path("history-model.json")
 
 
 def _key(name: str) -> str:
