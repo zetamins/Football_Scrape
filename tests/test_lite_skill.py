@@ -200,15 +200,6 @@ Own knowledge (unverified): none.
 Risks: lineups predicted."""
 
 
-def _val(ans, rp):
-    """Give an answer written for a report WITH odds the Value label its edge earns (the fixture writes UNMEASURED)."""
-    for _s, _n, d in check.check(ans, rp):
-        m = re.search(r"write Value: (\w+)", d or "")
-        if m:
-            return ans.replace("Value: UNMEASURED", f"Value: {m.group(1)}")
-    return ans
-
-
 def _setup(tmp_path, lh=1.5, la=1.1, bet=None, odds=None, report_odds=True):
     from test_oracle import _report
     rep = _report()
@@ -616,7 +607,7 @@ def test_checker_enforces_the_bet_rules_learned_from_the_premier_league_misses(t
 
 def test_no_prediction_is_saved_the_checker_and_scorer_read_the_finished_answer(tmp_path):
     rep, home, away, rp, log = _setup(tmp_path, lh=1.5, la=1.1, bet=None)
-    ans = _val(_good_answer(home, away, 1.5, 1.1), rp) + TEAM_NEWS_ADJ
+    ans = _good_answer(home, away, 1.5, 1.1) + TEAM_NEWS_ADJ
     # the checker needs no log: it rebuilds the calculator numbers from the headline
     rows = check.check(ans, rp)
     assert [r for r in rows if r[0] == "FAIL"] == [], rows
@@ -926,7 +917,7 @@ def test_facts_slices_for_specialists_hide_the_odds_and_split_the_sheet(tmp_path
     assert "BOOKMAKER ODDS" not in full and "BOOKMAKER ODDS" not in news and "BOOKMAKER ODDS" not in tact        # no price anywhere, even with odds in the report
     assert "# ABSENCES AND REPLACEMENTS" in news and "# SCOUTING REPORT" not in news and "# SCOUTING REPORT" in tact and "# ABSENCES AND REPLACEMENTS" not in tact
     assert "KEY METRICS" in news and "KEY METRICS" in tact and len(news) < len(full) and len(tact) < len(full)
-    assert set(facts.GROUPS) == {"team-news", "tactical", "stats", "context", "advocate", "home", "away", "draw", "goals", "underdog", "state", "chaos", "market", "decider"}
+    assert set(facts.GROUPS) == {"team-news", "tactical", "stats", "context", "advocate", "home", "away", "draw", "goals", "underdog", "state", "chaos", "decider"}
 
 
 def test_specialist_skills_exist_and_the_checker_requires_the_decider_to_cite_notes(tmp_path):
@@ -977,7 +968,7 @@ def test_collection_saves_every_step_to_md_and_resumes_after_a_silent_death(tmp_
                 return 0
         assert prompt.startswith("Use the football-match-lite skill in collection mode")
         (run / "decision.md").write_text("xg 1.5-1.1")
-        (run / "answer.md").write_text(_val(_good_answer(home, away, 1.5, 1.1), str(run / "report.json")) + TEAM_NEWS_ADJ + "\nSpecialist notes: the team-news, tactical-matchup, underlying-stats and context-motivation notes each favour the home side (strength 2); I accepted every xG change.")
+        (run / "answer.md").write_text(_good_answer(home, away, 1.5, 1.1) + TEAM_NEWS_ADJ + "\nSpecialist notes: the team-news, tactical-matchup, underlying-stats and context-motivation notes each favour the home side (strength 2); I accepted every xG change.")
         return 0
 
     monkeypatch.setattr(rc, "run_model", fake)
@@ -1362,7 +1353,7 @@ def test_review_stage_runs_two_reviewers_saves_verdicts_resumes_and_has_the_fix_
     (run / "report.json").write_text(Path(rp).read_text())
     for n in ("team-news", "tactical-matchup", "underlying-stats", "context-motivation"):
         (run / "notes" / f"{n}.md").write_text(_note(specialist=n, match=f"{home} v {away}"))
-    (run / "answer.md").write_text(_val(_good_answer(home, away, 1.5, 1.1), str(run / "report.json")) + TEAM_NEWS_ADJ + "\nSpecialist notes: the team-news, tactical-matchup, underlying-stats and context-motivation notes each favour the home side (strength 2); I accepted every xG change.")
+    (run / "answer.md").write_text(_good_answer(home, away, 1.5, 1.1) + TEAM_NEWS_ADJ + "\nSpecialist notes: the team-news, tactical-matchup, underlying-stats and context-motivation notes each favour the home side (strength 2); I accepted every xG change.")
     calls = []
     state = {"first_reviewer_died": False}
 
@@ -1414,23 +1405,25 @@ def test_note_sums_must_add_up():
     assert nc.broken_sums("0.10 - 0.05 = 0.05; -0.10 + 0.05 = -0.05") == []
 
 
-def test_real_value_needs_edge_five_and_named_evidence(tmp_path):
+def test_value_is_always_unmeasured_even_with_odds_in_the_report(tmp_path):
+    # the report is blinded before check.py ever sees it, so a Value label other than UNMEASURED always FAILs, odds or not
     rep, home, away, rp, log = _setup(tmp_path, lh=2.3, la=0.8, bet=None, report_odds=True)
     base = _good_answer(home, away, 2.3, 0.8).replace("Value: UNMEASURED - no market price to measure an edge.", "")
     names = lambda a: {n: s for s, n, _ in check.check(a, rp, log)}
-    assert check.BET_MIN_EDGE == 5.0 and check.BET_MIN_EDGE_FAVOURITE == 7.0 and check.MARKET_MOVE_CAP == 0.25
     got = names(base + "\nValue: REAL - edge +9.0 points (your 70% v the market's fair 61%).")
-    assert got.get("the value label follows the edge") != "ok"      # too small an edge or no named evidence: never a clean REAL
-    got2 = names(base + "\nValue: NONE - no edge.\nEvidence the market lacks: none.")
-    assert "Value: REAL names the evidence the market lacks" not in got2
+    assert got.get("the analysis is price-free, so Value is always UNMEASURED") == "FAIL"
+    got2 = names(base + "\nValue: UNMEASURED - no market price to measure an edge.")
+    assert got2.get("the value label is UNMEASURED (price-free)") == "ok"
 
 
-def test_calc_market_reports_the_move_from_the_anchor():
+def test_calc_implied_lams_still_works_for_scores_market_only_scoreboard():
+    # the --market CLI flag was removed (it let a price act as the agent's own anchor); implied_lams() itself
+    # stays, since score.py's evaluation-only comparison against the market still calls it directly
+    lh, la, err = calc.implied_lams(60.5, 22.4, 17.1)
+    assert abs(lh - 2.0) < 0.05 and err < 1.0
     import subprocess
-    out = subprocess.run([sys.executable, str(SKILL / "scripts" / "calc.py"), "--market", "60.5", "22.4", "17.1", "--lam", "2.3", "0.9"], capture_output=True, text=True).stdout
-    assert "Your move from the anchor: home +0.3" in out and "beyond 0.25" in out and "half your move" in out
-    ok = subprocess.run([sys.executable, str(SKILL / "scripts" / "calc.py"), "--market", "60.5", "22.4", "17.1", "--lam", "2.0", "0.9"], capture_output=True, text=True).stdout
-    assert "inside 0.25, fine" in ok
+    out = subprocess.run([sys.executable, str(SKILL / "scripts" / "calc.py"), "--market", "60.5", "22.4", "17.1"], capture_output=True, text=True)
+    assert out.returncode != 0 or "unrecognized" in out.stderr.lower()      # the flag no longer exists
 
 
 def test_draw_calibration_says_when_draws_are_underrated():
@@ -1518,14 +1511,12 @@ def test_longshot_calibration_flags_overrated_longshots():
     assert score.longshot_calibration([({"p": [0.5, 0.3, 0.2]}, 1, 0)]) == "n/a"
 
 
-def test_favourite_longshot_reference_in_market_mode():
+def test_favourite_longshot_adjustment_formula():
+    # a pure math utility kept for score.py's longshot-calibration reference; no CLI surface any more (--market was removed)
     adj = calc.flb_adjust([85.1, 10.4, 4.5])
     assert abs(sum(adj) - 1) < 1e-9 and adj[0] > 0.851 and adj[2] < 0.045            # heavy favourite up, longshot down
     even = calc.flb_adjust([34, 33, 33])
     assert abs(even[0] - 0.34) < 0.01
-    import subprocess
-    out = subprocess.run([sys.executable, str(SKILL / "scripts" / "calc.py"), "--market", "85.1", "10.4", "4.5"], capture_output=True, text=True).stdout
-    assert "Longshot-corrected reference" in out and "86.9 / 9.3 / 3.7" in out and "the anchor stays the market-implied expected goals" in out
 
 
 def test_news_window_marks_stale_and_late_reports_and_blocks_high_confidence(tmp_path):
@@ -2250,9 +2241,9 @@ def test_run_model_builds_a_headless_claude_command_for_the_claude_runner(tmp_pa
     got = args.read_text().splitlines()
     assert got[0] == "-p" and got[1].startswith("do the step") and "Read this file first: /x/evidence/a.md" in "\n".join(got)
     assert got[got.index("--model") + 1] == "haiku" and "acceptEdits" in got and "bypassPermissions" not in got
-    deny = got[got.index("--disallowedTools") + 1:]                                        # a hard block on reading script source or calling the scripts' functions from python -c
-    assert "Read(**/scripts/*.py)" in deny and "Bash(cat *scripts/*.py*)" in deny and "Bash(python3 -c *open(*)" in deny and "Bash(python3 -c *import calc*)" in deny
-    assert not any("python3 -c *print" in d or d == "Bash(python3:*)" for d in deny)      # plain python3 -c arithmetic and the scripts themselves still run
+    deny = got[got.index("--disallowedTools") + 1:]                                        # a hard block on reading script source or calling the scripts' functions from python (-c, stdin heredoc, or a script file)
+    assert "Read(**/scripts/*.py)" in deny and "Bash(cat *scripts/*.py*)" in deny and "Bash(python3 *open(*)" in deny and "Bash(python3 *import calc*)" in deny
+    assert not any("python3 *print" in d or d == "Bash(python3:*)" for d in deny)      # plain python3 -c arithmetic and the scripts themselves still run
 
 
 def test_claude_runner_captures_the_full_stream_unless_switched_off(tmp_path, monkeypatch):

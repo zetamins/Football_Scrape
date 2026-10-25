@@ -217,29 +217,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--match", default="", help="match name for the log")
     ap.add_argument("--kickoff", default="", help="kickoff date (YYYY-MM-DD) for the log")
     ap.add_argument("--bet", default="", help="the bet YOU chose, for the log (default: the suggestion)")
-    ap.add_argument("--market", nargs=3, type=float, metavar=("HOME_PCT", "DRAW_PCT", "AWAY_PCT"), help="print the expected goals that reproduce the market's fair 1X2 prices: the ANCHOR for your own estimate when the report has odds")
-    ap.add_argument("--over25", type=float, metavar="PCT", help="with --market: the market's fair over 2.5 percentage, to pin the total")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    if args.market:
-        try:
-            lh, la, err = implied_lams(*args.market, over25=(args.over25 / 100 if args.over25 else None))
-        except (ValueError, ZeroDivisionError) as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 2
-        t = sum(args.market)
-        a = analyse(lh, la)
-        print(f"Market-implied expected goals (the anchor when the report has odds): {lh} - {la}  (total {lh + la:.2f})")
-        print(f"These reproduce the market's fair prices {100 * args.market[0] / t:.1f} / {100 * args.market[1] / t:.1f} / {100 * args.market[2] / t:.1f} as {100 * a['home']:.1f} / {100 * a['draw']:.1f} / {100 * a['away']:.1f} (worst error {err} points)"
-              + (f"; over 2.5 {100 * a['over_2_5']:.1f}% v the market's {args.over25:.1f}%" if args.over25 else ""))
-        adj = flb_adjust(list(args.market))
-        print(f"Longshot-corrected reference (bookmakers over-price longshots and under-price heavy favourites: priced 77% won 82%, priced under 10% won 4% in 17,793 matches): {100 * adj[0]:.1f} / {100 * adj[1]:.1f} / {100 * adj[2]:.1f}. Use it to judge an edge on a heavy favourite or a longshot; the anchor stays the market-implied expected goals.")
-        if args.lam:
-            mh, ma = args.lam[0] - lh, args.lam[1] - la
-            big = [n for n, m in (("home", mh), ("away", ma)) if abs(m) > 0.25]
-            print(f"Your move from the anchor: home {mh:+.2f}, away {ma:+.2f}" + (f" - {' and '.join(big)} beyond 0.25: needs an 'Expected goals adjustment:' line, or pull it back (half your move would be {lh + mh / 2:.2f} - {la + ma / 2:.2f})" if big else " - inside 0.25, fine"))
-        print("Move away from this anchor only for evidence the market may lack, with the arithmetic; tests on 28 matches found the market alone beat the analyst alone (Brier 0.481 v 0.523).")
-        return 0
     try:
         if args.src:
             sources = [(n, float(h), float(a), float(w)) for n, h, a, w in args.src]

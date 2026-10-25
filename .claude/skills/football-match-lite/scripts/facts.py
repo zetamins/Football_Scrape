@@ -1486,6 +1486,32 @@ def scout_section(r: dict, m: dict, ins: dict, forms: dict, home, away, profiles
     return out
 
 
+def chaos_exposure(ins: dict, m: dict) -> dict:
+    """The chaos advocate's exposure tally and closeness, as numbers (no text): how many of the comparable error/finishing/keeper factors point at
+    each side, and the rating-anchor gap. chaos_section() calls this for its printed EXPOSURE TALLY line, so the sheet's tally and this function
+    can never disagree on the same report. A 2026-10-25 retroactive check against Palace, Hull and Man Utd's real pre-match data found the tally's
+    DIRECTION unreliable (it named the side that went on to benefit, not suffer, in 2 of 3 cases) -- not wired into any pick or stake decision, by
+    design, kept only for the advocate's own prose and for backtesting. Returns {"exposed": {"home": int, "away": int}, "gap": float|None}."""
+    def side_rate(side, block, key, n_key="sample_size"):
+        b = d(ins.get(f"{side}_{block}"))
+        n = num(b.get(n_key))
+        v = num(b.get(key))
+        return (v / n, int(n)) if n and v is not None else (None, 0)
+    exposed = {"home": 0, "away": 0}
+    for block, key in (("advanced_stats", "errors_lead_to_goal_against"), ("advanced_stats", "errors_lead_to_shot_against"),
+                       ("big_chances_estimate", "big_chances_missed_for"), ("fouls_estimate", "fouls_committed_for"),
+                       ("advanced_stats", "penalties_awarded_against")):
+        vals = {sd: side_rate(sd, block, key) for sd in ("home", "away")}
+        if all(v[0] is not None for v in vals.values()) and abs(vals["home"][0] - vals["away"][0]) > 1e-9:
+            exposed[max(vals, key=lambda sd: vals[sd][0])] += 1
+    keep = {sd: num(d(ins.get(f"{sd}_goalkeeping_estimate")).get("save_pct")) for sd in ("home", "away")}
+    if all(v is not None for v in keep.values()) and abs(keep["home"] - keep["away"]) > 1e-9:
+        exposed[min(keep, key=keep.get)] += 1
+    ra = rating_anchor(ins, m)
+    gap = abs(ra[0] - ra[1]) if ra else None
+    return {"exposed": exposed, "gap": gap}
+
+
 def chaos_section(m: dict, ins: dict, home, away) -> list[str]:
     """The chaos advocate's slice: what decides matches the forecast cannot see (errors that gift goals, a keeper's day, set pieces and penalties, cards),
     per side, so the advocate can say which side is more exposed and whether that widens the draw or the underdog. The MW8 misses of Oct 2026 (Villa 2-1 City,
@@ -1503,7 +1529,8 @@ def chaos_section(m: dict, ins: dict, home, away) -> list[str]:
     for label, block, key, worse in (("errors leading to a goal against, a game", "advanced_stats", "errors_lead_to_goal_against", "high"),
                                      ("errors leading to a shot against, a game", "advanced_stats", "errors_lead_to_shot_against", "high"),
                                      ("big chances missed, a game (finishing that can go cold)", "big_chances_estimate", "big_chances_missed_for", "high"),
-                                     ("fouls committed, a game (free kicks and penalties given away)", "fouls_estimate", "fouls_committed_for", "high")):
+                                     ("fouls committed, a game (free kicks and penalties given away)", "fouls_estimate", "fouls_committed_for", "high"),
+                                     ("penalties conceded, a game (a converted one is close to a certain goal)", "advanced_stats", "penalties_awarded_against", "high")):
         vals = {sd: side_rate(sd, block, key) for sd in ("home", "away")}
         if all(v[0] is None for v in vals.values()):
             continue
@@ -1532,11 +1559,11 @@ def chaos_section(m: dict, ins: dict, home, away) -> list[str]:
     if any(cards.values()):
         rows.append("cards a game: " + "; ".join(f"{names[sd]} {fmt(num(c.get('yellow_per_game')))} yellow, {fmt(num(c.get('red_per_game')))} red" for sd, c in cards.items() if c))
     out += rows or ["no chaos evidence in the report"]
-    out.append(f"EXPOSURE TALLY (factors where one side is worse, out of the comparable ones above): {home} {exposed['home']}, {away} {exposed['away']}")
-    ra = rating_anchor(ins, m)
-    if ra:
-        gap = abs(ra[0] - ra[1])
-        out.append(f"how close the forecast is: rating-anchor expected goals {ra[0]:.2f}-{ra[1]:.2f}, gap {gap:.2f}" + (" (a close game: one error, save or penalty is more likely to decide it)" if gap < 0.35 else " (a clear favourite: chaos must be large to overturn it)"))
+    tally = chaos_exposure(ins, m)                          # the authoritative count (also used by anything outside this slice): keeps the printed tally and chaos_exposure() from drifting apart
+    out.append(f"EXPOSURE TALLY (factors where one side is worse, out of the comparable ones above): {home} {tally['exposed']['home']}, {away} {tally['exposed']['away']}")
+    if tally["gap"] is not None:
+        ra = rating_anchor(ins, m)
+        out.append(f"how close the forecast is: rating-anchor expected goals {ra[0]:.2f}-{ra[1]:.2f}, gap {tally['gap']:.2f}" + (" (a close game: one error, save or penalty is more likely to decide it)" if tally["gap"] < 0.35 else " (a clear favourite: chaos must be large to overturn it)"))
     out.append("How to read it: these factors decided Villa 2-1 City, Palace 0-2 Newcastle and Hull 1-1 Brentford (Oct 2026) against the side with the better chances. They are rare and streaky, "
                "so they argue a route (a gift goal, a keeper's day, a set piece or penalty, a red card) and whether it widens the draw or the underdog; they never move expected goals.")
     return out
@@ -2237,7 +2264,6 @@ GROUPS = {
     "underdog": ("key_metrics_table", "lineups_section", "underdog_section", "underdog_strength", "press_section", "player_errors_section", "match_stat_profile"),           # the underdog advocate's slice: who the underdog is from the ratings and the xG anchors, the favourite's defensive errors and its record once the opponent has scored
     "state": ("key_metrics_table", "state_section", "press_section", "player_errors_section", "match_stat_profile"),                  # the game-state advocate's slice: half-time states (who holds a lead, who comes back), goals by half, defensive errors, the shapes (a back three) and a plain reading of how the game starts
     "chaos": ("key_metrics_table", "lineups_section", "chaos_section", "player_errors_section", "underdog_strength"),        # the chaos advocate's slice: errors, keepers, set pieces and penalties, cards; what the forecast cannot see
-    "market": ("key_metrics_table", "shrink_section"),                          # the market advocate's slice: the bookmaker's fair prices, the data-only challenge, the shrunk xG and the key metrics (the only advocate that sees odds)
     "decider": ("key_metrics_table", "lineups_section", "shrink_section", "underdog_strength", "press_section", "player_errors_section", "match_stat_profile"),                       # the decider's own slice: the header, the key metrics and the bookmaker odds (a benchmark only)
 }
 ONLY: set[str] | None = None            # set by --section: print only these groups (plus the match header and the key metrics)
@@ -2247,7 +2273,7 @@ def _wanted(label: str) -> bool:
     if ONLY is None:
         return True
     if label == "bookmaker odds and head to head":
-        return "decider" in ONLY or "market" in ONLY        # a specialist never sees the bookmaker's odds (they would anchor its judgement); only the decider does
+        return "decider" in ONLY        # no agent but the decider ever sees the bookmaker's odds, and even there it is a post-hoc benchmark only (there is no market advocate any more)
     return label.endswith(" basics") or label == "key_metrics_table" or any(label in GROUPS.get(g, ()) for g in ONLY)
 
 

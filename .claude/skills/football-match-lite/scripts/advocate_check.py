@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Mechanical checker for an advocate brief (Python standard library only).
 
-    python3 advocate_check.py advocates/home.md report.json home      (side: home, away, draw, goals, underdog, state, chaos or market)
+    python3 advocate_check.py advocates/home.md report.json home      (side: home, away, draw, goals, underdog, state or chaos)
 
 An advocate argues the strongest honest case for ONE side, from the specialist notes and the sheet slice. The brief has a fixed format. This checks the format and the
 hard rules; it does not judge the football. Rules: every field present; the side and team match the report; the case says something concrete (25 words or more); 3 to 8 evidence items, each
-with a number (4 or more for the draw and goals advocates, whose brief must link signals); a rebuttal to the other side's best argument; one thing to verify; no bookmaker odds, probabilities or bets (the MARKET advocate is the one exception: it sees the odds and must quote the market's fair price for at least one outcome).
+with a number (4 or more for the draw, goals, underdog, state and chaos advocates, whose brief must link signals); a rebuttal to the other side's best argument; one thing to verify; no
+bookmaker odds, probabilities or bets (there is no market advocate any more: every side is price-free).
 """
 
 from __future__ import annotations
@@ -94,7 +95,7 @@ def check(text: str, report_path: str, side: str) -> list[tuple[str, str, str]]:
     except (OSError, ValueError, AttributeError):
         h = a = ""
     add("ok" if f["advocate"].strip(" .").lower() == side else "FAIL", f"the advocate field says {side}", f["advocate"])
-    if side in ("draw", "goals", "underdog", "state", "chaos", "market"):
+    if side in ("draw", "goals", "underdog", "state", "chaos"):
         add("ok" if h and a and norm(h) in norm(f["team"]) and norm(a) in norm(f["team"]) else "FAIL", "the match line names both teams of the report", f"'{f['team']}' v {h} / {a}")
     else:
         team = h if side == "home" else a
@@ -103,7 +104,7 @@ def check(text: str, report_path: str, side: str) -> list[tuple[str, str, str]]:
     add("ok" if n >= 25 else "FAIL", "the case says something concrete (25 words or more)", f"{n} words")
     items = [x.strip() for x in re.split(r"\s*(?:;|\|\||\n|\b\d\)|(?<=\.)\s+(?=[A-Z]))\s*", f["evidence"]) if x.strip()]
     withnum = [x for x in items if re.search(r"\d", x)]
-    need = 4 if side in ("draw", "goals", "underdog", "state", "chaos", "market") else 3
+    need = 4 if side in ("draw", "goals", "underdog", "state", "chaos") else 3
     add("ok" if need <= len(withnum) <= 8 else "FAIL", f"{need} or more evidence items, each with a number", f"{len(withnum)} items with a number")
     for k in ("must_overcome", "rebuttal", "verify"):
         add("ok" if len(f[k].split()) >= 4 else "FAIL", f"{k} says something concrete", f"{len(f[k].split())} words")
@@ -128,36 +129,23 @@ def check(text: str, report_path: str, side: str) -> list[tuple[str, str, str]]:
         routes = ("error swing", "keeper swing", "set-piece swing", "discipline swing", "low chaos")
         got = [x for x in routes if x in re.sub(r"\s+", " ", f["case"].lower())]
         add("ok" if got else "FAIL", "the case starts with one route: " + " / ".join(x.upper() for x in routes), got[0].upper() if got else "none of the five routes named")
-        ok_side = (h and norm(h) in norm(f["case"])) or (a and norm(a) in norm(f["case"]))
-        add("ok" if ok_side else "FAIL", "the case names the side more exposed to chaos", "" if ok_side else "neither team is named in the case")
+        near_exposed = lambda team: bool(team) and bool(re.search(rf"{re.escape(team)}[^.\n]{{0,60}}\bexpos|\bexpos[^.\n]{{0,60}}{re.escape(team)}", f["case"], re.I))
+        ok_side = near_exposed(h) or near_exposed(a)
+        add("ok" if ok_side else "FAIL", "the case names the side more exposed to chaos", "" if ok_side else "no team name appears near 'exposed' in the case (a name mentioned only in a rebuttal or comparison clause does not count)")
         ok_eff = re.search(r"\b(draw|underdog|favourite|favorite)\b", f["case"], re.I)
         add("ok" if ok_eff else "FAIL", "the case says whether chaos widens the draw, the underdog or the favourite", "" if ok_eff else "no draw / underdog / favourite effect named")
-        moves = re.search(r"expected goals?\s+(?:up|down|by|to|from|\+|-)|\bxg\s*[+-]\s*\d|\b[+-]\d\.\d+\s*(?:goals|xg)\b", text, re.I)
+        moves = re.search(r"expected goals?\s+(?:up|down|by|to|from|\+|-)|\bxg\s*[+-]\s*\d|\b[+-]\d\.\d+\s*(?:goals|xg)\b"
+                          r"|\b(?:price[sd]?|rate[sd]?|value[sd]?|push(?:es|ed)?|moves?|moved|shifts?|shifted|cuts?|raises?|lowers?|sets?)\b[^.\n]{0,50}\b(?:attack|defen[cs]e|total)\b[^.\n]{0,20}\b(?:at|to|up to|down to)\s+\d+\.\d{1,2}\b",
+                          text, re.I)
         add("FAIL" if moves else "ok", "no expected-goals move (chaos argues a route only)", moves.group(0) if moves else "")
-    if side == "market":
-        try:
-            spec = importlib.util.spec_from_file_location("check_for_market", Path(__file__).with_name("check.py"))
-            ck = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(ck)
-            fair = ck.bookmaker(json.loads(Path(report_path).read_text(encoding="utf-8")))
-        except Exception:                                                      # noqa: BLE001 - no odds readable, nothing to quote
-            fair = None
-        if fair:
-            quoted = [x for x in fair if re.search(rf"(?<![\d.]){x:.1f}(?!\d)|(?<![\d.]){x:.0f}(?![\d.])\s*%", f["case"] + " " + f["evidence"])]
-            add("ok" if quoted else "FAIL", "the brief quotes the market's fair price for an outcome", "" if quoted else f"the fair prices are {fair[0]:.1f} / {fair[1]:.1f} / {fair[2]:.1f}: quote at least one")
-        else:
-            add("FAIL", "the report has bookmaker odds for the market advocate", "no odds: the market advocate only runs when the report has them")
-        bets = re.search(r"\bbest bet\b|\bvalue bet\b|\bstak(?:e|ing)\b", text, re.I)
-        add("FAIL" if bets else "ok", "no bet or stake advice (the decider's job)", bets.group(0) if bets else "")
-        return rows
     bad = FORBIDDEN.search(text)
     add("FAIL" if bad else "ok", "no bookmaker odds, probabilities or bets (the decider's job)", bad.group(0) if bad else "")
     return rows
 
 
 def main(path: str, report_path: str, side: str) -> int:
-    if side not in ("home", "away", "draw", "goals", "underdog", "state", "chaos", "market"):
-        print("side must be home, away, draw, goals, underdog, state, chaos or market", file=sys.stderr)
+    if side not in ("home", "away", "draw", "goals", "underdog", "state", "chaos"):
+        print("side must be home, away, draw, goals, underdog, state or chaos", file=sys.stderr)
         return 2
     try:
         text = Path(path).read_text(encoding="utf-8")
@@ -176,6 +164,6 @@ def main(path: str, report_path: str, side: str) -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("usage: python3 advocate_check.py brief.md report.json home|away|draw|goals|underdog|state|chaos|market", file=sys.stderr)
+        print("usage: python3 advocate_check.py brief.md report.json home|away|draw|goals|underdog|state|chaos", file=sys.stderr)
         sys.exit(2)
     sys.exit(main(*sys.argv[1:]))

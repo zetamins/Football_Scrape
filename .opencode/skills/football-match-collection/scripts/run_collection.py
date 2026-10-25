@@ -51,15 +51,15 @@ def stamp_value(answer: Path, value_md: Path) -> None:
         answer.write_text(text.rstrip("\n") + "\n\nMarket comparison after the run (value.py, replaces any 'no odds' / 'UNMEASURED' above; the analysis was written without odds): " + first + "\n", encoding="utf-8")
 
 
-SOURCE_DENY = ("Read(**/scripts/*.py)", "Bash(cat *scripts/*.py*)", "Bash(python3 -c *open(*)", "Bash(python3 -c *sys.path*)", "Bash(python3 -c *importlib*)",
-               *(f"Bash(python3 -c *import {m}*)" for m in ("calc", "facts", "check", "value", "score", "blind", "media", "advocate_check")),
-               *(f"Bash(python3 -c *from {m} import*)" for m in ("calc", "facts", "check", "value", "score")))     # a hard block, not just an audit flag: no step may read a script's source or call its functions with its own numbers (the deciders of Villa r5/r6, Hull and Man Utd read check.py); tested 2026-10-25: Read, cat and python3 -c open/import are denied, `python3 -c "print(72 - 56.3)"` still runs
+SOURCE_DENY = ("Read(**/scripts/*.py)", "Bash(cat *scripts/*.py*)", "Bash(python3 *open(*)", "Bash(python3 *sys.path*)", "Bash(python3 *importlib*)",
+               *(f"Bash(python3 *import {m}*)" for m in ("calc", "facts", "check", "value", "score", "blind", "media", "advocate_check")),
+               *(f"Bash(python3 *from {m} import*)" for m in ("calc", "facts", "check", "value", "score")))     # a hard block, not just an audit flag: no step may read a script's source or call its functions with its own numbers (the deciders of Villa r5/r6, Hull and Man Utd read check.py); tested 2026-10-25: Read, cat and python3 -c open/import are denied, `python3 -c "print(72 - 56.3)"` still runs. Patterns use "python3 *" (not "python3 -c *") so `python3 - <<EOF ... open(...) EOF` (stdin heredoc) and `python3 script.py ... open(...)` are covered too, not just -c (closed 2026-10-25, was an open gap in lessons.md)
 MARKET_LEAK = re.compile(r"(?:_odds|odds_|fair_pct|implied_pct|market_implied)[\"']?\s*[:=]\s*\d|\b(?:odds|price|tip)\b[^\n]{0,25}?\b\d{1,2}/\d{1,2}\b|\b\d{1,2}/\d{1,2}\b[^\n]{0,25}?\b(?:odds|favourites?|to win|to edge)\b|\bcf\.?\s*\d\.\d|"
                          r"\bprediction:\s*\d{1,2}/\d{1,2}", re.I)    # a price in what an agent read (JSON odds fields, fractional or decimal odds in a headline): the blind run saw the market
 
 
 def stream_audit(run: Path) -> list[str]:
-    """Capture mode only: scan the saved stream of every step for rule breaks. Flags (1) reading a script's source (SKILL: never), (2) running calc.py from python with the agent's own numbers (a what-if probe), (3) a read or cat of another run's folder or of an earlier answer, (4) an advocate reading another advocate's brief, (5) odds-looking words in a read of the sheet, (6) market data (a price) in anything an analyst read, the market advocate excepted. Returns the findings; also writes them to audit.md."""
+    """Capture mode only: scan the saved stream of every step for rule breaks. Flags (1) reading a script's source (SKILL: never), (2) running calc.py from python with the agent's own numbers (a what-if probe), (3) a read or cat of another run's folder or of an earlier answer, (4) an advocate reading another advocate's brief, (5) odds-looking words in a read of the sheet, (6) market data (a price) in anything any step read -- unconditional, no exception (there is no market advocate any more). Returns the findings; also writes them to audit.md."""
     out: list[str] = []
     seen = re.findall(r"/output/([^/\s\"']+)/", " ".join(lp.read_text(encoding="utf-8", errors="replace") for lp in (run / "logs").glob("*.log")))
     own = max(set(seen), key=seen.count) if seen else run.name        # a run renamed after the fact still shows its old name in its own paths

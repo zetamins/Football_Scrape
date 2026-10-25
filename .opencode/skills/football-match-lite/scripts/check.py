@@ -41,10 +41,7 @@ LENSES = {"luck": ("luck", "performance"), "attack": ("attack",), "defence": ("d
 RATING_MOVE_TOL = 0.05                     # without odds the rating anchor moves ONLY for team news: on the 28 scored matches of Oct 2026 every share of the decider's other moves made the forecasts worse (Brier 0.442 kept at the anchor, 0.451 half the move, 0.466 all of it; 0.474 v 0.490 without Spain and Belarus), and luck or 5-game moves were accepted in some runs and rejected in others
 NOT_TEAM_NEWS = re.compile(r"\bluck|unlucky|lucky|regress|rebound|finishing|save (?:rate|%|percentage)|saves? \d|over-?perform|under-?perform|scor(?:ed|ing) rate|goals? (?:minus|above|below|over) (?:x?g|expected)|\bform\b|\b\d+-game|last \d+ games|shots? on target|big chances|chance creation|\bSOT\b|set[- ]piece|press|tactic|midfield|matchup|\bxg anchor|\bshrunk|composite|midpoint|average of the|judge?ment|keeper arithmetic", re.I)
 ADJ_LINE = re.compile(r"expected goals adjustment[^:\n]{0,40}:([^\n]*)", re.I)
-MARKET_MOVE_CAP = 0.25                     # expected-goals move from the market-implied anchor that needs an 'Expected goals adjustment:' line
 BET_DEVIATION_POINTS = 5.0                  # a bet this far under the calculator's suggestion (any probability) needs a 'Why not <suggestion>:' line, so the same numbers give the same pick unless a reason is named
-BET_MIN_EDGE = 5.0                         # points over the market's fair probability
-BET_MIN_EDGE_FAVOURITE = 7.0               # when the market's fair probability is 70% or more
 NEEDED_SECTIONS = ("Symmetric table", "Data links", "Case for", "My view", "Own odds", "Best bet", "Draw risk", "Underlying evidence", "From the report", "Own knowledge", "Risks")
 GUARANTEE = re.compile(r"\b(guarantee[sd]?|sure thing|can't lose|cannot lose|risk[- ]free|lock(?:ed)? in|stake \d|units?\b|bet \d+% of)\b", re.I)
 INVENTED_COMPETITION = re.compile(r"\b(round|matchday|game ?week|gameweek) (\d+)( of (\d+))?\b", re.I)
@@ -235,21 +232,9 @@ def _check_full(answer: str, report_path: str, log_path: str | None = None) -> l
         except (TypeError, ValueError):
             return None
     hf, ha, af, aa = _xgpg("home", "xg_for"), _xgpg("home", "xg_against"), _xgpg("away", "xg_for"), _xgpg("away", "xg_against")
-    bk_anchor = bookmaker(report)
-    if bk_anchor:                                                  # odds exist: the market's own expected goals are the anchor (it beat the analyst alone in tests)
-        try:
-            mlh, mla, _err = calc.implied_lams(bk_anchor[0], bk_anchor[1], bk_anchor[2])
-        except (ValueError, ZeroDivisionError):
-            mlh = mla = None
-        if mlh is not None:
-            moved = [(n, lam, an) for n, lam, an in ((home, e["lam_home"], mlh), (away, e["lam_away"], mla)) if abs(lam - an) > MARKET_MOVE_CAP]
-            if moved and not re.search(r"expected goals adjustment\s*:", answer, re.I):
-                add("FAIL", "a big move from the market-implied expected goals needs an 'Expected goals adjustment:' line", "; ".join(f"{n}: your {lam:.2f} v market-implied {an:.2f} ({lam - an:+.2f})" for n, lam, an in moved) + ": the market is the anchor (calc.py --market H D A); show the evidence the market lacks and the arithmetic for each move")
-            else:
-                add("ok", "expected goals sit near the market-implied anchor or the move is explained", f"market-implied {mlh}-{mla}, yours {e['lam_home']}-{e['lam_away']}")
     facts.set_venue(report)
     rating = facts.rating_anchor(report.get("insights") if isinstance(report.get("insights"), dict) else {}, report.get("match"))
-    if (rating or None not in (hf, ha, af, aa)) and not bk_anchor:
+    if rating or None not in (hf, ha, af, aa):
         if rating:                                                  # club class counts: the rating anchor is the starting point (it scored about like the bookmaker on held-out matches)
             anchor_h, anchor_a, kind = rating[0], rating[1], "rating anchor"
         else:
@@ -360,15 +345,6 @@ def _check_full(answer: str, report_path: str, log_path: str | None = None) -> l
         add("FAIL", "the headline bet is the logged bet", "could not read 'Best bet: <bet> (NN%)'")
 
     if bm and want is not None:
-        bk0 = bookmaker(report)
-        if bk0:
-            a_bk = {"home": bk0[0] / 100, "draw": bk0[1] / 100, "away": bk0[2] / 100, "over_2_5": 0.5, "btts": 0.5}
-            mk = bet_probability(text_bet, home, away, a_bk)
-            if mk is not None and mk < 99 and not ("over25" in norm(text_bet) or "under25" in norm(text_bet) or "bothteams" in norm(text_bet)):
-                if conf and conf.group(1).lower() == "high" and want - mk > 5:
-                    add("FAIL", "high confidence needs the bet within 5 points of the market's price for it", f"{text_bet}: you {want:.1f}% v market {mk:.1f}% (+{want - mk:.1f}): medium at most unless the edge is named and survives the disagreement check")
-                else:
-                    add("ok", "high confidence needs the bet within 5 points of the market's price for it", f"you {want:.1f}% v market {mk:.1f}%")
         sug = bet_probability(str(e.get("suggested") or ""), home, away, a)
         if sug is not None and sug - want >= BET_DEVIATION_POINTS and norm(str(e.get("suggested") or "")) != norm(text_bet):
             if re.search(r"why not\b", answer, re.I):
@@ -420,10 +396,6 @@ def _check_full(answer: str, report_path: str, log_path: str | None = None) -> l
     df = section(answer, "Deciding factors")
     ok_df = bool(df) and sum(bool(re.search(w, df, re.I)) for w in ("team news|injur|absen", "tactical|matchup|shape", "xg|shot|stats|set.piece", "home|away|venue", "motivation|stakes|context|title|relegation")) >= 3
     add("ok" if ok_df else "WARN", "the deciding factors name the highest-priority areas", "" if ok_df else "no 'Deciding factors:' line naming at least three of: team news, tactical matchup, underlying stats, home v away split, motivation (then the secondary adjustments)")
-    if bookmaker(report):                                   # the odds flow into the anchor, but the analyst must show it challenged them
-        mc = re.search(r"market challenge\W+([^\n]*)", answer, re.I)
-        has = bool(mc) and bool(re.search(r"\d", mc.group(1))) and bool(re.search(r"kept|keep|moved|move|held|hold|stay|follow|agree|reject|challeng", mc.group(1), re.I))
-        add("ok" if has else "FAIL", "a Market challenge line says whether the evidence moves the price", "" if has else "add 'Market challenge: <the outcome where the data-only view in decider.md differs most from the market, the gap in points, the strongest evidence for or against moving, and whether you kept the market's price or moved it by how many points>'")
     sb = bool(re.search(r"substitut", answer, re.I)) and bool(re.search(r"bench|impact|come on|comes on|rested|taken off|subbed", answer, re.I))
     add("ok" if sb else "WARN", "substitution habits are covered", "" if sb else "no 'Substitutions:' line: who comes on, who is taken off early, timing and scoreline, bench impact (say the sample is thin)")
     hv = bool(re.search(r"home v away", answer, re.I)) and bool(re.search(r"intensity|initiative", answer, re.I)) and bool(re.search(r"cautious|compact|transition", answer, re.I))
@@ -434,39 +406,13 @@ def _check_full(answer: str, report_path: str, log_path: str | None = None) -> l
         add("ok" if cited else "FAIL", "specialist notes are cited (accepted or rejected with a reason)", "" if cited else f"{len(notes)} note(s) exist ({', '.join(n.name for n in notes)}): add a 'Specialist notes:' line naming each, what it favours, its strength and the xG change you accepted or rejected")
     vm = re.search(r"value\s*:\**\s*\**(real|thin|none|unmeasured)\b", answer, re.I)
     if not vm:
-        add("FAIL", "a final Value: line is given", "add 'Value: REAL', 'Value: THIN', 'Value: NONE' or 'Value: UNMEASURED' with the edge in points over the market's fair probability for the same bet (the pick itself is always given: Value only says how far it beats the price)")
+        add("FAIL", "a final Value: line is given", "add 'Value: UNMEASURED' (the analysis is price-free, so an edge is never measurable)")
     else:
         said = vm.group(1).upper()
-        edge = None
-        bk_d = bookmaker(report)
-        try:
-            if bk_d and bm and want is not None:
-                ov_d = over25_fair(report)
-                goals_priced = ov_d is not None and ("over25" in norm(text_bet) or "under25" in norm(text_bet))
-                a_m = {"home": bk_d[0] / 100, "draw": bk_d[1] / 100, "away": bk_d[2] / 100, "over_2_5": ov_d if ov_d is not None else 0.0, "btts": 0.0}  # goals and BTTS are used only when priced (below)
-                mk_d = bet_probability(text_bet, home, away, a_m)
-                if mk_d is not None and (goals_priced or not ("over25" in norm(text_bet) or "under25" in norm(text_bet) or "bothteams" in norm(text_bet))):
-                    edge = want - mk_d
-        except NameError:
-            edge = None
-        need = BET_MIN_EDGE_FAVOURITE if (edge is not None and bk_d and (want - edge) >= 70) else BET_MIN_EDGE
-        if edge is None:
-            true = "UNMEASURED"
+        if said != "UNMEASURED":
+            add("FAIL", "the analysis is price-free, so Value is always UNMEASURED", f"write 'Value: UNMEASURED' (got '{said}'): there is no market price in the report to measure an edge against")
         else:
-            true = value_label(edge, need)
-        order = ["NONE", "THIN", "REAL"]
-        if edge is None and said != "UNMEASURED" and not bk_d:
-            add("FAIL", "no market price means Value: UNMEASURED", "the report has no bookmaker odds, so the edge cannot be measured")
-        elif edge is None and said != "UNMEASURED":
-            add("FAIL", "a bet with no market price is Value: UNMEASURED", f"'{text_bet}' has no fair price in the report (both teams to score, or no totals price): the edge cannot be measured, so Value: {said} is unsupported")
-        elif edge is not None and said == "UNMEASURED":
-            add("FAIL", "the edge is measurable, so say its Value", f"your {want:.1f}% v the market's {want - edge:.1f}% = {edge:+.1f} points: write Value: {true}")
-        elif edge is not None and order.index(said) > order.index(true):
-            add("FAIL", f"Value: {said} claims more than the edge supports", f"edge {edge:+.1f} points is {true} (REAL needs {need:.0f}+): write Value: {true}")
-        elif said == "REAL" and not re.search(r"evidence the market lacks\W*[^\n]*\d", answer, re.I):
-            add("FAIL", "Value: REAL names the evidence the market lacks", "add 'Evidence the market lacks: <the fact, with its number, that the price does not already contain>' (otherwise it is just a disagreement with the price)")
-        else:
-            add("ok", "the value label follows the edge", said + (f", edge {edge:+.1f} points" if edge is not None else ""))
+            add("ok", "the value label is UNMEASURED (price-free)", "")
     try:
         import importlib.util as _iu
         _spec = _iu.spec_from_file_location("note_check_for_answer", Path(__file__).with_name("note_check.py"))
